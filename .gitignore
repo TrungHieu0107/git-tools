@@ -1,0 +1,24 @@
+# Node.js
+node_modules/
+dist/
+npm-debug.log
+
+# Rust
+/src-tauri/target/
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Tauri
+src-tauri/gen/schemas/
+src-tauri/icons/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

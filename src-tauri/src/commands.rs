@@ -1,14 +1,11 @@
-use tauri::State;
-
-use crate::{
-    git_engine::GitCommandService,
-    models::{GitCommandErrorPayload, GitCommandOutput, GitCommandRequest},
-};
+use crate::git::{GitCommandService, GitResponse, GitResult};
+use std::path::PathBuf;
 
 #[tauri::command]
 pub async fn run_git(
-    state: State<'_, GitCommandService>,
-    request: GitCommandRequest,
-) -> Result<GitCommandOutput, GitCommandErrorPayload> {
-    state.run_request(request).await.map_err(Into::into)
+    repo_path: String,
+    subcommand: Vec<String>,
+) -> GitResult<GitResponse> {
+    let service = GitCommandService::new(PathBuf::from(repo_path));
+    service.run(subcommand).await
 }
