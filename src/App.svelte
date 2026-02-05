@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { GitService, type RepoEntry } from './lib/GitService';
   import { runGit, type GitResponse, type GitError } from "./lib/git";
+  import { getAuthRequiredMessage } from "./lib/git-errors";
   import { parseGitLog, calculateGraphLayout, type GraphNode, type GraphEdge } from "./lib/graph-layout";
   import RepoManager from './components/RepoManager.svelte';
   import Conflicts from './components/Conflicts.svelte';
@@ -81,6 +82,10 @@
       } finally {
           loading = false;
       }
+  }
+
+  function formatErrorMessage(message: string): string {
+    return getAuthRequiredMessage(message) ?? message;
   }
 
   async function loadGraph() {
@@ -290,7 +295,7 @@
                   <div class="text-[#f85149] mb-2 font-bold flex items-center gap-2">
                     <span>×</span> {error.type}
                   </div>
-                  <pre class="text-[#ffa198] whitespace-pre-wrap">{error.message}</pre>
+                  <pre class="text-[#ffa198] whitespace-pre-wrap">{formatErrorMessage(error.message)}</pre>
                 {/if}
 
                 {#if response}

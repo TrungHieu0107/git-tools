@@ -118,6 +118,8 @@ fn execute_git_command(path: &str, args: &[&str]) -> Result<std::process::Output
         .current_dir(path)
         .args(args)
         .env("LC_ALL", "C")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never")
         .output()
         .map_err(|e| format!("Failed to execute git command: {} (args: {:?})", e, args))?;
 

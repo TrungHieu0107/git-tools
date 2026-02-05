@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { GitService } from '../lib/GitService';
+  import { getAuthRequiredMessage } from '../lib/git-errors';
   import { GIT_COMMANDS, type GitCommand } from '../lib/GitCommandService';
 
   let activeRepo = $state(false);
@@ -44,7 +45,8 @@
               output = result;
           }
       } catch (e) {
-          error = String(e);
+          const raw = String(e);
+          error = getAuthRequiredMessage(raw) ?? raw;
       } finally {
           loading = false;
       }

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
-use tokio::process::Command;
+use std::process::Command;
+use tauri::async_runtime;
 use crate::git::types::{GitResponse, GitError, GitResult};
 
 pub struct GitCommandService {
@@ -15,12 +16,19 @@ impl GitCommandService {
         let start = std::time::Instant::now();
         println!("[GIT ASYNC START] Command: git {:?} Cwd: {:?}", subcommands, self.repo_path);
 
-        let output_result = Command::new("git")
-            .current_dir(&self.repo_path)
-            .args(&subcommands)
-            .env("LC_ALL", "C")
-            .output()
-            .await;
+        let repo_path = self.repo_path.clone();
+        let args = subcommands.clone();
+        let output_result = async_runtime::spawn_blocking(move || {
+            Command::new("git")
+                .current_dir(&repo_path)
+                .args(&args)
+                .env("LC_ALL", "C")
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .env("GCM_INTERACTIVE", "never")
+                .output()
+        })
+        .await
+        .map_err(|e| GitError::IoError(format!("Failed to join git task: {}", e)))?;
 
         let duration = start.elapsed();
 
