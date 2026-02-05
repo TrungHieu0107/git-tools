@@ -19,7 +19,7 @@
   "app": {
     "windows": [
       {
-        "title": "GitKraken Mini",
+        "title": "GitHelper",
         "width": 1200,
         "height": 800
       }
@@ -29,16 +29,11 @@
     }
   },
   "version": "0.1.0",
-  "productName": "git-tools",
+  "productName": "GitHelper",
   "identifier": "com.gittools.app",
   "plugins": {
-      "shell": {
-          "allow": [
-              {
-                  "name": "git",
-                  "args": true
-              }
-          ]
-      }
+    "shell": {
+      "open": true
+    }
   }
 }

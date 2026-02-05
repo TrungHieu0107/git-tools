@@ -1,110 +1,270 @@
 <script lang="ts">
   import { runGit, type GitResponse, type GitError } from "./lib/git";
+  import { parseGitLog, calculateGraphLayout, type GraphNode, type GraphEdge } from "./lib/graph-layout";
+  import CommitGraph from "./components/CommitGraph.svelte";
 
   let repoPath = $state("C:/path/to/your/repo");
+  
+  // Console State
   let subcommand = $state("status");
   let response = $state<GitResponse | null>(null);
   let error = $state<GitError | null>(null);
   let loading = $state(false);
 
-  async function execute() {
-    loading = true;
-    error = null;
-    response = null;
+  // Graph State
+  let graphNodes = $state<GraphNode[]>([]);
+  let graphEdges = $state<GraphEdge[]>([]);
+  let commitCount = $state("50");
+  let graphLoading = $state(false);
+  let activeTab = $state<"console" | "graph">("console");
 
-    try {
-      // Split subcommand string by spaces for git engine
-      const cmdArgs = subcommand.trim().split(/\s+/);
-      response = await runGit(repoPath, cmdArgs);
-    } catch (e) {
-      error = e as GitError;
-    } finally {
-      loading = false;
-    }
+  async function execute() {
+      loading = true;
+      error = null;
+      response = null;
+      activeTab = "console"; // Switch to console on run
+
+      try {
+          const cmdArgs = subcommand.trim().split(/\s+/);
+          response = await runGit(repoPath, cmdArgs);
+      } catch (e) {
+          error = e as GitError;
+      } finally {
+          loading = false;
+      }
   }
+
+  async function loadGraph() {
+      graphLoading = true;
+      error = null;
+      activeTab = "graph";
+
+      try {
+          const limit = parseInt(commitCount) || 50;
+          // Format: %h|%p|%d|%an|%ad|%s
+          // Hash | Parents | Decorations (Refs) | Author | Date | Subject
+          const args = ["log", "-n", limit.toString(), "--pretty=format:%h|%p|%d|%an|%cI|%s"];
+          
+          const res = await runGit(repoPath, args);
+          if (res.exit_code === 0) {
+              const commits = parseGitLog(res.stdout);
+              const layout = calculateGraphLayout(commits);
+              graphNodes = layout.nodes;
+              graphEdges = layout.edges;
+          } else {
+              error = { type: "CommandError", message: res.stderr };
+              activeTab = "console"; // Show error in console
+          }
+      } catch (e) {
+          error = e as GitError;
+      } finally {
+          graphLoading = false;
+      }
+  }
+
+  // Icons
+  const Icons = {
+    Play: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+    Folder: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>`,
+    Terminal: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>`,
+    Git: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`,
+    Network: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="19" r="3"/><line x1="12" y1="8" x2="6" y2="19"/><line x1="12" y1="8" x2="18" y2="19"/></svg>`
+  };
 </script>
 
-<main class="min-h-screen bg-neutral-900 text-neutral-100 p-8 font-sans">
-  <div class="max-w-4xl mx-auto space-y-8">
-    <header class="space-y-2">
-      <h1 class="text-4xl font-bold tracking-tight text-indigo-400">GitKraken Mini</h1>
-      <p class="text-neutral-400">High-performance Rust-powered Git GUI</p>
-    </header>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-neutral-800 p-6 rounded-2xl shadow-xl border border-neutral-700">
-      <div class="space-y-2">
-        <label for="repo" class="text-sm font-medium text-neutral-300">Repository Path</label>
-        <input
-          id="repo"
-          type="text"
-          bind:value={repoPath}
-          placeholder="e.g. C:/Projects/my-app"
-          class="w-full bg-neutral-700 border border-neutral-600 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-        />
-      </div>
-
-      <div class="space-y-2">
-        <label for="command" class="text-sm font-medium text-neutral-300">Command</label>
-        <div class="flex gap-2">
-          <span class="inline-flex items-center px-3 rounded-l-lg border border-r-0 border-neutral-600 bg-neutral-700 text-neutral-400 text-sm">
-            git
-          </span>
-          <input
-            id="command"
-            type="text"
-            bind:value={subcommand}
-            placeholder="status"
-            class="flex-1 min-w-0 bg-neutral-700 border border-neutral-600 rounded-r-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-          />
+<main class="h-screen w-screen bg-[#0d1117] text-[#c9d1d9] flex overflow-hidden font-sans text-sm selection:bg-[#1f6feb] selection:text-white">
+  <!-- Left Sidebar -->
+  <aside class="w-72 bg-[#161b22] border-r border-[#30363d] flex flex-col shrink-0 z-10">
+      <!-- Header -->
+      <div class="h-12 border-b border-[#30363d] flex items-center px-4 gap-2 select-none bg-[#161b22]">
+        <div class="text-[#238636]">
+          {@html Icons.Git}
         </div>
+        <h1 class="font-semibold text-white tracking-tight">GitHelper</h1>
       </div>
 
-      <div class="md:col-span-2">
-        <button
-          onclick={execute}
-          disabled={loading}
-          class="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-3 rounded-xl transition-all shadow-lg shadow-indigo-500/20 active:scale-[0.98]"
+      <!-- Controls -->
+      <div class="p-4 space-y-6 flex-1 overflow-y-auto custom-scrollbar">
+          <!-- Repo Section -->
+          <div class="space-y-2">
+              <label for="repo" class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-2">
+                {@html Icons.Folder} Repository
+              </label>
+              <div class="relative group">
+                  <input
+                      id="repo"
+                      type="text"
+                      bind:value={repoPath}
+                      placeholder="path/to/repo"
+                      class="w-full bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-2 text-[#c9d1d9] placeholder-[#484f58] focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] outline-none transition-colors text-xs font-mono"
+                  />
+              </div>
+          </div>
+
+          <!-- Divider -->
+          <div class="h-px bg-[#30363d] my-2"></div>
+
+          <!-- Command Section -->
+          <div class="space-y-2">
+              <label for="command" class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-2">
+                {@html Icons.Terminal} CLI Command
+              </label>
+              <div class="flex items-center bg-[#0d1117] border border-[#30363d] rounded-md focus-within:border-[#58a6ff] focus-within:ring-1 focus-within:ring-[#58a6ff] transition-colors overflow-hidden">
+                  <span class="px-2 py-2 text-[#8b949e] bg-[#21262d] border-r border-[#30363d] text-xs font-mono select-none">git</span>
+                  <input
+                      id="command"
+                      type="text"
+                      bind:value={subcommand}
+                      placeholder="status"
+                      onkeydown={(e) => e.key === 'Enter' && execute()}
+                      class="flex-1 bg-transparent px-2 py-2 text-[#c9d1d9] placeholder-[#484f58] outline-none text-xs font-mono"
+                  />
+              </div>
+
+               <button
+                  onclick={execute}
+                  disabled={loading}
+                  class="w-full bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md transition-all active:scale-[0.98] flex items-center justify-center gap-2 text-xs"
+              >
+                  {#if loading}
+                    <span>Running...</span>
+                  {:else}
+                    {@html Icons.Play} <span>Run</span>
+                  {/if}
+              </button>
+          </div>
+
+          <!-- Divider -->
+          <div class="h-px bg-[#30363d] my-2"></div>
+
+          <!-- Graph Section -->
+          <div class="space-y-2">
+              <label for="limit" class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-2">
+                {@html Icons.Network} Commit Graph
+              </label>
+              <div class="flex gap-2">
+                <input
+                    id="limit"
+                    type="number"
+                    bind:value={commitCount}
+                    class="w-16 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1.5 text-[#c9d1d9] text-center outline-none focus:border-[#58a6ff] text-xs"
+                />
+                <button
+                    onclick={loadGraph}
+                    disabled={graphLoading}
+                    class="flex-1 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md shadow-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-[rgba(240,246,252,0.1)] text-xs"
+                >
+                    {#if graphLoading}
+                        <span>Loading...</span>
+                    {:else}
+                        <span>Load Graph</span>
+                    {/if}
+                </button>
+              </div>
+          </div>
+      </div>
+      
+      <!-- Footer Info -->
+      <div class="p-3 border-t border-[#30363d] text-[10px] text-[#484f58] text-center bg-[#161b22]">
+        GitHelper v0.2.0
+      </div>
+  </aside>
+
+  <!-- Right Panel - Content -->
+  <main class="flex-1 flex flex-col min-w-0 bg-[#0d1117] relative">
+      <!-- Tabs Header -->
+      <div class="h-12 border-b border-[#30363d] flex items-center px-2 bg-[#161b22] gap-1">
+        <button 
+           onclick={() => activeTab = "console"}
+           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'console' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
         >
-          {loading ? "Executing..." : "Run Command"}
+           {@html Icons.Terminal} Console
+        </button>
+        <button 
+           onclick={() => activeTab = "graph"}
+           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'graph' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+        >
+           {@html Icons.Network} Graph
         </button>
       </div>
-    </div>
 
-    {#if error}
-      <div class="bg-red-500/10 border border-red-500/50 p-6 rounded-2xl animate-in fade-in slide-in-from-top-4">
-        <h3 class="text-red-400 font-bold flex items-center gap-2">
-          <span>⚠️</span> Error: {error.type}
-        </h3>
-        <p class="mt-2 text-red-200/80 font-mono text-sm whitespace-pre-wrap">{error.message}</p>
-      </div>
-    {/if}
+      <!-- Tab Content area -->
+      <div class="flex-1 relative overflow-hidden">
+         <!-- Console Tab -->
+         <div class="absolute inset-0 flex flex-col {activeTab === 'console' ? 'z-10 visible' : 'z-0 invisible'}">
+            <div class="flex-1 p-0 overflow-hidden relative">
+              {#if !response && !error && !loading}
+                <div class="absolute inset-0 flex flex-col items-center justify-center text-[#484f58] select-none">
+                  <div class="opacity-20 transform scale-150 mb-4">
+                    {@html Icons.Git}
+                  </div>
+                  <p class="text-sm">Run a command to view output</p>
+                </div>
+              {/if}
 
-    {#if response}
-      <div class="space-y-4 animate-in fade-in slide-in-from-bottom-4">
-        <div class="flex items-center justify-between">
-          <h2 class="text-xl font-semibold text-emerald-400">Output</h2>
-          <span class="text-xs font-mono px-2 py-1 bg-neutral-800 rounded border border-neutral-700">
-            Exit Code: {response.exit_code}
-          </span>
-        </div>
-        
-        <div class="bg-neutral-950 p-6 rounded-2xl border border-neutral-800 font-mono text-sm overflow-x-auto shadow-inner">
-          {#if response.stdout}
-            <pre class="text-emerald-300/90">{response.stdout}</pre>
-          {/if}
-          {#if response.stderr}
-            <pre class="text-rose-400/90 mt-2">{response.stderr}</pre>
-          {/if}
-        </div>
+              <div class="h-full overflow-auto p-4 font-mono text-xs leading-relaxed custom-scrollbar bg-[#0d1117]">
+                {#if error}
+                  <div class="text-[#f85149] mb-2 font-bold flex items-center gap-2">
+                    <span>×</span> {error.type}
+                  </div>
+                  <pre class="text-[#ffa198] whitespace-pre-wrap">{error.message}</pre>
+                {/if}
+
+                {#if response}
+                  <div class="mb-2">
+                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-full border border-[#30363d] bg-[#0d1117] {response.exit_code === 0 ? 'text-[#3fb950] border-[#2ea043]/30' : 'text-[#f85149] border-[#da3633]/30'}">
+                        exit: {response.exit_code}
+                    </span>
+                  </div>
+                  {#if response.stdout}
+                    <pre class="text-[#c9d1d9] whitespace-pre-wrap">{response.stdout}</pre>
+                  {/if}
+                  {#if response.stderr}
+                    <div class="mt-4 pt-4 border-t border-[#30363d]/50">
+                      <span class="text-[#8b949e] text-[10px] uppercase tracking-wider mb-1 block">stderr</span>
+                      <pre class="text-[#d2a8ff] whitespace-pre-wrap">{response.stderr}</pre>
+                    </div>
+                  {/if}
+                {/if}
+              </div>
+            </div>
+         </div>
+
+         <!-- Graph Tab -->
+         <div class="absolute inset-0 bg-[#0d1117] {activeTab === 'graph' ? 'z-10 visible' : 'z-0 invisible'}">
+            {#if graphNodes.length === 0 && !graphLoading}
+                <div class="absolute inset-0 flex flex-col items-center justify-center text-[#484f58] select-none">
+                  <p class="text-sm">No graph loaded. Enter commit limit and click "Load Graph".</p>
+                </div>
+            {:else}
+                <CommitGraph nodes={graphNodes} edges={graphEdges} />
+            {/if}
+         </div>
       </div>
-    {/if}
-  </div>
+  </main>
 </main>
 
 <style>
   :global(body) {
     margin: 0;
-    scrollbar-width: thin;
-    scrollbar-color: #4f46e5 #171717;
+    padding: 0;
+    background-color: #0d1117;
+    color: #c9d1d9;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: #0d1117;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border: 2px solid #0d1117;
+    border-radius: 99px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
   }
 </style>
