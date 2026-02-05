@@ -1,15 +1,26 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { GitService, type RepoEntry } from './lib/GitService';
   import { runGit, type GitResponse, type GitError } from "./lib/git";
   import { parseGitLog, calculateGraphLayout, type GraphNode, type GraphEdge } from "./lib/graph-layout";
-  import CommitGraph from "./components/CommitGraph.svelte";
+  import RepoManager from './components/RepoManager.svelte';
+  import Conflicts from './components/Conflicts.svelte';
+  import GitCommandCenter from './components/GitCommandCenter.svelte';
+  import RepoSelector from './components/RepoSelector.svelte';
 
-  let repoPath = $state("C:/path/to/your/repo");
+  let activeRepo = $state<RepoEntry | null>(null);
+  let loading = $state(true);
+  
+  // Fix for binding error: declare repoPath as state
+  let repoPath = $state("");
+
+  // Simple view routing
+  let currentView = $state<'repos' | 'conflicts' | 'commands'>('repos');
   
   // Console State
   let subcommand = $state("status");
   let response = $state<GitResponse | null>(null);
   let error = $state<GitError | null>(null);
-  let loading = $state(false);
 
   // Graph State
   let graphNodes = $state<GraphNode[]>([]);
@@ -17,6 +28,28 @@
   let commitCount = $state("50");
   let graphLoading = $state(false);
   let activeTab = $state<"console" | "graph">("console");
+
+  async function checkActiveRepo() {
+    loading = true;
+    try {
+      activeRepo = await GitService.getActiveRepo();
+      if (activeRepo) {
+         repoPath = activeRepo.path; // Sync state
+         // Keep current view if possible, else default to 'conflicts'
+         if (currentView === 'repos') {
+             currentView = 'conflicts';
+         }
+      } else {
+        currentView = 'repos';
+      }
+    } catch (e) {
+      console.error(e);
+      // Fallback to repo manager if error
+      currentView = 'repos';
+    } finally {
+      loading = false;
+    }
+  }
 
   async function execute() {
       loading = true;
@@ -120,7 +153,26 @@
                       class="flex-1 bg-transparent px-2 py-2 text-[#c9d1d9] placeholder-[#484f58] outline-none text-xs font-mono"
                   />
               </div>
-
+              <div class="flex gap-2">
+                 <button 
+                    class="text-xs px-2 py-1 rounded hover:bg-gray-800 {currentView === 'conflicts' ? 'text-white font-bold' : 'text-gray-500'}"
+                    onclick={() => currentView = 'conflicts'}
+                 >
+                    Conflicts
+                 </button>
+                 <button 
+                    class="text-xs px-2 py-1 rounded hover:bg-gray-800 {currentView === 'commands' ? 'text-white font-bold' : 'text-gray-500'}"
+                    onclick={() => currentView = 'commands'}
+                 >
+                    Commands
+                 </button>
+                  <button 
+                    class="text-xs px-2 py-1 rounded hover:bg-gray-800 {currentView === 'repos' ? 'text-white font-bold' : 'text-gray-500'}"
+                    onclick={navigateToRepos}
+                 >
+                    Repos
+                 </button>
+             </div>
                <button
                   onclick={execute}
                   disabled={loading}

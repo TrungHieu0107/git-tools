@@ -33,4 +33,13 @@ impl From<std::io::Error> for GitError {
     }
 }
 
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConflictFile {
+    pub base: String,
+    pub ours: String,
+    pub theirs: String,
+}
+
 pub type GitResult<T> = Result<T, GitError>;
+
