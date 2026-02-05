@@ -9,4 +9,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "1"
 tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
 tokio = { version = "1", features = ["process", "rt-multi-thread", "macros"] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

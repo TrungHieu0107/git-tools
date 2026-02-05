@@ -11,7 +11,6 @@ Cargo.lock
 
 # Tauri
 src-tauri/gen/schemas/
-src-tauri/icons/
 
 # OS
 .DS_Store
