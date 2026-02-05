@@ -55,6 +55,8 @@
         await GitService.setActiveRepo(id);
         // Reload settings to reflect active change
         settings = await GitService.getSettings();
+        // Notify parent
+        window.dispatchEvent(new CustomEvent('repo-activated', { detail: { id } }));
     } catch (e) {
         error = String(e);
     }

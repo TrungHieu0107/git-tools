@@ -23,7 +23,7 @@ export async function runGit(
   subcommand: string[]
 ): Promise<GitResponse> {
   try {
-    return await invoke<GitResponse>("run_git", { repoPath, subcommand });
+    return await invoke<GitResponse>("run_git", { repo_path: repoPath, subcommand });
   } catch (error) {
     console.error("Git Command Failed:", error);
     throw error as GitError;

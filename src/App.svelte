@@ -27,7 +27,21 @@
   let graphEdges = $state<GraphEdge[]>([]);
   let commitCount = $state("50");
   let graphLoading = $state(false);
+  let hasConflicts = $state(false);
   let activeTab = $state<"console" | "graph">("console");
+
+  async function updateConflictStatus() {
+    if (!repoPath) {
+        hasConflicts = false;
+        return;
+    }
+    try {
+        hasConflicts = await GitService.checkConflictState(repoPath);
+    } catch (e) {
+        console.error("Failed to check conflict state:", e);
+        hasConflicts = false;
+    }
+  }
 
   async function checkActiveRepo() {
     loading = true;
@@ -35,7 +49,8 @@
       activeRepo = await GitService.getActiveRepo();
       if (activeRepo) {
          repoPath = activeRepo.path; // Sync state
-         // Keep current view if possible, else default to 'conflicts'
+         await updateConflictStatus();
+         // Keep current view if possible, else default to 'repos'
          if (currentView === 'repos') {
              currentView = 'conflicts';
          }
@@ -60,6 +75,7 @@
       try {
           const cmdArgs = subcommand.trim().split(/\s+/);
           response = await runGit(repoPath, cmdArgs);
+          await updateConflictStatus(); // Check conflicts after command
       } catch (e) {
           error = e as GitError;
       } finally {
@@ -68,32 +84,45 @@
   }
 
   async function loadGraph() {
-      graphLoading = true;
-      error = null;
+    if (!repoPath) return;
+    graphLoading = true;
+    try {
+      // Format must match parseGitLog expectation: hash|parents|refs|author|date|subject
+      const logOutput = await runGit(repoPath, ["log", `--max-count=${commitCount}`, "--pretty=format:%H|%P|%d|%an|%cI|%s", "--date=local"]);
+      const commits = parseGitLog(logOutput.stdout);
+      const layout = calculateGraphLayout(commits);
+      graphNodes = layout.nodes;
+      graphEdges = layout.edges;
       activeTab = "graph";
-
-      try {
-          const limit = parseInt(commitCount) || 50;
-          // Format: %h|%p|%d|%an|%ad|%s
-          // Hash | Parents | Decorations (Refs) | Author | Date | Subject
-          const args = ["log", "-n", limit.toString(), "--pretty=format:%h|%p|%d|%an|%cI|%s"];
-          
-          const res = await runGit(repoPath, args);
-          if (res.exit_code === 0) {
-              const commits = parseGitLog(res.stdout);
-              const layout = calculateGraphLayout(commits);
-              graphNodes = layout.nodes;
-              graphEdges = layout.edges;
-          } else {
-              error = { type: "CommandError", message: res.stderr };
-              activeTab = "console"; // Show error in console
-          }
-      } catch (e) {
-          error = e as GitError;
-      } finally {
-          graphLoading = false;
-      }
+    } catch (e) {
+      console.error("Failed to load graph:", e);
+      error = e as GitError;
+      activeTab = "console";
+    } finally {
+      graphLoading = false;
+    }
   }
+
+  function navigateToRepos() {
+    currentView = 'repos';
+    activeRepo = null; // Clear active repo when navigating to repos view
+    repoPath = ""; // Clear repo path
+  }
+
+  onMount(() => {
+    checkActiveRepo();
+    
+    // Listen for repo changes from RepoManager
+    const handleRepoChange = () => {
+        checkActiveRepo();
+    };
+    window.addEventListener('repo-activated', handleRepoChange);
+
+    return () => {
+        window.removeEventListener('repo-activated', handleRepoChange);
+    };
+  });
+
 
   // Icons
   const Icons = {
@@ -154,12 +183,14 @@
                   />
               </div>
               <div class="flex gap-2">
-                 <button 
-                    class="text-xs px-2 py-1 rounded hover:bg-gray-800 {currentView === 'conflicts' ? 'text-white font-bold' : 'text-gray-500'}"
-                    onclick={() => currentView = 'conflicts'}
-                 >
-                    Conflicts
-                 </button>
+                 {#if hasConflicts}
+                     <button 
+                        class="text-xs px-2 py-1 rounded hover:bg-red-900/50 text-red-400 font-bold border border-red-900 animate-pulse {currentView === 'conflicts' ? 'bg-red-900 text-white' : ''}"
+                        onclick={() => currentView = 'conflicts'}
+                     >
+                        ⚠ Conflicts
+                     </button>
+                 {/if}
                  <button 
                     class="text-xs px-2 py-1 rounded hover:bg-gray-800 {currentView === 'commands' ? 'text-white font-bold' : 'text-gray-500'}"
                     onclick={() => currentView = 'commands'}

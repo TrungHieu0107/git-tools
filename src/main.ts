@@ -2,8 +2,19 @@ import { mount } from "svelte";
 import "./app.css";
 import App from "./App.svelte";
 
-const app = mount(App, {
-  target: document.getElementById("app")!,
-});
+try {
+  const app = mount(App, {
+    target: document.getElementById("app")!,
+  });
+  // @ts-ignore
+  window.app = app;
+} catch (err) {
+  document.body.innerHTML = `<div style="color: red; padding: 20px;">
+    <h1>App Trace Error</h1>
+    <pre>${err}</pre>
+    <pre>${(err as Error).stack}</pre>
+  </div>`;
+  console.error("Failed to mount app:", err);
+}
 
-export default app;
+export default {};

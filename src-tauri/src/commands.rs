@@ -89,34 +89,61 @@ pub fn cmd_get_active_repo(state: State<AppState>) -> Result<Option<RepoEntry>, 
 
 // --- Git Commands ---
 
-// Helper to get active repo path
+// Helper to get active repo path or explicit override
+fn resolve_repo_path(state: &State<AppState>, explicit_path: Option<String>) -> Result<String, String> {
+    if let Some(path) = explicit_path {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+             return Ok(trimmed.to_string());
+        }
+    }
+    get_active_repo_path(state)
+}
+
+// Helper to get active repo path (legacy/internal)
 fn get_active_repo_path(state: &State<AppState>) -> Result<String, String> {
     let settings = state.settings.lock().map_err(|e| e.to_string())?;
+    // Only error if we actually need the active repo and none is set
     let active_id = settings.active_repo_id.as_ref().ok_or("No active repository selected")?;
     let repo = settings.repos.iter().find(|r| &r.id == active_id).ok_or("Active repository not found in settings")?;
     Ok(repo.path.clone())
+}
+
+// Helper for synchronous git execution with logging
+fn execute_git_command(path: &str, args: &[&str]) -> Result<std::process::Output, String> {
+    let start = std::time::Instant::now();
+    println!("[GIT SYNC START] Command: git {:?} Cwd: {}", args, path);
+
+    let output = std::process::Command::new("git")
+        .current_dir(path)
+        .args(args)
+        .env("LC_ALL", "C")
+        .output()
+        .map_err(|e| format!("Failed to execute git command: {} (args: {:?})", e, args))?;
+
+    let duration = start.elapsed();
+    println!("[GIT SYNC END] Code: {:?} Duration: {:?} Stdout: {}b Stderr: {}b", 
+        output.status.code(), duration, output.stdout.len(), output.stderr.len());
+
+    Ok(output)
 }
 
 #[tauri::command]
 pub async fn run_git(
     state: State<'_, AppState>,
     subcommand: Vec<String>,
+    repo_path: Option<String>,
 ) -> GitResult<GitResponse> {
-    let repo_path = get_active_repo_path(&state).map_err(|e| crate::git::GitError::CommandError(e))?;
-    let service = GitCommandService::new(PathBuf::from(repo_path));
+    // Use the resolve helper
+    let path = resolve_repo_path(&state, repo_path).map_err(|e| crate::git::GitError::CommandError(e))?;
+    let service = GitCommandService::new(PathBuf::from(path));
     service.run(subcommand).await
 }
 
 #[tauri::command]
-pub fn cmd_get_conflicts(state: State<AppState>) -> Result<Vec<String>, String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .args(["status", "--porcelain"])
-        .output()
-        .map_err(|e| format!("Failed to execute git command within {}: {}", repo_path, e))?;
+pub fn cmd_get_conflicts(state: State<AppState>, repo_path: Option<String>) -> Result<Vec<String>, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&path, &["status", "--porcelain"])?;
 
     if !output.status.success() {
         return Err(format!(
@@ -149,16 +176,12 @@ pub fn cmd_get_conflicts(state: State<AppState>) -> Result<Vec<String>, String> 
 }
 
 #[tauri::command]
-pub fn cmd_get_conflict_file(state: State<AppState>, path: String) -> Result<ConflictFile, String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
+pub fn cmd_get_conflict_file(state: State<AppState>, path: String, repo_path: Option<String>) -> Result<ConflictFile, String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
 
     let run_show = |stage: &str| -> Result<String, String> {
-        let output = Command::new("git")
-            .current_dir(&repo_path)
-            .args(["show", &format!(":{}:{}", stage, path)])
-            .output()
-            .map_err(|e| format!("Failed to execute git show :{:?}:{}: {}", stage, path, e))?;
+        let arg = format!(":{}:{}", stage, path);
+        let output = execute_git_command(&r_path, &["show", &arg])?;
 
         if !output.status.success() {
              return Err(format!(
@@ -183,15 +206,9 @@ pub fn cmd_get_conflict_file(state: State<AppState>, path: String) -> Result<Con
 }
 
 #[tauri::command]
-pub fn cmd_resolve_ours(state: State<AppState>, path: String) -> Result<(), String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .args(["checkout", "--ours", &path])
-        .output()
-        .map_err(|e| format!("Failed to execute git checkout --ours {}: {}", path, e))?;
+pub fn cmd_resolve_ours(state: State<AppState>, path: String, repo_path: Option<String>) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&r_path, &["checkout", "--ours", &path])?;
 
     if !output.status.success() {
         return Err(format!(
@@ -204,15 +221,9 @@ pub fn cmd_resolve_ours(state: State<AppState>, path: String) -> Result<(), Stri
 }
 
 #[tauri::command]
-pub fn cmd_resolve_theirs(state: State<AppState>, path: String) -> Result<(), String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .args(["checkout", "--theirs", &path])
-        .output()
-        .map_err(|e| format!("Failed to execute git checkout --theirs {}: {}", path, e))?;
+pub fn cmd_resolve_theirs(state: State<AppState>, path: String, repo_path: Option<String>) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&r_path, &["checkout", "--theirs", &path])?;
 
     if !output.status.success() {
          return Err(format!(
@@ -225,15 +236,9 @@ pub fn cmd_resolve_theirs(state: State<AppState>, path: String) -> Result<(), St
 }
 
 #[tauri::command]
-pub fn cmd_mark_resolved(state: State<AppState>, path: String) -> Result<(), String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .args(["add", &path])
-        .output()
-        .map_err(|e| format!("Failed to execute git add {}: {}", path, e))?;
+pub fn cmd_mark_resolved(state: State<AppState>, path: String, repo_path: Option<String>) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&r_path, &["add", &path])?;
 
     if !output.status.success() {
          return Err(format!(
@@ -246,14 +251,14 @@ pub fn cmd_mark_resolved(state: State<AppState>, path: String) -> Result<(), Str
 }
 
 #[tauri::command]
-pub fn cmd_write_file(state: State<AppState>, path: String, content: String) -> Result<(), String> {
+pub fn cmd_write_file(state: State<AppState>, path: String, content: String, repo_path: Option<String>) -> Result<(), String> {
     use std::fs;
     use std::path::Path;
-    let repo_path = get_active_repo_path(&state)?;
+    let r_path = resolve_repo_path(&state, repo_path)?;
 
-    let full_path = Path::new(&repo_path).join(&path);
+    let full_path = Path::new(&r_path).join(&path);
 
-    if !full_path.starts_with(&repo_path) {
+    if !full_path.starts_with(&r_path) {
          return Err("Invalid path: cannot write outside of repository".to_string());
     }
 
@@ -264,15 +269,9 @@ pub fn cmd_write_file(state: State<AppState>, path: String, content: String) -> 
 }
 
 #[tauri::command]
-pub fn cmd_git_status(state: State<AppState>) -> Result<String, String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .arg("status")
-        .output()
-        .map_err(|e| format!("Failed to execute git status: {}", e))?;
+pub fn cmd_git_status(state: State<AppState>, repo_path: Option<String>) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&path, &["status"])?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -282,15 +281,9 @@ pub fn cmd_git_status(state: State<AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn cmd_git_pull(state: State<AppState>) -> Result<String, String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .arg("pull")
-        .output()
-        .map_err(|e| format!("Failed to execute git pull: {}", e))?;
+pub fn cmd_git_pull(state: State<AppState>, repo_path: Option<String>) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&path, &["pull"])?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -300,15 +293,9 @@ pub fn cmd_git_pull(state: State<AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn cmd_git_push(state: State<AppState>) -> Result<String, String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .arg("push")
-        .output()
-        .map_err(|e| format!("Failed to execute git push: {}", e))?;
+pub fn cmd_git_push(state: State<AppState>, repo_path: Option<String>) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&path, &["push"])?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -318,15 +305,9 @@ pub fn cmd_git_push(state: State<AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn cmd_git_fetch(state: State<AppState>) -> Result<String, String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .arg("fetch")
-        .output()
-        .map_err(|e| format!("Failed to execute git fetch: {}", e))?;
+pub fn cmd_git_fetch(state: State<AppState>, repo_path: Option<String>) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&path, &["fetch"])?;
 
     if output.status.success() {
          Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -336,15 +317,9 @@ pub fn cmd_git_fetch(state: State<AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn cmd_git_commit(state: State<AppState>, message: String) -> Result<String, String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .args(["commit", "-m", &message])
-        .output()
-        .map_err(|e| format!("Failed to execute git commit: {}", e))?;
+pub fn cmd_git_commit(state: State<AppState>, message: String, repo_path: Option<String>) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&path, &["commit", "-m", &message])?;
 
     if output.status.success() {
          Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -354,15 +329,9 @@ pub fn cmd_git_commit(state: State<AppState>, message: String) -> Result<String,
 }
 
 #[tauri::command]
-pub fn cmd_git_add_all(state: State<AppState>) -> Result<String, String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .args(["add", "."])
-        .output()
-        .map_err(|e| format!("Failed to execute git add .: {}", e))?;
+pub fn cmd_git_add_all(state: State<AppState>, repo_path: Option<String>) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&path, &["add", "."])?;
 
     if output.status.success() {
          Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -372,15 +341,9 @@ pub fn cmd_git_add_all(state: State<AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub fn cmd_git_checkout(state: State<AppState>, branch: String) -> Result<String, String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .args(["checkout", &branch])
-        .output()
-        .map_err(|e| format!("Failed to execute git checkout {}: {}", branch, e))?;
+pub fn cmd_git_checkout(state: State<AppState>, branch: String, repo_path: Option<String>) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&path, &["checkout", &branch])?;
 
     if output.status.success() {
          // checkout output often goes to stderr even on success
@@ -393,15 +356,9 @@ pub fn cmd_git_checkout(state: State<AppState>, branch: String) -> Result<String
 }
 
 #[tauri::command]
-pub fn cmd_git_branch_list(state: State<AppState>) -> Result<Vec<String>, String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .args(["branch", "--format=%(refname:short)"])
-        .output()
-        .map_err(|e| format!("Failed to execute git branch: {}", e))?;
+pub fn cmd_git_branch_list(state: State<AppState>, repo_path: Option<String>) -> Result<Vec<String>, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let output = execute_git_command(&path, &["branch", "--format=%(refname:short)"])?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -412,19 +369,55 @@ pub fn cmd_git_branch_list(state: State<AppState>) -> Result<Vec<String>, String
 }
 
 #[tauri::command]
-pub fn cmd_git_log(state: State<AppState>, limit: usize) -> Result<String, String> {
-    use std::process::Command;
-    let repo_path = get_active_repo_path(&state)?;
-
-    let output = Command::new("git")
-        .current_dir(&repo_path)
-        .args(["log", &format!("-n{}", limit), "--oneline", "--graph", "--decorate"])
-         .output()
-        .map_err(|e| format!("Failed to execute git log: {}", e))?;
+pub fn cmd_git_log(state: State<AppState>, limit: usize, repo_path: Option<String>) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let limit_str = format!("-n{}", limit);
+    let output = execute_git_command(&path, &["log", &limit_str, "--oneline", "--graph", "--decorate", "--no-pager"])?;
 
     if output.status.success() {
          Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
+}
+
+#[tauri::command]
+pub fn cmd_check_conflict_state(state: State<AppState>, repo_path: Option<String>) -> Result<bool, String> {
+    use std::path::Path;
+    
+    let path = resolve_repo_path(&state, repo_path)?;
+    let p = Path::new(&path);
+    let git_dir = p.join(".git");
+
+    // 1. Check for merge/rebase/cherry-pick heads
+    let is_merging = git_dir.join("MERGE_HEAD").exists();
+    let is_rebasing = git_dir.join("REBASE_HEAD").exists() || 
+                      git_dir.join("rebase-merge").exists() || 
+                      git_dir.join("rebase-apply").exists(); 
+    let is_cherry_picking = git_dir.join("CHERRY_PICK_HEAD").exists();
+    let is_reverting = git_dir.join("REVERT_HEAD").exists();
+
+    if !is_merging && !is_rebasing && !is_cherry_picking && !is_reverting {
+        return Ok(false);
+    }
+
+    // 2. If in state, check for unmerged files
+    let output = execute_git_command(&path, &["status", "--porcelain"])?;
+
+    if !output.status.success() {
+        return Err("Failed to check git status".to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if line.len() >= 2 {
+            let status = &line[0..2];
+            // Unmerged status codes: DD, AU, UD, UA, DU, AA, UU
+            if matches!(status, "DD" | "AU" | "UD" | "UA" | "DU" | "AA" | "UU") {
+                return Ok(true);
+            }
+        }
+    }
+
+    Ok(false)
 }

@@ -40,7 +40,8 @@ fn main() {
             commands::cmd_git_add_all,
             commands::cmd_git_checkout,
             commands::cmd_git_branch_list,
-            commands::cmd_git_log
+            commands::cmd_git_log,
+            commands::cmd_check_conflict_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
