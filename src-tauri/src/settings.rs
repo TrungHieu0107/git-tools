@@ -5,6 +5,8 @@ use std::sync::Mutex;
 use tauri::AppHandle;
 use tauri::Manager;
 
+use crate::git::GitExecutor;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RepoEntry {
     pub id: String,
@@ -20,12 +22,14 @@ pub struct AppSettings {
 
 pub struct AppState {
     pub settings: Mutex<AppSettings>,
+    pub git: GitExecutor,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(git_binary: PathBuf) -> Self {
         Self {
             settings: Mutex::new(AppSettings::default()),
+            git: GitExecutor::new(git_binary),
         }
     }
 }

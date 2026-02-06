@@ -4,23 +4,30 @@ mod git;
 mod commands;
 mod settings;
 
+use git::GitExecutor;
 use settings::AppState;
 use tauri::Manager;
 
 fn main() {
+    // Resolve the git binary before starting the app.
+    // This runs synchronously once at startup so we get a clear error if git
+    // is not installed rather than failing silently on every command.
+    let git_binary = GitExecutor::resolve_git_binary()
+        .expect("Git not found. Please install Git and ensure it is in your PATH.");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .setup(|app| {
-            let app_state = AppState::new();
-            // Load settings on startup
+        .setup(move |app| {
+            let app_state = AppState::new(git_binary);
             let saved_settings = settings::load_settings(app.handle());
             *app_state.settings.lock().unwrap() = saved_settings;
-            
+
             app.manage(app_state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::run_git,
+            commands::cmd_diagnostics,
             commands::cmd_get_conflicts,
             commands::cmd_get_conflict_file,
             commands::cmd_resolve_ours,
@@ -41,7 +48,7 @@ fn main() {
             commands::cmd_git_checkout,
             commands::cmd_git_branch_list,
             commands::cmd_git_log,
-            commands::cmd_check_conflict_state
+            commands::cmd_check_conflict_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

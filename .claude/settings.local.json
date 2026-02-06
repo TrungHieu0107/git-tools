@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(del src-taurisrcgit_engine.rs)",
+      "Bash(del src-taurisrcmodels.rs)",
+      "Bash(cargo check:*)"
+    ]
+  }
+}

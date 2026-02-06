@@ -93,7 +93,7 @@
     graphLoading = true;
     try {
       // Format must match parseGitLog expectation: hash|parents|refs|author|date|subject
-      const logOutput = await runGit(repoPath, ["log", `--max-count=${commitCount}`, "--pretty=format:%H|%P|%d|%an|%cI|%s", "--date=local"]);
+      const logOutput = await runGit(repoPath, ["--no-pager", "log", `--max-count=${commitCount}`, "--pretty=format:%H|%P|%d|%an|%cI|%s", "--date=local"]);
       const commits = parseGitLog(logOutput.stdout);
       const layout = calculateGraphLayout(commits);
       graphNodes = layout.nodes;

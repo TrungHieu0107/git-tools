@@ -4,13 +4,17 @@ export interface GitResponse {
   stdout: string;
   stderr: string;
   exit_code: number;
+  duration_ms: number;
 }
 
-export type GitError = 
+export type GitError =
   | { type: "NotARepo"; message: string }
   | { type: "CommandError"; message: string }
   | { type: "MergeConflict"; message: string }
   | { type: "IoError"; message: string }
+  | { type: "GitNotFound"; message: string }
+  | { type: "Timeout"; message: string }
+  | { type: "InvalidRepoPath"; message: string }
   | { type: "Unknown"; message: string };
 
 /**
@@ -23,7 +27,7 @@ export async function runGit(
   subcommand: string[]
 ): Promise<GitResponse> {
   try {
-    return await invoke<GitResponse>("run_git", { repo_path: repoPath, subcommand });
+    return await invoke<GitResponse>("run_git", { repoPath, subcommand });
   } catch (error) {
     console.error("Git Command Failed:", error);
     throw error as GitError;

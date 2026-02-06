@@ -85,27 +85,6 @@ export class GitService {
   }
 
   /**
-   * Get merge state
-   */
-  static async getMergeState(): Promise<any> {
-    return invoke("cmd_get_merge_state");
-  }
-
-  /**
-   * Continue the current operation (merge/rebase/etc)
-   */
-  static async continueOp(): Promise<void> {
-    return invoke("cmd_continue_op");
-  }
-
-  /**
-   * Abort the current operation
-   */
-  static async abortOp(): Promise<void> {
-    return invoke("cmd_abort_op");
-  }
-
-  /**
    * Check if the repo is in a conflict state (merge/rebase/etc AND unmerged files)
    */
   static async checkConflictState(repoPath?: string): Promise<boolean> {
