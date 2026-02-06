@@ -4,7 +4,19 @@
       "Bash(tree:*)",
       "Bash(del src-taurisrcgit_engine.rs)",
       "Bash(del src-taurisrcmodels.rs)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(dir:*)",
+      "Bash(cargo clean:*)",
+      "Bash(cargo build:*)",
+      "Bash(rustc:*)",
+      "Bash(rustup show:*)",
+      "Bash(rustup component list:*)",
+      "Bash(wmic computersystem get:*)",
+      "Bash(wmic os get:*)",
+      "Bash(wmic:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(timeout:*)",
+      "Bash(test:*)"
     ]
   }
 }

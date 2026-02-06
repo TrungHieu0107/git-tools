@@ -8,6 +8,7 @@
   import Conflicts from './components/Conflicts.svelte';
   import GitCommandCenter from './components/GitCommandCenter.svelte';
   import RepoSelector from './components/RepoSelector.svelte';
+  import CommitGraph from './components/CommitGraph.svelte';
 
   let activeRepo = $state<RepoEntry | null>(null);
   let loading = $state(true);

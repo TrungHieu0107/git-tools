@@ -15,3 +15,12 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[profile.dev]
+opt-level = 0          # No optimization (fastest compile, least RAM)
+codegen-units = 256    # Many small units = less RAM per unit
+incremental = true     # Reuse previous compilation artifacts
+
+[profile.dev.package."*"]
+opt-level = 0          # No optimization for deps either (saves RAM during LLVM phase)
+codegen-units = 1      # Single codegen unit = minimal peak RAM for large crates like windows
