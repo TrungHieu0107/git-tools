@@ -1,0 +1,2 @@
+[build]
+jobs = 1          # Single rustc process at a time to prevent OOM on low-memory systems
