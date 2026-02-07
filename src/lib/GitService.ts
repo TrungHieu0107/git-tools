@@ -90,4 +90,25 @@ export class GitService {
   static async checkConflictState(repoPath?: string): Promise<boolean> {
     return invoke("cmd_check_conflict_state", { repoPath });
   }
+  // --- Branch Management ---
+
+  static async getBranches(includeRemote = false, repoPath?: string): Promise<string[]> {
+    return invoke("cmd_get_git_branches", { includeRemote, repoPath });
+  }
+
+  static async getCurrentBranch(repoPath?: string): Promise<string> {
+    return invoke("cmd_get_current_branch", { repoPath });
+  }
+
+  static async switchBranch(branchName: string, repoPath?: string): Promise<string> {
+    return invoke("cmd_git_switch_branch", { branchName, repoPath });
+  }
+
+  static async checkoutNew(name: string, startPoint: string, repoPath?: string): Promise<string> {
+    return invoke("cmd_git_checkout_new_branch", { name, startPoint, repoPath });
+  }
+
+  static async getCommitGraph(limit: number, repoPath?: string): Promise<string> {
+    return invoke("cmd_get_commit_graph", { limit, repoPath });
+  }
 }

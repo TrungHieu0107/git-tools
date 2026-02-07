@@ -173,8 +173,8 @@
         <!-- Graph SVG Layer -->
         <!-- Locked to the width of the 'graph' column if visible -->
         {#if columns.find(c => c.id === 'graph')?.visible}
-            <div class="absolute top-0 left-0 h-full pointer-events-none z-10" style="width: {columns.find(c => c.id === 'graph')?.width}px">
-                <svg class="w-full h-full overflow-visible"> 
+            <div class="absolute top-0 left-0 h-full pointer-events-none z-10 overflow-hidden" style="width: {columns.find(c => c.id === 'graph')?.width}px">
+                <svg class="w-full h-full"> 
                   <g transform="translate({PADDING_LEFT}, {PADDING_TOP})">
                     <!-- Edges -->
                     {#each edges as edge}

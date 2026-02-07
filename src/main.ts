@@ -8,6 +8,10 @@ try {
   });
   // @ts-ignore
   window.app = app;
+  
+  // Remove loading overlay
+  const loading = document.getElementById("loading");
+  if (loading) loading.remove();
 } catch (err) {
   document.body.innerHTML = `<div style="color: red; padding: 20px;">
     <h1>App Trace Error</h1>

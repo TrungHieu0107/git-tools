@@ -280,7 +280,29 @@ pub async fn cmd_git_log(
         "--oneline".into(),
         "--graph".into(),
         "--decorate".into(),
-        "--no-pager".into(),
+    ];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(resp.stdout)
+}
+
+#[tauri::command]
+pub async fn cmd_get_commit_graph(
+    state: State<'_, AppState>,
+    limit: usize,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let limit_str = format!("--max-count={}", limit);
+    let args: Vec<String> = vec![
+        "log".into(),
+        limit_str,
+        "--all".into(),
+        "--pretty=format:%H|%P|%d|%an|%cI|%s".into(),
+        "--date=local".into(),
     ];
     let resp = state
         .git
@@ -477,4 +499,100 @@ pub fn cmd_write_file(
         .map_err(|e| format!("Failed to write file {}: {}", path, e))?;
 
     Ok(())
+}
+// ---------------------------------------------------------------------------
+// Branch Management Commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn cmd_get_git_branches(
+    state: State<'_, AppState>,
+    include_remote: bool,
+    repo_path: Option<String>,
+) -> Result<Vec<String>, String> {
+    // Always use format=%(refname) for reliable parsing
+    // User requested "ALL branches", so we default to -a if include_remote is true,
+    // but the prompt implies we should ALWAYS do it or feature flag it.
+    // The previous implementation took a bool. The user said "The application must display ALL branches".
+    // I will respect the bool but default the frontend to pass true.
+    
+    let mut args = vec!["branch".to_string(), "--format=%(refname)".to_string()];
+    if include_remote {
+        args.push("-a".to_string());
+    }
+
+    let resp = git_run(&state, repo_path, &args.iter().map(|s| s.as_str()).collect::<Vec<&str>>(), TIMEOUT_LOCAL).await?;
+    
+    let branches = resp.stdout
+        .lines()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .filter_map(|line| {
+            if line.starts_with("refs/heads/") {
+                Some(line.replace("refs/heads/", ""))
+            } else if line.starts_with("refs/remotes/") {
+                // formatted as "remotes/origin/main"
+                Some(line.replace("refs/remotes/", "remotes/"))
+            } else {
+                // HEAD or other refs we might not want to show in the tree root
+                None
+            }
+        })
+        .collect();
+        
+    Ok(branches)
+}
+
+#[tauri::command]
+pub async fn cmd_get_current_branch(
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let resp = git_run(&state, repo_path, &["branch", "--show-current"], TIMEOUT_QUICK).await?;
+    Ok(resp.stdout.trim().to_string())
+}
+
+#[tauri::command]
+pub async fn cmd_git_switch_branch(
+    state: State<'_, AppState>,
+    branch_name: String,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let mut target = branch_name.as_str();
+
+    // Handle remote branches (e.g., "remotes/origin/main" -> "main")
+    if target.starts_with("remotes/") {
+        let without_prefix = target.trim_start_matches("remotes/");
+        if let Some(idx) = without_prefix.find('/') {
+            target = &without_prefix[idx + 1..];
+        } else {
+            // Fallback: strictly shouldn't happen for valid remote refs, but robust fallback
+            target = without_prefix;
+        }
+    }
+
+    let resp = git_run(&state, repo_path, &["switch", target], TIMEOUT_LOCAL).await?;
+    Ok(resp.stdout)
+}
+
+#[tauri::command]
+pub async fn cmd_git_checkout_new_branch(
+    state: State<'_, AppState>,
+    name: String,
+    start_point: String,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let args: Vec<String> = vec![
+        "checkout".into(),
+        "-b".into(),
+        name,
+        start_point,
+    ];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(resp.stdout)
 }

@@ -9,6 +9,7 @@
   import GitCommandCenter from './components/GitCommandCenter.svelte';
   import RepoSelector from './components/RepoSelector.svelte';
   import CommitGraph from './components/CommitGraph.svelte';
+  import BranchExplorer from './components/BranchExplorer.svelte';
 
   let activeRepo = $state<RepoEntry | null>(null);
   let loading = $state(true);
@@ -94,8 +95,8 @@
     graphLoading = true;
     try {
       // Format must match parseGitLog expectation: hash|parents|refs|author|date|subject
-      const logOutput = await runGit(repoPath, ["--no-pager", "log", `--max-count=${commitCount}`, "--pretty=format:%H|%P|%d|%an|%cI|%s", "--date=local"]);
-      const commits = parseGitLog(logOutput.stdout);
+      const logOutput = await GitService.getCommitGraph(parseInt(commitCount), repoPath);
+      const commits = parseGitLog(logOutput);
       const layout = calculateGraphLayout(commits);
       graphNodes = layout.nodes;
       graphEdges = layout.edges;
@@ -151,8 +152,8 @@
         <h1 class="font-semibold text-white tracking-tight">GitHelper</h1>
       </div>
 
-      <!-- Controls -->
-      <div class="p-4 space-y-6 flex-1 overflow-y-auto custom-scrollbar">
+      <!-- Controls (Static) -->
+      <div class="p-4 space-y-4 flex-none">
           <!-- Repo Section -->
           <div class="space-y-2">
               <label for="repo" class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-2">
@@ -168,9 +169,6 @@
                   />
               </div>
           </div>
-
-          <!-- Divider -->
-          <div class="h-px bg-[#30363d] my-2"></div>
 
           <!-- Command Section -->
           <div class="space-y-2">
@@ -223,9 +221,6 @@
               </button>
           </div>
 
-          <!-- Divider -->
-          <div class="h-px bg-[#30363d] my-2"></div>
-
           <!-- Graph Section -->
           <div class="space-y-2">
               <label for="limit" class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-2">
@@ -251,6 +246,11 @@
                 </button>
               </div>
           </div>
+      </div>
+
+      <!-- Branch Explorer (Flexible) -->
+      <div class="flex-1 overflow-hidden border-t border-[#30363d]">
+          <BranchExplorer {repoPath} />
       </div>
       
       <!-- Footer Info -->
