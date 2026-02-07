@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "./toast.svelte";
+import type { GitCommandResult } from "./types";
+import { triggerGraphReload } from "./stores/git-events";
 
 export interface ConflictFile {
   base: string;
@@ -164,10 +166,15 @@ export class GitService {
     return invoke("cmd_get_current_branch", { repoPath });
   }
 
-  static async switchBranch(branchName: string, repoPath?: string): Promise<string> {
+  static async switchBranch(branchName: string, repoPath?: string): Promise<GitCommandResult> {
     try {
-      const res = await invoke<string>("cmd_git_switch_branch", { branchName, repoPath });
-      toast.success(`Switched to branch '${branchName}'`);
+      const res = await invoke<GitCommandResult>("cmd_git_switch_branch", { branchName, repoPath });
+      if (res.success) {
+          toast.success(`Switched to branch '${branchName}'`);
+          triggerGraphReload();
+      } else {
+          toast.error(`Failed to switch branch: ${res.stderr}`);
+      }
       return res;
     } catch (e: any) {
       toast.error(`Failed to switch branch: ${e}`);
@@ -175,10 +182,15 @@ export class GitService {
     }
   }
 
-  static async checkoutNew(name: string, startPoint: string, repoPath?: string): Promise<string> {
+  static async checkoutNew(name: string, startPoint: string, repoPath?: string): Promise<GitCommandResult> {
     try {
-      const res = await invoke<string>("cmd_git_checkout_new_branch", { name, startPoint, repoPath });
-      toast.success(`Created branch '${name}'`);
+      const res = await invoke<GitCommandResult>("cmd_git_checkout_new_branch", { name, startPoint, repoPath });
+      if (res.success) {
+          toast.success(`Created branch '${name}'`);
+          triggerGraphReload();
+      } else {
+          toast.error(`Failed to create branch: ${res.stderr}`);
+      }
       return res;
     } catch (e: any) {
       toast.error(`Failed to create branch: ${e}`);
@@ -190,10 +202,15 @@ export class GitService {
     return invoke("cmd_get_commit_graph", { limit, repoPath });
   }
 
-  static async merge(branch: string, repoPath?: string): Promise<string> {
+  static async merge(branch: string, repoPath?: string): Promise<GitCommandResult> {
     try {
-      const res = await invoke<string>("cmd_git_merge", { branch, repoPath });
-      toast.success(`Merged '${branch}'`);
+      const res = await invoke<GitCommandResult>("cmd_git_merge", { branch, repoPath });
+      if (res.success) {
+          toast.success(`Merged '${branch}'`);
+          triggerGraphReload();
+      } else {
+          toast.error(`Merge failed: ${res.stderr}`);
+      }
       return res;
     } catch (e: any) {
       toast.error(`Merge failed: ${e}`);
@@ -201,10 +218,15 @@ export class GitService {
     }
   }
 
-  static async fetch(repoPath?: string): Promise<string> {
+  static async fetch(repoPath?: string): Promise<GitCommandResult> {
     try {
-      const res = await invoke<string>("cmd_git_fetch", { repoPath });
-      toast.success("Fetch completed");
+      const res = await invoke<GitCommandResult>("cmd_git_fetch", { repoPath });
+      if (res.success) {
+          toast.success("Fetch completed");
+          triggerGraphReload();
+      } else {
+          toast.error(`Fetch failed: ${res.stderr}`);
+      }
       return res;
     } catch (e: any) {
       toast.error(`Fetch failed: ${e}`);
@@ -212,10 +234,15 @@ export class GitService {
     }
   }
 
-  static async pull(repoPath?: string): Promise<string> {
+  static async pull(repoPath?: string): Promise<GitCommandResult> {
     try {
-      const res = await invoke<string>("cmd_git_pull", { repoPath });
-      toast.success("Pull completed");
+      const res = await invoke<GitCommandResult>("cmd_git_pull", { repoPath });
+      if (res.success) {
+          toast.success("Pull completed");
+          triggerGraphReload();
+      } else {
+          toast.error(`Pull failed: ${res.stderr}`);
+      }
       return res;
     } catch (e: any) {
       toast.error(`Pull failed: ${e}`);
@@ -223,10 +250,15 @@ export class GitService {
     }
   }
 
-  static async push(repoPath?: string): Promise<string> {
+  static async push(repoPath?: string): Promise<GitCommandResult> {
     try {
-      const res = await invoke<string>("cmd_git_push", { repoPath });
-      toast.success("Push completed");
+      const res = await invoke<GitCommandResult>("cmd_git_push", { repoPath });
+      if (res.success) {
+          toast.success("Push completed");
+          triggerGraphReload();
+      } else {
+          toast.error(`Push failed: ${res.stderr}`);
+      }
       return res;
     } catch (e: any) {
       toast.error(`Push failed: ${e}`);
@@ -234,10 +266,15 @@ export class GitService {
     }
   }
 
-  static async commit(message: string, repoPath?: string): Promise<string> {
+  static async commit(message: string, repoPath?: string): Promise<GitCommandResult> {
     try {
-      const res = await invoke<string>("cmd_git_commit", { message, repoPath });
-      toast.success("Commit successful");
+      const res = await invoke<GitCommandResult>("cmd_git_commit", { message, repoPath });
+      if (res.success) {
+          toast.success("Commit successful");
+          triggerGraphReload();
+      } else {
+          toast.error(`Commit failed: ${res.stderr}`);
+      }
       return res;
     } catch (e: any) {
       toast.error(`Commit failed: ${e}`);

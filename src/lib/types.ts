@@ -21,3 +21,21 @@ export type GitCommandError =
   | { type: "mergeConflict" }
   | { type: "commandFailed"; code: number | null; stderr: string }
   | { type: "io"; message: string };
+
+export type GitCommandType =
+  | "Checkout"
+  | "Merge"
+  | "Commit"
+  | "Pull"
+  | "Push"
+  | "Fetch"
+  | "Other";
+
+export type GitCommandResult = {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  commandType: GitCommandType;
+};
+

@@ -14,6 +14,7 @@
   import BranchExplorer from './components/BranchExplorer.svelte';
   import GlobalConfirmation from './components/GlobalConfirmation.svelte';
   import ToastContainer from './components/ToastContainer.svelte';
+  import { graphReloadRequested } from './lib/stores/git-events';
 
   let activeRepo = $state<RepoEntry | null>(null);
   let loading = $state(true);
@@ -97,7 +98,7 @@
     return getAuthRequiredMessage(message) ?? message;
   }
 
-  async function loadGraph() {
+  async function loadGraph(switchToGraph: any = true) {
     if (!repoPath) return;
     graphLoading = true;
     try {
@@ -114,7 +115,11 @@
       const layout = calculateGraphLayout(commits);
       graphNodes = layout.nodes;
       graphEdges = layout.edges;
-      activeTab = "graph";
+      
+      // If explicit true or event object (truthy), switch. If strict false, don't.
+      if (switchToGraph !== false) {
+          activeTab = "graph";
+      }
     } catch (e) {
       console.error("Failed to load graph:", e);
       error = e as GitError;
@@ -123,6 +128,13 @@
       graphLoading = false;
     }
   }
+
+  $effect(() => {
+    if ($graphReloadRequested > 0 && repoPath) {
+        // Reload graph but preserve current view (don't force switch to graph tab)
+        loadGraph(false);
+    }
+  });
 
   function navigateToRepos() {
     currentView = 'repos';

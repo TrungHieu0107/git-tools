@@ -1,4 +1,20 @@
 import { invoke } from "@tauri-apps/api/core";
+import { triggerGraphReload } from "./stores/git-events";
+import type { GitCommandResult } from "./types";
+
+// Helper to handle GitCommandResult in this service
+async function runGitCmd(cmd: string, args?: Record<string, any>): Promise<string> {
+   const res = await invoke<GitCommandResult>(cmd, args);
+   if (res.success) {
+       triggerGraphReload();
+   }
+   // Return combined output for the console
+   let out = res.stdout;
+   if (res.stderr) {
+       out += "\n" + res.stderr;
+   }
+   return out || (res.success ? "Success" : "Failed");
+}
 
 export interface GitCommand {
   id: string;
@@ -22,21 +38,21 @@ export const GIT_COMMANDS: GitCommand[] = [
     name: "Git Pull",
     description: "Fetch from and integrate with another repository or a local branch",
     needsInput: false,
-    run: async () => invoke("cmd_git_pull"),
+    run: async () => runGitCmd("cmd_git_pull"),
   },
   {
     id: "push",
     name: "Git Push",
     description: "Update remote refs along with associated objects",
     needsInput: false,
-    run: async () => invoke("cmd_git_push"),
+    run: async () => runGitCmd("cmd_git_push"),
   },
   {
     id: "fetch",
     name: "Git Fetch",
     description: "Download objects and refs from another repository",
     needsInput: false,
-    run: async () => invoke("cmd_git_fetch"),
+    run: async () => runGitCmd("cmd_git_fetch"),
   },
   {
     id: "commit",
@@ -46,7 +62,7 @@ export const GIT_COMMANDS: GitCommand[] = [
     inputPlaceholder: "Commit message...",
     run: async (input) => {
       if (!input) throw new Error("Commit message required");
-      return invoke("cmd_git_commit", { message: input });
+      return runGitCmd("cmd_git_commit", { message: input });
     },
   },
   {
@@ -64,7 +80,7 @@ export const GIT_COMMANDS: GitCommand[] = [
     inputPlaceholder: "Branch name...",
     run: async (input) => {
       if (!input) throw new Error("Branch name required");
-      return invoke("cmd_git_checkout", { branch: input });
+      return runGitCmd("cmd_git_checkout", { branch: input });
     },
   },
   {

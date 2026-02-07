@@ -4,7 +4,7 @@ use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 use crate::git::service::{TIMEOUT_LOCAL, TIMEOUT_NETWORK, TIMEOUT_QUICK};
-use crate::git::{ConflictFile, DiagnosticInfo, GitError, GitResponse, GitResult};
+use crate::git::{ConflictFile, DiagnosticInfo, GitError, GitResponse, GitResult, GitCommandType, GitCommandResult};
 use crate::settings::{save_settings, AppSettings, AppState, RepoEntry};
 use tauri::Emitter;
 use serde_json::json;
@@ -54,6 +54,16 @@ async fn git_run(
         .run(Path::new(&path), &args, timeout)
         .await
         .map_err(|e| e.to_string())
+}
+
+fn map_git_result(resp: GitResponse, command_type: GitCommandType) -> GitCommandResult {
+    GitCommandResult {
+        success: resp.exit_code == 0,
+        stdout: resp.stdout,
+        stderr: resp.stderr,
+        exit_code: resp.exit_code,
+        command_type,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,11 +196,11 @@ pub async fn cmd_git_pull(
     app: AppHandle,
     state: State<'_, AppState>,
     repo_path: Option<String>,
-) -> Result<String, String> {
+) -> Result<GitCommandResult, String> {
     let resp = git_run(&state, repo_path, &["pull"], TIMEOUT_NETWORK).await?;
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
-    Ok(resp.stdout)
+    Ok(map_git_result(resp, GitCommandType::Pull))
 }
 
 #[tauri::command]
@@ -198,20 +208,20 @@ pub async fn cmd_git_push(
     app: AppHandle,
     state: State<'_, AppState>,
     repo_path: Option<String>,
-) -> Result<String, String> {
+) -> Result<GitCommandResult, String> {
     let resp = git_run(&state, repo_path, &["push"], TIMEOUT_NETWORK).await?;
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
-    Ok(resp.stdout)
+    Ok(map_git_result(resp, GitCommandType::Push))
 }
 
 #[tauri::command]
 pub async fn cmd_git_fetch(
     state: State<'_, AppState>,
     repo_path: Option<String>,
-) -> Result<String, String> {
+) -> Result<GitCommandResult, String> {
     let resp = git_run(&state, repo_path, &["fetch"], TIMEOUT_NETWORK).await?;
-    Ok(resp.stdout)
+    Ok(map_git_result(resp, GitCommandType::Fetch))
 }
 
 #[tauri::command]
@@ -220,7 +230,7 @@ pub async fn cmd_git_commit(
     state: State<'_, AppState>,
     message: String,
     repo_path: Option<String>,
-) -> Result<String, String> {
+) -> Result<GitCommandResult, String> {
     let path = resolve_repo_path(&state, repo_path)?;
     let args: Vec<String> = vec!["commit".into(), "-m".into(), message];
     let resp = state
@@ -230,7 +240,7 @@ pub async fn cmd_git_commit(
         .map_err(|e| e.to_string())?;
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
-    Ok(resp.stdout)
+    Ok(map_git_result(resp, GitCommandType::Commit))
 }
 
 #[tauri::command]
@@ -267,7 +277,7 @@ pub async fn cmd_git_checkout(
     state: State<'_, AppState>,
     branch: String,
     repo_path: Option<String>,
-) -> Result<String, String> {
+) -> Result<GitCommandResult, String> {
     let path = resolve_repo_path(&state, repo_path)?;
     let args: Vec<String> = vec!["checkout".into(), branch];
     let resp = state
@@ -278,7 +288,7 @@ pub async fn cmd_git_checkout(
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
     // checkout output often goes to stderr even on success
-    Ok(format!("{}{}", resp.stdout, resp.stderr))
+    Ok(map_git_result(resp, GitCommandType::Checkout))
 }
 
 #[tauri::command]
@@ -815,7 +825,7 @@ pub async fn cmd_git_switch_branch(
     state: State<'_, AppState>,
     branch_name: String,
     repo_path: Option<String>,
-) -> Result<String, String> {
+) -> Result<GitCommandResult, String> {
     let mut target = branch_name.as_str();
 
     // Handle remote branches (e.g., "remotes/origin/main" -> "main")
@@ -832,7 +842,7 @@ pub async fn cmd_git_switch_branch(
     let resp = git_run(&state, repo_path, &["switch", target], TIMEOUT_LOCAL).await?;
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
-    Ok(resp.stdout)
+    Ok(map_git_result(resp, GitCommandType::Checkout))
 }
 
 #[tauri::command]
@@ -842,7 +852,7 @@ pub async fn cmd_git_checkout_new_branch(
     name: String,
     start_point: String,
     repo_path: Option<String>,
-) -> Result<String, String> {
+) -> Result<GitCommandResult, String> {
     let path = resolve_repo_path(&state, repo_path)?;
     let args: Vec<String> = vec![
         "checkout".into(),
@@ -857,7 +867,7 @@ pub async fn cmd_git_checkout_new_branch(
         .map_err(|e| e.to_string())?;
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
-    Ok(resp.stdout)
+    Ok(map_git_result(resp, GitCommandType::Checkout))
 }
 
 #[tauri::command]
@@ -866,7 +876,7 @@ pub async fn cmd_git_merge(
     state: State<'_, AppState>,
     branch: String,
     repo_path: Option<String>,
-) -> Result<String, String> {
+) -> Result<GitCommandResult, String> {
     let path = resolve_repo_path(&state, repo_path)?;
     let args: Vec<String> = vec!["merge".into(), branch];
     let resp = state
@@ -876,5 +886,5 @@ pub async fn cmd_git_merge(
         .map_err(|e| e.to_string())?;
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
-    Ok(format!("{}{}", resp.stdout, resp.stderr))
+    Ok(map_git_result(resp, GitCommandType::Merge))
 }
