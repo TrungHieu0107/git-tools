@@ -8,6 +8,7 @@ use crate::git::{ConflictFile, DiagnosticInfo, GitError, GitResponse, GitResult}
 use crate::settings::{save_settings, AppSettings, AppState, RepoEntry};
 use tauri::Emitter;
 use serde_json::json;
+use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -356,6 +357,136 @@ pub async fn cmd_get_commit_graph(
         .await
         .map_err(|e| e.to_string())?;
     Ok(resp.stdout)
+}
+
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FileStatus {
+    pub path: String,
+    pub status: String,
+    pub staged: bool,
+}
+
+#[tauri::command]
+pub async fn cmd_get_status_files(
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<Vec<FileStatus>, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let args = vec!["status".to_string(), "--porcelain".to_string()];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut results = Vec::new();
+
+    for line in resp.stdout.lines() {
+        if line.len() < 4 {
+            // "?? file" is 3+chars but usually safe.
+            if line.starts_with("?? ") {
+                results.push(FileStatus {
+                    path: line[3..].trim().to_string(),
+                    status: "??".to_string(),
+                    staged: false,
+                });
+            }
+            continue;
+        }
+
+        let chars: Vec<char> = line.chars().collect();
+        if chars.len() < 2 { continue; }
+        
+        let x = chars[0];
+        let y = chars[1];
+        let file_path = line[3..].trim().to_string();
+
+        // Staged status (X)
+        if x != ' ' && x != '?' {
+            results.push(FileStatus {
+                path: file_path.clone(),
+                status: x.to_string(),
+                staged: true,
+            });
+        }
+
+        // Unstaged status (Y)
+        if y != ' ' {
+            results.push(FileStatus {
+                path: file_path.clone(),
+                status: y.to_string(),
+                staged: false,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+#[tauri::command]
+pub async fn cmd_get_diff_file(
+    state: State<'_, AppState>,
+    file_path: String,
+    staged: bool,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    
+    let mut args = vec!["diff".to_string()];
+    if staged {
+        args.push("--cached".to_string());
+    }
+    args.push("--".to_string());
+    args.push(file_path);
+
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+        
+    Ok(resp.stdout)
+}
+
+#[tauri::command]
+pub async fn cmd_git_add(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let args: Vec<String> = vec!["add".into(), path];
+    state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_git_unstage(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    // git restore --staged <path>
+    let args: Vec<String> = vec!["restore".into(), "--staged".into(), path];
+    state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

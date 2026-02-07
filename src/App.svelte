@@ -10,8 +10,10 @@
   import GitCommandCenter from './components/GitCommandCenter.svelte';
   import RepoSelector from './components/RepoSelector.svelte';
   import CommitGraph from './components/CommitGraph.svelte';
+  import CommitPanel from './components/CommitPanel.svelte';
   import BranchExplorer from './components/BranchExplorer.svelte';
   import GlobalConfirmation from './components/GlobalConfirmation.svelte';
+  import ToastContainer from './components/ToastContainer.svelte';
 
   let activeRepo = $state<RepoEntry | null>(null);
   let loading = $state(true);
@@ -33,8 +35,9 @@
   let commitCount = $state("50");
   let graphLoading = $state(false);
   let hasConflicts = $state(false);
-  let activeTab = $state<"console" | "graph">("console");
+  let activeTab = $state<"console" | "graph" | "commit">("console");
   let pendingPushCount = $state(0);
+  let commitPanel = $state<any>(null);
 
   async function updateConflictStatus() {
     if (!repoPath) {
@@ -82,6 +85,7 @@
           const cmdArgs = subcommand.trim().split(/\s+/);
           response = await runGit(repoPath, cmdArgs);
           await updateConflictStatus(); // Check conflicts after command
+          commitPanel?.refresh?.();
       } catch (e) {
           error = e as GitError;
       } finally {
@@ -285,6 +289,12 @@
         >
            {@html Icons.Network} Graph
         </button>
+        <button 
+           onclick={() => activeTab = "commit"}
+           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'commit' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+        >
+           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><line x1="1.05" y1="12" x2="7" y2="12"></line><line x1="17.01" y1="12" x2="22.96" y2="12"></line></svg> Commit
+        </button>
       </div>
 
       <!-- Tab Content area -->
@@ -339,10 +349,16 @@
                 <CommitGraph nodes={graphNodes} edges={graphEdges} repoPath={repoPath} pendingPushCount={pendingPushCount} onGraphReload={loadGraph} />
             {/if}
          </div>
+
+         <!-- Commit Tab -->
+         <div class="absolute inset-0 {activeTab === 'commit' ? 'z-10 visible' : 'z-0 invisible'}">
+            <CommitPanel bind:this={commitPanel} repoPath={repoPath} />
+         </div>
       </div>
   </main>
   
   <GlobalConfirmation />
+  <ToastContainer />
 </main>
 
 <style>

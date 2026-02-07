@@ -16,7 +16,8 @@
       "Bash(wmic:*)",
       "Bash(powershell -Command:*)",
       "Bash(timeout:*)",
-      "Bash(test:*)"
+      "Bash(test:*)",
+      "Bash(npm run build:*)"
     ]
   }
 }
