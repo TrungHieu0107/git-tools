@@ -34,6 +34,7 @@
   let graphLoading = $state(false);
   let hasConflicts = $state(false);
   let activeTab = $state<"console" | "graph">("console");
+  let pendingPushCount = $state(0);
 
   async function updateConflictStatus() {
     if (!repoPath) {
@@ -96,6 +97,13 @@
     if (!repoPath) return;
     graphLoading = true;
     try {
+      // Refresh pending count
+      try {
+          pendingPushCount = await GitService.getPendingCommitsCount(repoPath);
+      } catch (e) {
+          console.error("Failed to get pending count", e);
+      }
+
       // Format must match parseGitLog expectation: hash|parents|refs|author|date|subject
       const logOutput = await GitService.getCommitGraph(parseInt(commitCount), repoPath);
       const commits = parseGitLog(logOutput);
@@ -328,7 +336,7 @@
                   <p class="text-sm">No graph loaded. Enter commit limit and click "Load Graph".</p>
                 </div>
             {:else}
-                <CommitGraph nodes={graphNodes} edges={graphEdges} />
+                <CommitGraph nodes={graphNodes} edges={graphEdges} repoPath={repoPath} pendingPushCount={pendingPushCount} />
             {/if}
          </div>
       </div>
