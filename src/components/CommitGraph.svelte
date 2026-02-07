@@ -9,13 +9,14 @@
     edges?: GraphEdge[];
     repoPath?: string;
     pendingPushCount?: number;
+    onGraphReload?: () => Promise<void>;
   }
 
-  let { nodes = [], edges = [], repoPath, pendingPushCount = 0 }: Props = $props();
+  let { nodes = [], edges = [], repoPath, pendingPushCount = 0, onGraphReload }: Props = $props();
 
   const ROW_HEIGHT = 28;
   const COL_WIDTH = 20; 
-  const DOT_RADIUS = 4;
+  const DOT_RADIUS = 2;
   const STROKE_WIDTH = 2;
   const PADDING_TOP = 8;
   const PADDING_LEFT = 10;
