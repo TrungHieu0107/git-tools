@@ -9,6 +9,7 @@
   import DiffToolbar from "./commit/DiffToolbar.svelte";
   import type { ViewMode } from "./commit/DiffToolbar.svelte";
   import CommitActions from "./commit/CommitActions.svelte";
+  import ResizableSection from "./resize/ResizableSection.svelte";
 
   interface Props {
       repoPath?: string;
@@ -224,33 +225,37 @@
     <!-- Left Sidebar -->
     <div class="w-1/3 min-w-[300px] max-w-[450px] flex flex-col border-r border-[#30363d] bg-[#161b22]">
 
-        <!-- Staged List -->
-        <div class="flex-1 flex flex-col min-h-0">
-             <CommitFileList
-                 title="Staged Changes"
-                 files={stagedFiles}
-                 selectedFile={selectedFile}
-                 onSelect={handleSelect}
-                 onAction={handleUnstage}
-                 actionLabel="Unstage"
-                 onActionAll={handleUnstageAll}
-                 actionAllLabel="Unstage All"
-             />
-        </div>
+        <!-- Changes (Unstaged) - shown first to match Git workflow -->
+        <ResizableSection initialSize={180} minSize={80} maxSize={400}>
+            <div class="h-full flex flex-col">
+                <CommitFileList
+                    title="Changes"
+                    files={unstagedFiles}
+                    selectedFile={selectedFile}
+                    onSelect={handleSelect}
+                    onAction={handleStage}
+                    actionLabel="Stage"
+                    onActionAll={handleStageAll}
+                    actionAllLabel="Stage All"
+                />
+            </div>
+        </ResizableSection>
 
-        <!-- Unstaged List -->
-        <div class="flex-1 flex flex-col min-h-0 border-t border-[#30363d]">
-             <CommitFileList
-                 title="Changes"
-                 files={unstagedFiles}
-                 selectedFile={selectedFile}
-                 onSelect={handleSelect}
-                 onAction={handleStage}
-                 actionLabel="Stage"
-                 onActionAll={handleStageAll}
-                 actionAllLabel="Stage All"
-             />
-        </div>
+        <!-- Staged Changes -->
+        <ResizableSection initialSize={180} minSize={80} maxSize={400}>
+            <div class="h-full flex flex-col border-t border-[#30363d]">
+                <CommitFileList
+                    title="Staged Changes"
+                    files={stagedFiles}
+                    selectedFile={selectedFile}
+                    onSelect={handleSelect}
+                    onAction={handleUnstage}
+                    actionLabel="Unstage"
+                    onActionAll={handleUnstageAll}
+                    actionAllLabel="Unstage All"
+                />
+            </div>
+        </ResizableSection>
 
         <!-- Commit Actions -->
         <div class="shrink-0">

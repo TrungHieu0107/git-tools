@@ -16,6 +16,7 @@
   import ToastContainer from './components/ToastContainer.svelte';
   import SettingsView from './components/SettingsView.svelte';
   import { graphReloadRequested } from './lib/stores/git-events';
+  import ResizablePanel from './components/resize/ResizablePanel.svelte';
 
   let activeRepo = $state<RepoEntry | null>(null);
   let loading = $state(true);
@@ -172,8 +173,9 @@
 </script>
 
 <main class="h-screen w-screen bg-[#0d1117] text-[#c9d1d9] flex overflow-hidden font-sans text-sm selection:bg-[#1f6feb] selection:text-white">
-  <!-- Left Sidebar -->
-  <aside class="w-72 bg-[#161b22] border-r border-[#30363d] flex flex-col shrink-0 z-10">
+  <!-- Left Sidebar (Resizable) -->
+  <ResizablePanel initialSize={288} minSize={220} maxSize={450} side="right">
+    <aside class="w-full h-full bg-[#161b22] border-r border-[#30363d] flex flex-col shrink-0 z-10">
       <!-- Header -->
       <div class="h-12 border-b border-[#30363d] flex items-center px-4 gap-2 select-none bg-[#161b22]">
         <div class="text-[#238636]">
@@ -294,7 +296,8 @@
       <div class="p-3 border-t border-[#30363d] text-[10px] text-[#484f58] text-center bg-[#161b22]">
         GitHelper v0.2.0
       </div>
-  </aside>
+    </aside>
+  </ResizablePanel>
 
   <!-- Right Panel - Content -->
   <div class="flex-1 flex flex-col min-w-0 bg-[#0d1117] relative">
