@@ -9,8 +9,10 @@
       onAction: (file: FileStatus) => void; // Stage or Unstage action
       actionLabel: string; // "Stage" or "Unstage" text for tooltip/aria (or implied by context)
       actionIcon?: string; // Optional custom icon?
+      onActionAll?: () => void;
+      actionAllLabel?: string;
   }
-  let { title, files, selectedFile, onSelect, onAction, actionLabel }: Props = $props();
+  let { title, files, selectedFile, onSelect, onAction, actionLabel, onActionAll, actionAllLabel }: Props = $props();
 
   function getStatusColor(code: string) {
       switch (code) {
@@ -25,10 +27,21 @@
 </script>
 
 <div class="flex flex-col flex-1 overflow-hidden min-h-0 border-b border-[#30363d] last:border-b-0">
-    <div class="h-8 px-3 flex items-center bg-[#21262d] font-semibold text-xs uppercase tracking-wider text-[#8b949e] shrink-0 justify-between">
+    <div class="h-8 px-3 flex items-center bg-[#21262d] font-semibold text-xs uppercase tracking-wider text-[#8b949e] shrink-0 justify-between group/header">
         <span>{title} ({files.length})</span>
-        {#if files.length > 0}
-            <!-- Optional "Stage All" or "Unstage All" button could go here -->
+        {#if files.length > 0 && onActionAll}
+            <button 
+                class="opacity-90 hover:opacity-100 transition-opacity px-2 py-1 rounded hover:bg-[#30363d] text-[#58a6ff] hover:text-[#79c0ff] text-xs font-medium flex items-center gap-1.5"
+                onclick={(e) => { e.stopPropagation(); onActionAll(); }}
+                title={actionAllLabel}
+            >
+                {#if actionAllLabel?.toLowerCase().includes('unstage')}
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                {:else}
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                {/if}
+                {actionAllLabel}
+            </button>
         {/if}
     </div>
     <div class="flex-1 overflow-y-auto custom-scrollbar p-1">

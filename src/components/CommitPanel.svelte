@@ -143,6 +143,22 @@
       }
   }
 
+  async function handleStageAll() {
+      if (!repoPath) return;
+      try {
+          await GitService.stageAll(repoPath);
+          await loadStatus();
+      } catch (e) { /* toast handled */ }
+  }
+
+  async function handleUnstageAll() {
+      if (!repoPath) return;
+      try {
+          await GitService.unstageAll(repoPath);
+          await loadStatus();
+      } catch (e) { /* toast handled */ }
+  }
+
   // ── View mode & hunk navigation ────────────────────────────────
   function handleViewModeChange(mode: ViewMode) {
       viewMode = mode;
@@ -192,6 +208,8 @@
                  onSelect={handleSelect}
                  onAction={handleUnstage}
                  actionLabel="Unstage"
+                 onActionAll={handleUnstageAll}
+                 actionAllLabel="Unstage All"
              />
         </div>
 
@@ -204,6 +222,8 @@
                  onSelect={handleSelect}
                  onAction={handleStage}
                  actionLabel="Stage"
+                 onActionAll={handleStageAll}
+                 actionAllLabel="Stage All"
              />
         </div>
 

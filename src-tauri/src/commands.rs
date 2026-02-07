@@ -243,6 +243,25 @@ pub async fn cmd_git_add_all(
 }
 
 #[tauri::command]
+pub async fn cmd_git_unstage_all(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    // git restore --staged .
+    let args: Vec<String> = vec!["restore".into(), "--staged".into(), ".".into()];
+    state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn cmd_git_checkout(
     app: AppHandle,
     state: State<'_, AppState>,

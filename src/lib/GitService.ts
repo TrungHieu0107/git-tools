@@ -134,6 +134,26 @@ export class GitService {
     }
   }
 
+  static async stageAll(repoPath?: string): Promise<void> {
+      try {
+          await invoke("cmd_git_add_all", { repoPath });
+          toast.success("Staged all files");
+      } catch (e: any) {
+          toast.error(`Stage all failed: ${e}`);
+          throw e;
+      }
+  }
+
+  static async unstageAll(repoPath?: string): Promise<void> {
+      try {
+          await invoke("cmd_git_unstage_all", { repoPath });
+          toast.success("Unstaged all files");
+      } catch (e: any) {
+          toast.error(`Unstage all failed: ${e}`);
+          throw e;
+      }
+  }
+
   // --- Branch Management ---
 
   static async getBranches(includeRemote = false, repoPath?: string): Promise<string[]> {
