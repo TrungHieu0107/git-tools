@@ -1,13 +1,16 @@
 <script lang="ts">
   import type { GraphNode, GraphEdge } from "../lib/graph-layout";
   import { onMount, tick } from "svelte";
+  import { GitService } from "../lib/GitService";
+  import { confirm } from "../lib/confirmation.svelte";
 
   interface Props {
     nodes?: GraphNode[];
     edges?: GraphEdge[];
+    repoPath?: string;
   }
 
-  let { nodes = [], edges = [] }: Props = $props();
+  let { nodes = [], edges = [], repoPath }: Props = $props();
 
   const ROW_HEIGHT = 28;
   const COL_WIDTH = 20; 
@@ -118,6 +121,49 @@
       }
       return badges;
   }
+  // -- Git Actions --
+  let isFetching = $state(false);
+  let isPulling = $state(false);
+  let isPushing = $state(false);
+
+  async function handleFetch() {
+      if (!repoPath || isFetching) return;
+      isFetching = true;
+      try {
+          await GitService.fetch(repoPath);
+      } catch (e: any) {
+          console.error("Fetch failed", e);
+          await confirm({ title: "Fetch Failed", message: e.toString(), confirmLabel: "OK", cancelLabel: "Close" });
+      } finally {
+          isFetching = false;
+      }
+  }
+
+  async function handlePull() {
+      if (!repoPath || isPulling) return;
+      isPulling = true;
+      try {
+          await GitService.pull(repoPath);
+      } catch (e: any) {
+          console.error("Pull failed", e);
+          await confirm({ title: "Pull Failed", message: e.toString(), confirmLabel: "OK", cancelLabel: "Close" });
+      } finally {
+          isPulling = false;
+      }
+  }
+
+  async function handlePush() {
+      if (!repoPath || isPushing) return;
+      isPushing = true;
+      try {
+          await GitService.push(repoPath);
+      } catch (e: any) {
+          console.error("Push failed", e);
+          await confirm({ title: "Push Failed", message: e.toString(), confirmLabel: "OK", cancelLabel: "Close" });
+      } finally {
+          isPushing = false;
+      }
+  }
 </script>
 
 <div class="w-full h-full overflow-hidden flex flex-col bg-[#0d1117] font-sans">
@@ -130,6 +176,52 @@
       >
         <span>Columns ▾</span> 
       </button>
+
+      <!-- Divider -->
+      <div class="w-px h-4 bg-[#30363d] mx-2"></div>
+
+      <!-- Actions -->
+      <div class="flex items-center gap-1">
+          <button 
+              class="text-xs text-[#8b949e] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onclick={handlePull}
+              disabled={!repoPath || isPulling}
+              title="Pull"
+          >
+              {#if isPulling}
+                  <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+              {:else}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+              {/if}
+              <span>Pull</span>
+          </button>
+          <button 
+              class="text-xs text-[#8b949e] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onclick={handlePush}
+              disabled={!repoPath || isPushing}
+              title="Push"
+          >
+              {#if isPushing}
+                  <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+              {:else}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+              {/if}
+              <span>Push</span>
+          </button>
+          <button 
+              class="text-xs text-[#8b949e] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onclick={handleFetch}
+              disabled={!repoPath || isFetching}
+              title="Fetch"
+          >
+               {#if isFetching}
+                  <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+              {:else}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 21h5v-5"></path></svg>
+              {/if}
+              <span>Fetch</span>
+          </button>
+      </div>
 
       {#if showMenu}
         <div class="absolute top-8 left-2 bg-[#1f2428] border border-[#30363d] rounded-md shadow-xl z-50 p-2 w-40 animate-in fade-in zoom-in-95 duration-100">

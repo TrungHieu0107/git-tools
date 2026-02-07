@@ -111,4 +111,20 @@ export class GitService {
   static async getCommitGraph(limit: number, repoPath?: string): Promise<string> {
     return invoke("cmd_get_commit_graph", { limit, repoPath });
   }
+
+  static async merge(branch: string, repoPath?: string): Promise<string> {
+    return invoke("cmd_git_merge", { branch, repoPath });
+  }
+
+  static async fetch(repoPath?: string): Promise<string> {
+    return invoke("cmd_git_fetch", { repoPath });
+  }
+
+  static async pull(repoPath?: string): Promise<string> {
+    return invoke("cmd_git_pull", { repoPath });
+  }
+
+  static async push(repoPath?: string): Promise<string> {
+    return invoke("cmd_git_push", { repoPath });
+  }
 }

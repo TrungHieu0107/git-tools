@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { GitService, type RepoEntry } from './lib/GitService';
   import { runGit, type GitResponse, type GitError } from "./lib/git";
   import { getAuthRequiredMessage } from "./lib/git-errors";
@@ -10,6 +11,7 @@
   import RepoSelector from './components/RepoSelector.svelte';
   import CommitGraph from './components/CommitGraph.svelte';
   import BranchExplorer from './components/BranchExplorer.svelte';
+  import GlobalConfirmation from './components/GlobalConfirmation.svelte';
 
   let activeRepo = $state<RepoEntry | null>(null);
   let loading = $state(true);
@@ -331,6 +333,8 @@
          </div>
       </div>
   </main>
+  
+  <GlobalConfirmation />
 </main>
 
 <style>

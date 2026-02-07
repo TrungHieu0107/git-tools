@@ -2,6 +2,7 @@
   import { onMount, untrack } from "svelte";
   import { GitService } from "../lib/GitService";
   import { buildBranchTree, filterBranchTree, getAllFolderPaths, type BranchNode } from "../lib/branch-utils";
+  import { confirm } from "../lib/confirmation.svelte";
 
   let { repoPath = undefined }: { repoPath?: string } = $props();
 
@@ -44,11 +45,15 @@
       });
   });
 
-  // Modal State
-  let showModal = $state(false);
-  let selectedBranchNode = $state<BranchNode | null>(null);
+  // Action State
   let isCheckoutLoading = $state(false);
-  let checkoutError = $state<string | null>(null);
+  let contextMenu = $state<{ x: number, y: number, node: BranchNode } | null>(null);
+
+  // Close context menu on global click
+  function onGlobalClick() {
+      contextMenu = null;
+  }
+
 
   // Load data
   async function loadBranches() {
@@ -132,48 +137,112 @@
     return () => window.removeEventListener('repo-activated', loadBranches);
   });
 
-  function handleBranchClick(node: BranchNode) {
-      if (node.fullPath === currentBranch) return; // Already on it
-      selectedBranchNode = node;
-      checkoutError = null;
-      showModal = true;
+  function handleContextMenu(e: MouseEvent, node: BranchNode) {
+      e.preventDefault();
+      contextMenu = { x: e.clientX, y: e.clientY, node };
   }
 
-  function closeModal() {
-      showModal = false;
-      selectedBranchNode = null;
-      checkoutError = null;
-  }
+  async function handleMerge() {
+      if (!contextMenu) return;
+      const { node } = contextMenu;
+      contextMenu = null; // Close menu
 
-  async function confirmCheckout() {
-      if (!selectedBranchNode || !selectedBranchNode.fullPath) return;
+      // Block if same branch
+      if (node.fullPath === currentBranch) {
+          // Should be disabled in UI, but safe check
+          return;
+      }
+
+      // Confirm
+      const confirmed = await confirm({
+           title: "Merge Branch",
+           message: `Merge branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${node.name}</span> into <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${currentBranch}</span>?`,
+           isHtmlMessage: true,
+           confirmLabel: "Merge"
+      });
+
+      if (!confirmed) return;
 
       isCheckoutLoading = true;
-      checkoutError = null;
-
       try {
-          if (selectedBranchNode.type === 'remote') {
-              let branchName = selectedBranchNode.name;
-              
-              // Check if a local branch with this name already exists
-              // branches array contains plain names called "local" branches, and "remotes/..."
-              if (branches.includes(branchName)) {
-                  // Local branch exists, switch to it
-                  await GitService.switchBranch(branchName, repoPath);
-              } else {
-                  // No local branch, create new tracking branch
-                  const startPoint = selectedBranchNode.fullPath;
-                  await GitService.checkoutNew(branchName, startPoint, repoPath);
-              }
-          } else {
-              await GitService.switchBranch(selectedBranchNode.fullPath, repoPath);
-          }
+          // Validate clean state if possible? 
+          // Implementation plan said "ensure current branch is clean".
+          // We can assume user knows what they are doing OR do a check.
+          // Let's rely on git merge command failing if dirty and conflicting.
+          
+          await GitService.merge(node.name, repoPath);
+          await loadBranches(); // Refresh in case merge refs changed? (unlikely to change branch list, but good for sync)
+          // Also maybe notify success?
+          // Since we don't have toast, we do nothing on success except maybe log.
+          console.log("Merge successful");
+      } catch (e: any) {
+          console.error("Merge failed", e);
+          await confirm({
+              title: "Merge Failed",
+              message: e.toString(),
+              confirmLabel: "OK",
+              cancelLabel: "Close"
+          });
+      } finally {
+          isCheckoutLoading = false;
+      }
+  }
 
+  async function handleBranchClick(node: BranchNode) {
+      if (node.fullPath === currentBranch || isCheckoutLoading) return; // Already on it
+
+      let message = "";
+      let isSwitch = true;
+
+      // Determine message and action type
+      if (node.type === 'remote') {
+          if (branches.includes(node.name)) {
+             // Local exists
+             message = `A local branch named <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${node.name}</span> already exists.<br/><br/>Switch to existing local branch?`;
+             isSwitch = true;
+          } else {
+             // Create new
+             message = `Checkout remote branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${node.name}</span>?<br/><span class="text-xs text-gray-500">This will create a new local tracking branch.</span>`;
+             isSwitch = false; 
+          }
+      } else {
+          // Local switch
+          message = `Switch to branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${node.name}</span>?`;
+          isSwitch = true;
+      }
+
+      const confirmed = await confirm({
+          title: "Confirm Checkout",
+          message,
+          isHtmlMessage: true,
+          confirmLabel: "Checkout"
+      });
+
+      if (!confirmed) return;
+
+      // Proceed
+      isCheckoutLoading = true;
+      try {
+          if (!isSwitch && node.type === 'remote') {
+             // Create new logic
+             await GitService.checkoutNew(node.name, node.fullPath!, repoPath);
+          } else {
+             // Switch logic (local or remote-that-has-local)
+             const target = (node.type === 'remote' && branches.includes(node.name)) ? node.name : node.fullPath!;
+             await GitService.switchBranch(target, repoPath);
+          }
           await loadBranches(); 
-          closeModal();
       } catch (e: any) {
           console.error("Checkout failed", e);
-          checkoutError = e.toString();
+          // Optional: Show error via another alert or toast?
+          // Since we don't have global alert yet, log it.
+          // Or reuse confirm for error? "Error: ..."
+          await confirm({
+              title: "Checkout Failed",
+              message: e.toString(),
+              confirmLabel: "OK",
+              cancelLabel: "Close"
+          });
       } finally {
           isCheckoutLoading = false;
       }
@@ -201,6 +270,7 @@
           class="flex items-center gap-2 py-1 px-2 cursor-pointer hover:bg-[#21262d] rounded text-xs truncate group
                  {node.fullPath === currentBranch ? 'bg-[#1f6feb]/20 text-[#58a6ff]' : 'text-[#c9d1d9]'}"
           onclick={() => handleBranchClick(node)}
+          oncontextmenu={(e) => handleContextMenu(e, node)}
           title={node.fullPath}
           role="button"
           tabindex="0"
@@ -229,7 +299,42 @@
                </div>
                <div class="text-amber-500/80">
                    {@html node.name === 'Remote' ? Icons.Remote : Icons.Folder}
-               </div>
+               
+    <!-- Context Menu -->
+    {#if contextMenu}
+      <div 
+          class="fixed inset-0 z-50 bg-transparent" 
+          onclick={onGlobalClick} 
+          oncontextmenu={(e) => { e.preventDefault(); onGlobalClick(); }}
+          role="presentation"
+      ></div>
+
+      <div 
+          class="fixed z-50 bg-[#1f2428] border border-[#30363d] rounded-md shadow-xl py-1 min-w-[160px]"
+          style="top: {contextMenu.y}px; left: {contextMenu.x}px;"
+          role="menu"
+      >
+           <button 
+              class="w-full text-left px-4 py-2 text-xs text-[#c9d1d9] hover:bg-[#1f6feb] hover:text-white flex items-center gap-2"
+              onclick={() => {
+                  if (contextMenu) handleBranchClick(contextMenu.node);
+                  contextMenu = null;
+              }}
+          >
+              <span>Checkout</span>
+          </button>
+
+          <button 
+              class="w-full text-left px-4 py-2 text-xs text-[#c9d1d9] hover:bg-[#1f6feb] hover:text-white flex items-center gap-2
+                     {contextMenu.node.fullPath === currentBranch ? 'opacity-50 cursor-not-allowed' : ''}"
+              disabled={contextMenu.node.fullPath === currentBranch}
+              onclick={handleMerge}
+          >
+              <span>Merge into current</span>
+          </button>
+      </div>
+    {/if}
+</div>
                <span class="font-medium truncate">{node.name}</span>
            </div>
            
@@ -292,57 +397,5 @@
         {/if}
     </div>
 
-    <!-- Confirmation Modal -->
-    {#if showModal && selectedBranchNode}
-        <!-- Backdrop -->
-        <div class="absolute inset-0 z-50 flex items-start justify-center pt-10 bg-black/60 backdrop-blur-sm" onclick={closeModal} role="presentation">
-            <!-- Modal Content -->
-            <div class="bg-[#161b22] border border-[#30363d] rounded-lg shadow-xl w-64 max-w-[90%] overflow-hidden" onclick={(e) => e.stopPropagation()} role="dialog">
-                <div class="px-4 py-3 border-b border-[#30363d] bg-[#0d1117]">
-                    <h3 class="text-sm font-semibold text-white">Confirm Checkout</h3>
-                </div>
-                
-                <div class="p-4">
-                    <p class="text-xs text-[#c9d1d9] mb-3">
-                        {#if selectedBranchNode.type === 'remote' && branches.includes(selectedBranchNode.name)}
-                            A local branch named <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">{selectedBranchNode.name}</span> already exists.
-                            <br/><br/>
-                            Switch to existing local branch?
-                        {:else}
-                            Are you sure you want to checkout <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">{selectedBranchNode.name}</span>?
-                        {/if}
-                    </p>
-                    
-                    {#if checkoutError}
-                        <div class="p-2 mb-3 text-xs text-red-400 bg-red-900/20 border border-red-900/50 rounded overflow-auto max-h-24">
-                            {checkoutError}
-                        </div>
-                    {/if}
 
-                    <div class="flex justify-end gap-2 mt-2">
-                        <button 
-                            class="px-3 py-1.5 text-xs text-[#8b949e] hover:text-white rounded border border-transparent hover:border-[#30363d] transition-colors"
-                            onclick={closeModal}
-                            disabled={isCheckoutLoading}
-                        >
-                            Cancel
-                        </button>
-                        <button 
-                            class="px-3 py-1.5 text-xs text-white bg-[#238636] hover:bg-[#2ea043] rounded font-medium shadow-sm transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                            onclick={confirmCheckout}
-                            disabled={isCheckoutLoading}
-                        >
-                            {#if isCheckoutLoading}
-                                <svg class="animate-spin h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                            {/if}
-                            Confirm
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    {/if}
 </div>
