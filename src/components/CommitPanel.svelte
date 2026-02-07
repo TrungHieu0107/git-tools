@@ -12,8 +12,9 @@
 
   interface Props {
       repoPath?: string;
+      isActive?: boolean;
   }
-  let { repoPath }: Props = $props();
+  let { repoPath, isActive = false }: Props = $props();
 
   let stagedFiles = $state<FileStatus[]>([]);
   let unstagedFiles = $state<FileStatus[]>([]);
@@ -46,7 +47,7 @@
   });
 
   // Load Status
-  async function loadStatus() {
+  async function loadStatus(refreshDiff = false) {
       if (!repoPath) return;
       loadingStatus = true;
       try {
@@ -68,6 +69,10 @@
                       baseContent = "";
                       modifiedContent = "";
                   }
+              } else if (refreshDiff) {
+                  // If file still exists and we want a refresh, reload its diff
+                  // This ensures we see changes made externally even if selection didn't change
+                  loadDiff(selectedFile);
               }
           }
       } catch (e: any) {
@@ -103,7 +108,9 @@
   function handleSelect(file: FileStatus) {
       selectedFile = file;
       currentHunkIndex = 0;
-      loadDiff(file);
+      // Refresh file lists so changes made outside the app (e.g. in an
+      // editor) are picked up whenever the user switches files.
+      loadStatus(true);
   }
 
   // Actions
@@ -190,8 +197,26 @@
       }
   });
 
+  // Refresh data when the Commit tab becomes active, so file lists
+  // and diffs always reflect the current repository state.
+  let prevIsActive = false;
+  let lastRefreshTime = 0;
+  const DEBOUNCE_MS = 300;
+
+  $effect(() => {
+      if (isActive && !prevIsActive && repoPath) {
+          const now = Date.now();
+          if (now - lastRefreshTime > DEBOUNCE_MS) {
+              lastRefreshTime = now;
+              loadStatus(true);
+          }
+      }
+      prevIsActive = isActive ?? false;
+  });
+
   export function refresh() {
-      loadStatus();
+      // Force refresh of diff as well
+      loadStatus(true);
   }
 </script>
 

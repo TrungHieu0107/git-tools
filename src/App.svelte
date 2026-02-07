@@ -137,6 +137,8 @@
     }
   });
 
+
+
   function navigateToRepos() {
     currentView = 'repos';
     activeRepo = null; // Clear active repo when navigating to repos view
@@ -373,7 +375,7 @@
 
           <!-- Commit Tab -->
           <div class="absolute inset-0 {activeTab === 'commit' ? 'z-10 visible' : 'z-0 invisible'}">
-             <CommitPanel bind:this={commitPanel} repoPath={repoPath} />
+             <CommitPanel bind:this={commitPanel} repoPath={repoPath} isActive={activeTab === 'commit'} />
           </div>
 
           <!-- Settings Tab -->
