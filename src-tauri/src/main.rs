@@ -58,6 +58,8 @@ fn main() {
             commands::cmd_get_pending_commits_count,
             commands::cmd_get_status_files,
             commands::cmd_get_diff_file,
+            commands::cmd_get_file_base_content,
+            commands::cmd_get_file_modified_content,
             commands::cmd_git_add,
             commands::cmd_git_unstage,
         ])

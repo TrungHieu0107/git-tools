@@ -451,6 +451,58 @@ pub async fn cmd_get_diff_file(
 }
 
 #[tauri::command]
+pub async fn cmd_get_file_base_content(
+    state: State<'_, AppState>,
+    file_path: String,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let show_arg = format!("HEAD:{}", file_path);
+    let args = vec!["show".to_string(), show_arg];
+
+    // New/untracked files won't exist at HEAD -- return empty content
+    match state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_QUICK)
+        .await
+    {
+        Ok(resp) => Ok(resp.stdout),
+        Err(_) => Ok(String::new()),
+    }
+}
+
+#[tauri::command]
+pub async fn cmd_get_file_modified_content(
+    state: State<'_, AppState>,
+    file_path: String,
+    staged: bool,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+
+    if staged {
+        // Staged content lives in the index (stage 0)
+        let show_arg = format!(":{}", file_path);
+        let args = vec!["show".to_string(), show_arg];
+        match state
+            .git
+            .run(Path::new(&path), &args, TIMEOUT_QUICK)
+            .await
+        {
+            Ok(resp) => Ok(resp.stdout),
+            Err(_) => Ok(String::new()),
+        }
+    } else {
+        // Unstaged content: read directly from the working directory
+        let full_path = Path::new(&path).join(&file_path);
+        match std::fs::read_to_string(&full_path) {
+            Ok(content) => Ok(content),
+            Err(_) => Ok(String::new()),
+        }
+    }
+}
+
+#[tauri::command]
 pub async fn cmd_git_add(
     app: AppHandle,
     state: State<'_, AppState>,

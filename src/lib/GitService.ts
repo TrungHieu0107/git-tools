@@ -106,6 +106,14 @@ export class GitService {
     return invoke("cmd_get_diff_file", { filePath, staged, repoPath });
   }
 
+  static async getFileBaseContent(filePath: string, repoPath?: string): Promise<string> {
+    return invoke("cmd_get_file_base_content", { filePath, repoPath });
+  }
+
+  static async getFileModifiedContent(filePath: string, staged: boolean, repoPath?: string): Promise<string> {
+    return invoke("cmd_get_file_modified_content", { filePath, staged, repoPath });
+  }
+
   static async stageFile(path: string, repoPath?: string): Promise<void> {
     try {
         await invoke("cmd_git_add", { path, repoPath });
