@@ -304,6 +304,38 @@ pub async fn cmd_git_log(
 }
 
 #[tauri::command]
+pub async fn cmd_get_pending_commits_count(
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<u32, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    
+    // git rev-list --count @{u}..HEAD
+    let args = vec![
+        "rev-list".to_string(),
+        "--count".to_string(),
+        "@{u}..HEAD".to_string(),
+    ];
+    
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_QUICK)
+        .await;
+
+    match resp {
+        Ok(output) => {
+            let count = output.stdout.trim().parse::<u32>().unwrap_or(0);
+            Ok(count)
+        }
+        Err(_) => {
+            // Likely no upstream configured or other error. 
+            // In either case, we can't push to upstream, so pending count is effectively 0 or irrelevant for the push button state (disabled).
+            Ok(0)
+        }
+    }
+}
+
+#[tauri::command]
 pub async fn cmd_get_commit_graph(
     state: State<'_, AppState>,
     limit: usize,

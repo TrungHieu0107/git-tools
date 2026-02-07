@@ -8,9 +8,10 @@
     nodes?: GraphNode[];
     edges?: GraphEdge[];
     repoPath?: string;
+    pendingPushCount?: number;
   }
 
-  let { nodes = [], edges = [], repoPath }: Props = $props();
+  let { nodes = [], edges = [], repoPath, pendingPushCount = 0 }: Props = $props();
 
   const ROW_HEIGHT = 28;
   const COL_WIDTH = 20; 
@@ -198,8 +199,8 @@
           <button 
               class="text-xs text-[#8b949e] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               onclick={handlePush}
-              disabled={!repoPath || isPushing}
-              title="Push"
+              disabled={!repoPath || isPushing || pendingPushCount === 0}
+              title={pendingPushCount > 0 ? `Push ${pendingPushCount} commit(s)` : "Nothing to push"}
           >
               {#if isPushing}
                   <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
@@ -207,6 +208,9 @@
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
               {/if}
               <span>Push</span>
+              {#if pendingPushCount > 0}
+                  <span class="bg-[#1f6feb] text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-0.5" style="line-height: normal;">{pendingPushCount}</span>
+              {/if}
           </button>
           <button 
               class="text-xs text-[#8b949e] hover:text-white px-2 py-1 rounded hover:bg-[#21262d] flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"

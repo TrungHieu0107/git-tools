@@ -55,6 +55,7 @@ fn main() {
             commands::cmd_git_switch_branch,
             commands::cmd_git_checkout_new_branch,
             commands::cmd_git_merge,
+            commands::cmd_get_pending_commits_count,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

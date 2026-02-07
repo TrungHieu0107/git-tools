@@ -127,4 +127,8 @@ export class GitService {
   static async push(repoPath?: string): Promise<string> {
     return invoke("cmd_git_push", { repoPath });
   }
+
+  static async getPendingCommitsCount(repoPath?: string): Promise<number> {
+    return invoke("cmd_get_pending_commits_count", { repoPath });
+  }
 }
