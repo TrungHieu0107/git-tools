@@ -336,7 +336,7 @@
                   <p class="text-sm">No graph loaded. Enter commit limit and click "Load Graph".</p>
                 </div>
             {:else}
-                <CommitGraph nodes={graphNodes} edges={graphEdges} repoPath={repoPath} pendingPushCount={pendingPushCount} />
+                <CommitGraph nodes={graphNodes} edges={graphEdges} repoPath={repoPath} pendingPushCount={pendingPushCount} onGraphReload={loadGraph} />
             {/if}
          </div>
       </div>

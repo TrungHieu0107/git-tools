@@ -16,7 +16,7 @@
 
   const ROW_HEIGHT = 28;
   const COL_WIDTH = 20; 
-  const DOT_RADIUS = 2;
+  const DOT_RADIUS = 4;
   const STROKE_WIDTH = 2;
   const PADDING_TOP = 8;
   const PADDING_LEFT = 10;
@@ -133,6 +133,7 @@
       isFetching = true;
       try {
           await GitService.fetch(repoPath);
+          await onGraphReload?.();
       } catch (e: any) {
           console.error("Fetch failed", e);
           await confirm({ title: "Fetch Failed", message: e.toString(), confirmLabel: "OK", cancelLabel: "Close" });
@@ -146,6 +147,7 @@
       isPulling = true;
       try {
           await GitService.pull(repoPath);
+          await onGraphReload?.();
       } catch (e: any) {
           console.error("Pull failed", e);
           await confirm({ title: "Pull Failed", message: e.toString(), confirmLabel: "OK", cancelLabel: "Close" });
@@ -159,6 +161,7 @@
       isPushing = true;
       try {
           await GitService.push(repoPath);
+          await onGraphReload?.();
       } catch (e: any) {
           console.error("Push failed", e);
           await confirm({ title: "Push Failed", message: e.toString(), confirmLabel: "OK", cancelLabel: "Close" });
@@ -308,7 +311,7 @@
                         r={DOT_RADIUS} 
                         fill={node.color} 
                         stroke="#0d1117"
-                        stroke-width="2"
+                        stroke-width="4"
                       />
                     {/each}
                   </g>
