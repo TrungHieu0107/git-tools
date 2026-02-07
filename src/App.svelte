@@ -14,6 +14,7 @@
   import BranchExplorer from './components/BranchExplorer.svelte';
   import GlobalConfirmation from './components/GlobalConfirmation.svelte';
   import ToastContainer from './components/ToastContainer.svelte';
+  import SettingsView from './components/SettingsView.svelte';
   import { graphReloadRequested } from './lib/stores/git-events';
 
   let activeRepo = $state<RepoEntry | null>(null);
@@ -36,7 +37,7 @@
   let commitCount = $state("50");
   let graphLoading = $state(false);
   let hasConflicts = $state(false);
-  let activeTab = $state<"console" | "graph" | "commit">("console");
+  let activeTab = $state<"console" | "graph" | "commit" | "settings">("console");
   let pendingPushCount = $state(0);
   let commitPanel = $state<any>(null);
 
@@ -163,7 +164,8 @@
     Folder: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>`,
     Terminal: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>`,
     Git: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`,
-    Network: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="19" r="3"/><line x1="12" y1="8" x2="6" y2="19"/><line x1="12" y1="8" x2="18" y2="19"/></svg>`
+    Network: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="19" r="3"/><line x1="12" y1="8" x2="6" y2="19"/><line x1="12" y1="8" x2="18" y2="19"/></svg>`,
+    Settings: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`
   };
 </script>
 
@@ -175,7 +177,14 @@
         <div class="text-[#238636]">
           {@html Icons.Git}
         </div>
-        <h1 class="font-semibold text-white tracking-tight">GitHelper</h1>
+        <h1 class="font-semibold text-white tracking-tight flex-1">GitHelper</h1>
+        <button 
+           onclick={() => activeTab = 'settings'}
+           class="p-1.5 rounded hover:bg-[#21262d] text-[#8b949e] hover:text-[#c9d1d9] transition-colors"
+           title="Settings"
+        >
+           {@html Icons.Settings}
+        </button>
       </div>
 
       <!-- Controls (Static) -->
@@ -286,7 +295,7 @@
   </aside>
 
   <!-- Right Panel - Content -->
-  <main class="flex-1 flex flex-col min-w-0 bg-[#0d1117] relative">
+  <div class="flex-1 flex flex-col min-w-0 bg-[#0d1117] relative">
       <!-- Tabs Header -->
       <div class="h-12 border-b border-[#30363d] flex items-center px-2 bg-[#161b22] gap-1">
         <button 
@@ -362,13 +371,18 @@
             {/if}
          </div>
 
-         <!-- Commit Tab -->
-         <div class="absolute inset-0 {activeTab === 'commit' ? 'z-10 visible' : 'z-0 invisible'}">
-            <CommitPanel bind:this={commitPanel} repoPath={repoPath} />
-         </div>
+          <!-- Commit Tab -->
+          <div class="absolute inset-0 {activeTab === 'commit' ? 'z-10 visible' : 'z-0 invisible'}">
+             <CommitPanel bind:this={commitPanel} repoPath={repoPath} />
+          </div>
+
+          <!-- Settings Tab -->
+          <div class="absolute inset-0 bg-[#0d1117] {activeTab === 'settings' ? 'z-20 visible' : 'z-0 invisible'}">
+             <SettingsView />
+          </div>
       </div>
-  </main>
-  
+  </div>
+
   <GlobalConfirmation />
   <ToastContainer />
 </main>

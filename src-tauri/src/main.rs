@@ -40,6 +40,7 @@ fn main() {
             commands::cmd_set_active_repo,
             commands::cmd_get_active_repo,
             commands::cmd_git_status,
+            commands::cmd_set_excluded_files,
             commands::cmd_git_pull,
             commands::cmd_git_push,
             commands::cmd_git_fetch,

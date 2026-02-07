@@ -9,6 +9,7 @@ use crate::settings::{save_settings, AppSettings, AppState, RepoEntry};
 use tauri::Emitter;
 use serde_json::json;
 use serde::{Deserialize, Serialize};
+use glob::Pattern;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -64,6 +65,30 @@ fn map_git_result(resp: GitResponse, command_type: GitCommandType) -> GitCommand
         exit_code: resp.exit_code,
         command_type,
     }
+}
+
+
+fn is_excluded(path: &str, exclusions: &[String]) -> bool {
+    if exclusions.is_empty() {
+        return false;
+    }
+
+    // Normalize path to use forward slashes for glob matching
+    let normalized_path = path.replace('\\', "/");
+
+    for pattern_str in exclusions {
+        let pattern_str = pattern_str.trim();
+        if pattern_str.is_empty() {
+            continue;
+        }
+
+        if let Ok(pattern) = Pattern::new(pattern_str) {
+            if pattern.matches(&normalized_path) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +176,18 @@ pub fn cmd_get_active_repo(state: State<AppState>) -> Result<Option<RepoEntry>, 
     }
 }
 
+#[tauri::command]
+pub fn cmd_set_excluded_files(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    exclusions: Vec<String>,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    settings.excluded_files = exclusions;
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}
+
 // ---------------------------------------------------------------------------
 // Generic async git command
 // ---------------------------------------------------------------------------
@@ -232,6 +269,36 @@ pub async fn cmd_git_commit(
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
     let path = resolve_repo_path(&state, repo_path)?;
+
+    // Safety: unstage any excluded files before committing so they are never
+    // included, even if staged externally (CLI, IDE, etc.)
+    let exclusions = {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.excluded_files.clone()
+    };
+
+    if !exclusions.is_empty() {
+        let diff_args: Vec<String> =
+            vec!["diff".into(), "--cached".into(), "--name-only".into()];
+        let diff_resp = state
+            .git
+            .run(Path::new(&path), &diff_args, TIMEOUT_QUICK)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        for file in diff_resp.stdout.lines() {
+            let file = file.trim();
+            if !file.is_empty() && is_excluded(file, &exclusions) {
+                let unstage_args: Vec<String> =
+                    vec!["restore".into(), "--staged".into(), file.to_string()];
+                let _ = state
+                    .git
+                    .run(Path::new(&path), &unstage_args, TIMEOUT_QUICK)
+                    .await;
+            }
+        }
+    }
+
     let args: Vec<String> = vec!["commit".into(), "-m".into(), message];
     let resp = state
         .git
@@ -248,7 +315,25 @@ pub async fn cmd_git_add_all(
     state: State<'_, AppState>,
     repo_path: Option<String>,
 ) -> Result<String, String> {
-    let resp = git_run(&state, repo_path, &["add", "."], TIMEOUT_LOCAL).await?;
+    let path = resolve_repo_path(&state, repo_path)?;
+
+    let exclusions = {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.excluded_files.clone()
+    };
+
+    let mut args = vec!["add".to_string(), ".".to_string()];
+    for exc in exclusions {
+        if !exc.trim().is_empty() {
+            args.push(format!(":!{}", exc));
+        }
+    }
+
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(resp.stdout)
 }
 
@@ -410,14 +495,23 @@ pub async fn cmd_get_status_files(
         .await
         .map_err(|e| e.to_string())?;
 
+    let exclusions = {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.excluded_files.clone()
+    };
+
     let mut results = Vec::new();
 
     for line in resp.stdout.lines() {
         if line.len() < 4 {
             // "?? file" is 3+chars but usually safe.
             if line.starts_with("?? ") {
+                let path = line[3..].trim().to_string();
+                if is_excluded(&path, &exclusions) {
+                    continue;
+                }
                 results.push(FileStatus {
-                    path: line[3..].trim().to_string(),
+                    path,
                     status: "??".to_string(),
                     staged: false,
                 });
@@ -431,6 +525,10 @@ pub async fn cmd_get_status_files(
         let x = chars[0];
         let y = chars[1];
         let file_path = line[3..].trim().to_string();
+
+        if is_excluded(&file_path, &exclusions) {
+            continue;
+        }
 
         // Staged status (X)
         if x != ' ' && x != '?' {
@@ -539,6 +637,16 @@ pub async fn cmd_git_add(
     repo_path: Option<String>,
 ) -> Result<(), String> {
     let r_path = resolve_repo_path(&state, repo_path)?;
+
+    let exclusions = {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.excluded_files.clone()
+    };
+
+    if is_excluded(&path, &exclusions) {
+         return Err(format!("File {} is excluded from git operations", path));
+    }
+
     let args: Vec<String> = vec!["add".into(), path];
     state
         .git

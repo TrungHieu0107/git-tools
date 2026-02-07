@@ -24,6 +24,7 @@ export interface FileStatus {
 export interface AppSettings {
   repos: RepoEntry[];
   active_repo_id: string | null;
+  excluded_files: string[];
 }
 
 export class GitService {
@@ -31,6 +32,10 @@ export class GitService {
 
   static async getSettings(): Promise<AppSettings> {
     return invoke("cmd_get_settings");
+  }
+
+  static async setExcludedFiles(exclusions: string[]): Promise<AppSettings> {
+    return invoke("cmd_set_excluded_files", { exclusions });
   }
 
   static async addRepo(name: string, path: string): Promise<AppSettings> {
