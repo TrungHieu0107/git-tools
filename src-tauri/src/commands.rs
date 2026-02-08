@@ -1463,6 +1463,39 @@ fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {
     files
 }
 
+#[tauri::command]
+pub async fn cmd_get_commit_changed_files(
+    state: State<'_, AppState>,
+    commit_hash: String,
+    repo_path: Option<String>,
+) -> Result<Vec<String>, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+
+    // git diff-tree --no-commit-id --name-only -r <commit_hash>
+    let args = vec![
+        "diff-tree".to_string(),
+        "--no-commit-id".to_string(),
+        "--name-only".to_string(),
+        "-r".to_string(),
+        commit_hash,
+    ];
+
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let files: Vec<String> = resp
+        .stdout
+        .lines()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    Ok(files)
+}
+
 // ---------------------------------------------------------------------------
 // Terminal Commands
 // ---------------------------------------------------------------------------

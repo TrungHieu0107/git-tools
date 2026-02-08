@@ -291,7 +291,7 @@
        <div 
           class="flex items-center gap-2 py-1 px-2 cursor-pointer hover:bg-[#21262d] rounded text-xs truncate group
                  {node.fullPath === currentBranch ? 'bg-[#1f6feb]/20 text-[#58a6ff]' : 'text-[#c9d1d9]'}"
-          onclick={() => handleBranchClick(node)}
+          ondblclick={() => handleBranchClick(node)}
           oncontextmenu={(e) => handleContextMenu(e, node)}
           title={node.fullPath}
           role="button"

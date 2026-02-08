@@ -79,6 +79,7 @@ fn main() {
             commands::cmd_terminal_start,
             commands::cmd_terminal_write,
             commands::cmd_terminal_stop,
+            commands::cmd_get_commit_changed_files,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

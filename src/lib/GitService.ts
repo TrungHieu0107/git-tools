@@ -344,6 +344,15 @@ export class GitService {
     return invoke("cmd_search_repo_files", { pattern, repoPath });
   }
 
+  static async getCommitChangedFiles(commitHash: string, repoPath?: string): Promise<string[]> {
+    try {
+      return await invoke<string[]>("cmd_get_commit_changed_files", { commitHash, repoPath });
+    } catch (e: any) {
+      console.error("Failed to get changed files for commit", e);
+      throw e;
+    }
+  }
+
   static async getCommitDiff(commitHash: string, repoPath?: string, filePath?: string): Promise<import("./types").CommitDiff> {
     return invoke("cmd_get_commit_diff", { commitHash, filePath, repoPath });
   }

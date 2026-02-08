@@ -119,6 +119,13 @@
     }
   });
 
+  // Auto-load graph when switching to the Graph tab
+  $effect(() => {
+    if (activeTab === 'graph' && repoPath && graphNodes.length === 0 && !graphLoading) {
+        loadGraph(false);
+    }
+  });
+
   function navigateToRepos() {
       // asking parent to switch to repo manager?
       // Or just local view state?
