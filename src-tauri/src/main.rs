@@ -19,6 +19,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
             let app_state = AppState::new(git_binary);
             let saved_settings = settings::load_settings(app.handle());
@@ -40,6 +41,8 @@ fn main() {
             commands::cmd_add_repo,
             commands::cmd_remove_repo,
             commands::cmd_set_active_repo,
+            commands::cmd_open_repo,
+            commands::cmd_close_repo,
             commands::cmd_get_active_repo,
             commands::cmd_git_status,
             commands::cmd_set_excluded_files,
@@ -57,6 +60,7 @@ fn main() {
             commands::cmd_get_current_branch,
             commands::cmd_git_switch_branch,
             commands::cmd_git_checkout_new_branch,
+            commands::cmd_git_create_branch,
             commands::cmd_git_merge,
             commands::cmd_get_pending_commits_count,
             commands::cmd_get_status_files,

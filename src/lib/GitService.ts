@@ -24,6 +24,7 @@ export interface FileStatus {
 export interface AppSettings {
   repos: RepoEntry[];
   active_repo_id: string | null;
+  open_repo_ids: string[];
   excluded_files: string[];
 }
 
@@ -48,6 +49,14 @@ export class GitService {
 
   static async setActiveRepo(id: string): Promise<AppSettings> {
     return invoke("cmd_set_active_repo", { id });
+  }
+
+  static async openRepo(id: string): Promise<AppSettings> {
+    return invoke("cmd_open_repo", { id });
+  }
+
+  static async closeRepo(id: string): Promise<AppSettings> {
+    return invoke("cmd_close_repo", { id });
   }
 
   static async getActiveRepo(): Promise<RepoEntry | null> {
@@ -195,6 +204,21 @@ export class GitService {
           triggerGraphReload();
       } else {
           toast.error(`Failed to create branch: ${res.stderr}`);
+      }
+      return res;
+    } catch (e: any) {
+      toast.error(`Failed to create branch: ${e}`);
+      throw e;
+    }
+  }
+
+  static async createBranch(name: string, base: string, repoPath?: string): Promise<GitCommandResult> {
+    try {
+      const res = await invoke<GitCommandResult>("cmd_git_create_branch", { name, base, repoPath });
+      if (res.success) {
+        toast.success(`Branch '${name}' created successfully`);
+      } else {
+        toast.error(`Failed to create branch: ${res.stderr}`);
       }
       return res;
     } catch (e: any) {

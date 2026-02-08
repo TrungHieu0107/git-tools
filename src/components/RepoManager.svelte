@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { GitService, type AppSettings } from '../lib/GitService';
+  import { open } from '@tauri-apps/plugin-dialog';
 
   let settings = $state<AppSettings | null>(null);
   let loading = $state(true);
@@ -26,14 +27,44 @@
     loadSettings();
   });
 
+  async function browsePath() {
+      try {
+          const selected = await open({
+              directory: true,
+              multiple: false,
+              title: "Select Repository Folder"
+          });
+          if (selected) {
+              newRepoPath = selected as string;
+              // Auto-fill name if empty - handle trailing slashes
+              if (!newRepoName) {
+                  const cleanedPath = newRepoPath.replace(/[\\/]+$/, '');
+                  const parts = cleanedPath.split(/[\\/]/);
+                  const folderName = parts[parts.length - 1];
+                  if (folderName) newRepoName = folderName;
+              }
+          }
+      } catch (e) {
+          error = "Failed to open dialog: " + e;
+      }
+  }
+
+  function handleBack() {
+      // Notify parent to close manager
+      window.dispatchEvent(new CustomEvent('close-repo-manager'));
+  }
+
   async function addRepo() {
     if (!newRepoName || !newRepoPath) return;
     adding = true;
     error = null;
     try {
       settings = await GitService.addRepo(newRepoName, newRepoPath);
+      const newId = settings.repos[settings.repos.length - 1].id;
       newRepoName = '';
       newRepoPath = '';
+      // Notify parent to reload and activate the new repo
+      window.dispatchEvent(new CustomEvent('repo-activated', { detail: { id: newId } }));
     } catch (e) {
       error = String(e);
     } finally {
@@ -71,8 +102,18 @@
         </h1>
 
         <!-- Add Repo Form -->
-        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8 shadow-lg">
-            <h2 class="text-sm font-semibold text-gray-400 mb-4 uppercase tracking-wider">Add Repository</h2>
+        <div class="bg-gray-900 border border-gray-800 rounded-lg p-6 mb-8 shadow-lg relative">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Add Repository</h2>
+                {#if settings && settings.open_repo_ids.length > 0}
+                    <button 
+                        class="text-xs text-gray-500 hover:text-gray-300 transition-colors flex items-center gap-1"
+                        onclick={handleBack}
+                    >
+                        ✕ Close
+                    </button>
+                {/if}
+            </div>
             <div class="flex gap-4 items-end">
                 <div class="flex-1">
                     <label class="block text-xs text-gray-500 mb-1">Name</label>
@@ -85,12 +126,21 @@
                 </div>
                 <div class="flex-[2]">
                     <label class="block text-xs text-gray-500 mb-1">Path</label>
-                    <input 
-                        type="text" 
-                        class="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                        placeholder="C:\Users\Dev\Projects\..."
-                        bind:value={newRepoPath}
-                    />
+                    <div class="flex gap-2">
+                        <input 
+                            type="text" 
+                            class="flex-1 bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                            placeholder="C:\Users\Dev\Projects\..."
+                            bind:value={newRepoPath}
+                        />
+                        <button 
+                             class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700 text-sm"
+                             onclick={browsePath}
+                             title="Browse Folder"
+                        >
+                            📂
+                        </button>
+                    </div>
                 </div>
                 <button 
                     class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium text-sm flex items-center gap-2 disabled:opacity-50"

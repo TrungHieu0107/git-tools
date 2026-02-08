@@ -29,6 +29,7 @@ export type GitCommandType =
   | "Pull"
   | "Push"
   | "Fetch"
+  | "Branch"
   | "Other";
 
 export type GitCommandResult = {

@@ -121,10 +121,15 @@ pub fn cmd_add_repo(
     let id = Uuid::new_v4().to_string();
 
     settings.repos.push(RepoEntry {
-        id,
+        id: id.clone(),
         name,
         path,
     });
+
+    // Auto-open on add
+    if !settings.open_repo_ids.contains(&id) {
+        settings.open_repo_ids.push(id);
+    }
 
     save_settings(&app_handle, &settings)?;
     Ok(settings.clone())
@@ -139,6 +144,7 @@ pub fn cmd_remove_repo(
     let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
 
     settings.repos.retain(|r| r.id != id);
+    settings.open_repo_ids.retain(|r_id| *r_id != id);
 
     if let Some(active_id) = &settings.active_repo_id {
         if active_id == &id {
@@ -162,8 +168,71 @@ pub fn cmd_set_active_repo(
         return Err("Repository ID not found".to_string());
     }
 
-    settings.active_repo_id = Some(id);
+    settings.active_repo_id = Some(id.clone());
+    
+    // Auto-open on set active if not already open
+    if !settings.open_repo_ids.contains(&id) {
+        settings.open_repo_ids.push(id);
+    }
+
     save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}
+
+#[tauri::command]
+pub fn cmd_open_repo(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+
+    if !settings.repos.iter().any(|r| r.id == id) {
+        return Err("Repository ID not found".to_string());
+    }
+
+    if !settings.open_repo_ids.contains(&id) {
+        settings.open_repo_ids.push(id);
+        save_settings(&app_handle, &settings)?;
+    }
+
+    Ok(settings.clone())
+}
+
+#[tauri::command]
+pub fn cmd_close_repo(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+
+    if let Some(pos) = settings.open_repo_ids.iter().position(|r_id| *r_id == id) {
+        settings.open_repo_ids.remove(pos);
+
+        // If closing active repo, switch to another one
+        if settings.active_repo_id.as_ref() == Some(&id) {
+             // Try to switch to right neighbor, else left neighbor, else None
+            let next_active = if pos < settings.open_repo_ids.len() {
+                Some(settings.open_repo_ids[pos].clone())
+            } else if pos > 0 {
+                Some(settings.open_repo_ids[pos - 1].clone())
+            } else {
+                None
+            };
+            settings.active_repo_id = next_active;
+        }
+        
+        // Also stop terminal session for this repo to clean up resources
+        let _ = state.terminal.stop_session(&id); // Note: terminal uses repo_path, resolving ID might be needed here. 
+        // Wait, terminal manager uses repo_path. We need to find path from ID.
+        if let Some(repo) = settings.repos.iter().find(|r| r.id == id) {
+             let _ = state.terminal.stop_session(&repo.path);
+        }
+
+        save_settings(&app_handle, &settings)?;
+    }
+
     Ok(settings.clone())
 }
 
@@ -977,6 +1046,23 @@ pub async fn cmd_git_checkout_new_branch(
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
     Ok(map_git_result(resp, GitCommandType::Checkout))
+}
+
+#[tauri::command]
+pub async fn cmd_git_create_branch(
+    state: State<'_, AppState>,
+    name: String,
+    base: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let args: Vec<String> = vec!["branch".into(), name, base];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(map_git_result(resp, GitCommandType::Branch))
 }
 
 #[tauri::command]
