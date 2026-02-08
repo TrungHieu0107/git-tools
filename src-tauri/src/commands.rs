@@ -671,7 +671,11 @@ pub async fn cmd_get_status_files(
         if line.len() < 4 {
             // "?? file" is 3+chars but usually safe.
             if line.starts_with("?? ") {
-                let path = line[3..].trim().to_string();
+                let mut path = line[3..].trim().to_string();
+                if path.starts_with('"') && path.ends_with('"') {
+                    path = path[1..path.len()-1].to_string();
+                }
+
                 if is_excluded(&path, &exclusions) {
                     continue;
                 }
@@ -689,7 +693,11 @@ pub async fn cmd_get_status_files(
         
         let x = chars[0];
         let y = chars[1];
-        let file_path = line[3..].trim().to_string();
+        let mut file_path = line[3..].trim().to_string();
+
+        if file_path.starts_with('"') && file_path.ends_with('"') {
+            file_path = file_path[1..file_path.len()-1].to_string();
+        }
 
         if is_excluded(&file_path, &exclusions) {
             continue;
@@ -868,7 +876,10 @@ pub async fn cmd_get_conflicts(
         let status = &line[0..2];
         match status {
             "UU" | "AA" | "DU" | "UD" => {
-                let path = line[3..].trim().to_string();
+                let mut path = line[3..].trim().to_string();
+                if path.starts_with('"') && path.ends_with('"') {
+                    path = path[1..path.len()-1].to_string();
+                }
                 conflicts.push(path);
             }
             _ => {}
