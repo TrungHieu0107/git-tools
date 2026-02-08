@@ -4,12 +4,12 @@
   import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
 
   import CommitFileList from "./commit/CommitFileList.svelte";
-  import SideBySideDiffViewer from "./commit/SideBySideDiffViewer.svelte";
-  import InlineDiffViewer from "./commit/InlineDiffViewer.svelte";
-  import DiffToolbar from "./commit/DiffToolbar.svelte";
-  import type { ViewMode } from "./commit/DiffToolbar.svelte";
+
+  import DiffToolbar from "./diff/DiffToolbar.svelte";
+  import type { ViewMode } from "./diff/DiffToolbar.svelte";
   import CommitActions from "./commit/CommitActions.svelte";
   import ResizableSection from "./resize/ResizableSection.svelte";
+  import DiffView from "./diff/DiffView.svelte";
 
   interface Props {
       repoPath?: string;
@@ -27,9 +27,7 @@
   let loadingDiff = $state(false);
   let committing = $state(false);
 
-  // View mode and hunk navigation state
-  let viewMode = $state<ViewMode>("side-by-side");
-  let currentHunkIndex = $state(0);
+
 
   // Lift diff computation so all view modes share a single result
   let diffResult = $derived.by<DiffResult | null>(() => {
@@ -109,7 +107,7 @@
 
   function handleSelect(file: FileStatus) {
       selectedFile = file;
-      currentHunkIndex = 0;
+
       // Refresh file lists so changes made outside the app (e.g. in an
       // editor) are picked up whenever the user switches files.
       loadStatus(true);
@@ -168,30 +166,7 @@
       } catch (e) { /* toast handled */ }
   }
 
-  // ── View mode & hunk navigation ────────────────────────────────
-  function handleViewModeChange(mode: ViewMode) {
-      viewMode = mode;
-      currentHunkIndex = 0;
-  }
 
-  function handlePrevHunk() {
-      if (currentHunkIndex > 0) {
-          currentHunkIndex--;
-          scrollToHunk(currentHunkIndex);
-      }
-  }
-
-  function handleNextHunk() {
-      if (currentHunkIndex < hunks.length - 1) {
-          currentHunkIndex++;
-          scrollToHunk(currentHunkIndex);
-      }
-  }
-
-  function scrollToHunk(index: number) {
-      const el = document.querySelector(`[data-hunk-id="hunk-${index}"]`);
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
 
   $effect(() => {
       if (repoPath) {
@@ -278,45 +253,34 @@
                  Select a file to view diff
              </div>
         {:else}
-             <!-- File header bar -->
-             <div class="h-8 px-3 flex items-center gap-2 border-b border-[#30363d] bg-[#161b22] shrink-0">
-                 <span class="text-xs font-mono text-[#8b949e]">{selectedFile.path}</span>
-                 <span class="text-[10px] px-1.5 py-0.5 rounded border border-[#30363d] text-[#8b949e]">
-                     {selectedFile.staged ? 'STAGED' : 'UNSTAGED'}
-                 </span>
-             </div>
+             <DiffView 
+                 {diffResult}
+                 {hunks}
+                 loading={loadingDiff}
+                 {isTooLarge}
+             >
+                {#snippet header(toolbarProps)}
+                    <!-- File header bar -->
+                    <div class="h-8 px-3 flex items-center gap-2 border-b border-[#30363d] bg-[#161b22] shrink-0">
+                        <span class="text-xs font-mono text-[#8b949e]">{selectedFile.path}</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded border border-[#30363d] text-[#8b949e]">
+                            {selectedFile.staged ? 'STAGED' : 'UNSTAGED'}
+                        </span>
+                    </div>
 
-             <!-- Diff toolbar: view mode toggle + hunk navigation -->
-             <DiffToolbar
-                 {viewMode}
-                 onViewModeChange={handleViewModeChange}
-                 {currentHunkIndex}
-                 totalHunks={hunks.length}
-                 onPrevHunk={handlePrevHunk}
-                 onNextHunk={handleNextHunk}
-             />
-
-             <!-- Diff viewer: conditional on selected mode -->
-             {#if viewMode === "inline"}
-                 {#if diffResult}
-                     <InlineDiffViewer {diffResult} {hunks} loading={loadingDiff} />
-                 {:else if isTooLarge}
-                     <div class="flex-1 flex items-center justify-center text-[#8b949e] text-sm italic">
-                         File too large for diff view
-                     </div>
-                 {:else if !loadingDiff}
-                     <div class="flex-1 flex items-center justify-center text-[#8b949e] text-sm italic">
-                         No diff content
-                     </div>
-                 {/if}
-             {:else}
-                 <SideBySideDiffViewer
-                     {diffResult}
-                     loading={loadingDiff}
-                     {isTooLarge}
-                     hunks={viewMode === "hunk" ? hunks : null}
-                 />
-             {/if}
+                    <!-- Diff Toolbar passed from DiffView state -->
+                    <div class="border-b border-[#30363d] bg-[#161b22]">
+                        <DiffToolbar
+                            viewMode={toolbarProps.viewMode}
+                            onViewModeChange={toolbarProps.onViewModeChange}
+                            currentHunkIndex={toolbarProps.currentHunkIndex}
+                            totalHunks={toolbarProps.totalHunks}
+                            onPrevHunk={toolbarProps.onPrevHunk}
+                            onNextHunk={toolbarProps.onNextHunk}
+                        />
+                    </div>
+                {/snippet}
+             </DiffView>
         {/if}
     </div>
 </div>

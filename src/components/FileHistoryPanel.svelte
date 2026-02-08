@@ -2,10 +2,8 @@
   import { GitService } from "../lib/GitService";
   import type { FileCommit, CommitDiff, DiffHunk as BackendDiffHunk } from "../lib/types";
   import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
-  import InlineDiffViewer from "./commit/InlineDiffViewer.svelte";
-  import SideBySideDiffViewer from "./commit/SideBySideDiffViewer.svelte";
-  import DiffToolbar from "./commit/DiffToolbar.svelte";
-  import type { ViewMode } from "./commit/DiffToolbar.svelte";
+  import DiffView from "./diff/DiffView.svelte";
+  import DiffToolbar from "./diff/DiffToolbar.svelte";
 
   interface Props {
     repoPath: string;
@@ -33,10 +31,6 @@
   let baseContent = $state("");
   let modifiedContent = $state("");
   let commitHunks = $state<BackendDiffHunk[]>([]);
-
-  // View mode and hunk navigation
-  let viewMode = $state<ViewMode>("side-by-side");
-  let currentHunkIndex = $state(0);
 
   // Derived: full-file diff for side-by-side and hunk modes (same pattern as CommitPanel)
   let diffResult = $derived.by<DiffResult | null>(() => {
@@ -184,7 +178,7 @@
       baseContent = "";
       modifiedContent = "";
       commitHunks = [];
-      currentHunkIndex = 0;
+
 
       try {
           // Step 1: Get file-scoped diff (hunks + parent hash)
@@ -221,25 +215,7 @@
       }
   }
 
-  // Hunk navigation
-  function prevHunk() {
-      if (currentHunkIndex > 0) {
-          currentHunkIndex--;
-          scrollToCurrentHunk();
-      }
-  }
 
-  function nextHunk() {
-      if (currentHunkIndex < totalHunks - 1) {
-          currentHunkIndex++;
-          scrollToCurrentHunk();
-      }
-  }
-
-  function scrollToCurrentHunk() {
-      const el = document.querySelector(`[data-hunk-id="hunk-${currentHunkIndex}"]`);
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
 
   function formatDate(dateStr: string): string {
     if (!dateStr) return "";
@@ -431,51 +407,29 @@
       <!-- Right Column: Diff View -->
       <div class="flex-1 overflow-hidden flex flex-col bg-[#0d1117]">
         {#if selectedCommitHash}
-          <!-- Toolbar -->
-          <div class="sticky top-0 z-20 bg-[#161b22] border-b border-[#30363d] px-4 py-2 flex items-center justify-between shrink-0">
-            <div class="text-xs font-mono text-[#8b949e]">
-              Commit {selectedCommitHash.substring(0, 7)}
-            </div>
-            <DiffToolbar
-              {viewMode}
-              onViewModeChange={(m) => { viewMode = m; currentHunkIndex = 0; }}
-              {currentHunkIndex}
-              {totalHunks}
-              onPrevHunk={prevHunk}
-              onNextHunk={nextHunk}
-            />
-          </div>
-
-          <!-- Diff Content -->
-          <div class="flex-1 overflow-auto custom-scrollbar">
-            {#if diffLoading}
-              <div class="flex items-center justify-center p-8 text-[#8b949e]">
-                <svg class="animate-spin h-6 w-6 mr-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                Loading diff...
-              </div>
-            {:else if viewMode === 'inline'}
-              <InlineDiffViewer
-                {diffResult}
-                {hunks}
-                loading={false}
-              />
-            {:else if viewMode === 'hunk'}
-              <SideBySideDiffViewer
-                {diffResult}
-                loading={false}
-                {isTooLarge}
-                hunks={hunks}
-                navigationHunks={hunks}
-              />
-            {:else}
-              <SideBySideDiffViewer
-                {diffResult}
-                loading={false}
-                {isTooLarge}
-                navigationHunks={hunks}
-              />
-            {/if}
-          </div>
+          <DiffView 
+              {diffResult}
+              {hunks}
+              loading={diffLoading}
+              {isTooLarge}
+          >
+            {#snippet header(toolbarProps)}
+                <!-- Toolbar -->
+                <div class="bg-[#161b22] border-b border-[#30363d] px-4 py-2 flex items-center justify-between shrink-0">
+                    <div class="text-xs font-mono text-[#8b949e]">
+                    Commit {selectedCommitHash?.substring(0, 7)}
+                    </div>
+                    <DiffToolbar
+                    viewMode={toolbarProps.viewMode}
+                    onViewModeChange={toolbarProps.onViewModeChange}
+                    currentHunkIndex={toolbarProps.currentHunkIndex}
+                    totalHunks={toolbarProps.totalHunks}
+                    onPrevHunk={toolbarProps.onPrevHunk}
+                    onNextHunk={toolbarProps.onNextHunk}
+                    />
+                </div>
+            {/snippet}
+          </DiffView>
         {:else}
           <div class="h-full flex flex-col items-center justify-center text-[#8b949e] text-sm">
             <svg class="w-10 h-10 mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">

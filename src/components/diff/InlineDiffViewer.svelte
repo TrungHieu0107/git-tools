@@ -5,6 +5,7 @@
     type DiffHunk,
     type InlineDiffLine,
     mapBackendHunksToInline,
+    escapeHtml,
   } from "../../lib/diff";
   import type { DiffHunk as BackendDiffHunk } from "../../lib/types";
 
@@ -12,9 +13,8 @@
     diffResult?: DiffResult | null;
     hunks?: DiffHunk[];
     commitHunks?: BackendDiffHunk[];
-    loading: boolean;
   }
-  let { diffResult, hunks = [], commitHunks = [], loading }: Props = $props();
+  let { diffResult, hunks = [], commitHunks = [] }: Props = $props();
 
   let inlineLines = $derived.by<InlineDiffLine[]>(() => {
     if (commitHunks.length > 0) {
@@ -104,39 +104,9 @@
     }
   }
 
-  function escapeHtml(unsafe: string): string {
-    return unsafe
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
 </script>
 
 <div class="flex-1 overflow-hidden bg-[#0d1117] h-full relative flex flex-col">
-  {#if loading}
-    <div
-      class="absolute inset-0 flex items-center justify-center bg-[#0d1117]/50 z-10"
-    >
-      <svg
-        class="animate-spin h-6 w-6 text-[#8b949e]"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <path
-          d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
-        />
-      </svg>
-    </div>
-  {/if}
-
-  <!-- Panel header (Only show if not in commitHunks mode? Or always?) -->
-  <!-- If used in GlobalDiffViewer, maybe header is redundant or we want it. -->
-  <!-- CommitPanel uses it. GlobalViewer might want it or not. -->
-  <!-- We'll keep it for now. -->
   <div
     class="flex shrink-0 border-b border-[#30363d] text-[10px] uppercase tracking-wider text-[#8b949e] font-semibold"
   >

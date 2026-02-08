@@ -23,7 +23,7 @@ fn main() {
         .setup(move |app| {
             let app_state = AppState::new(git_binary);
             let saved_settings = settings::load_settings(app.handle());
-            *app_state.settings.lock().unwrap() = saved_settings;
+            *app_state.settings.lock().expect("Failed to lock settings") = saved_settings;
 
             app.manage(app_state);
             Ok(())
@@ -80,6 +80,7 @@ fn main() {
             commands::cmd_terminal_write,
             commands::cmd_terminal_stop,
             commands::cmd_get_commit_changed_files,
+            commands::cmd_get_commit_file_diff,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,18 +1,17 @@
 <script lang="ts">
-  import { type DiffLine, type DiffResult, type DiffHunk, mapBackendHunksToSideBySide } from "../../lib/diff";
+  import { type DiffLine, type DiffResult, type DiffHunk, mapBackendHunksToSideBySide, escapeHtml } from "../../lib/diff";
   import type { DiffHunk as BackendDiffHunk } from "../../lib/types";
   import ResizablePanes from "../resize/ResizablePanes.svelte";
 
   interface Props {
     diffResult: DiffResult | null;
-    loading: boolean;
     isTooLarge?: boolean;
     hunks?: DiffHunk[] | null; // When non-null, render hunk view instead of full diff
     commitHunks?: BackendDiffHunk[]; // New backend hunks
     autoHeight?: boolean; // New prop for global viewer
     navigationHunks?: DiffHunk[]; // Optional hunks for placing data-hunk-id markers in full side-by-side view
   }
-  let { diffResult, loading, isTooLarge = false, hunks = null, commitHunks = [], autoHeight = false, navigationHunks }: Props = $props();
+  let { diffResult, isTooLarge = false, hunks = null, commitHunks = [], autoHeight = false, navigationHunks }: Props = $props();
 
   let effectiveHunks = $derived.by<DiffHunk[] | null>(() => {
       if (commitHunks.length > 0) {
@@ -72,34 +71,10 @@
     }
   }
 
-  function escapeHtml(unsafe: string): string {
-    return unsafe
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  }
 </script>
 
 <div class="flex-1 overflow-hidden bg-[#0d1117] relative flex flex-col" class:h-full={!autoHeight} class:h-auto={autoHeight} class:overflow-visible={autoHeight}>
-  {#if loading}
-    <div class="absolute inset-0 flex items-center justify-center bg-[#0d1117]/50 z-10">
-      <svg
-        class="animate-spin h-6 w-6 text-[#8b949e]"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-      >
-        <path
-          d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
-        />
-      </svg>
-    </div>
-  {/if}
-
-  {#if (!diffResult && !effectiveHunks && !loading && !isTooLarge) || (effectiveHunks && effectiveHunks.length === 0 && !diffResult)}
+  {#if (!diffResult && !effectiveHunks && !isTooLarge) || (effectiveHunks && effectiveHunks.length === 0 && !diffResult)}
     <div
       class="flex items-center justify-center p-8 text-[#8b949e] text-sm italic flex-1"
     >

@@ -353,6 +353,10 @@ export class GitService {
     }
   }
 
+  static async getCommitFileDiff(commitHash: string, filePath: string, repoPath?: string): Promise<GitCommandResult> {
+    return invoke("cmd_get_commit_file_diff", { commitHash, filePath, repoPath });
+  }
+
   static async getCommitDiff(commitHash: string, repoPath?: string, filePath?: string): Promise<import("./types").CommitDiff> {
     return invoke("cmd_get_commit_diff", { commitHash, filePath, repoPath });
   }

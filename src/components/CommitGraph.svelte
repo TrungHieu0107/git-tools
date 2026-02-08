@@ -4,7 +4,9 @@
   import { GitService } from "../lib/GitService";
   import { confirm } from "../lib/confirmation.svelte";
   import ResizablePanel from "./resize/ResizablePanel.svelte";
-  import type { CommitDiff } from "../lib/types";
+  import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
+  import DiffView from "./diff/DiffView.svelte";
+  import DiffToolbar from "./diff/DiffToolbar.svelte";
 
   interface Props {
     nodes?: GraphNode[];
@@ -22,6 +24,8 @@
   const STROKE_WIDTH = 2;
   const PADDING_TOP = 8;
   const PADDING_LEFT = 10;
+
+  const HEADER_BASE = "h-8 flex items-center bg-[#161b22] border-b border-[#30363d] shrink-0";
   
   // -- State -- 
   interface Column {
@@ -49,28 +53,117 @@
   let changedFiles = $state<string[]>([]);
   let isLoadingFiles = $state(false);
 
+  // Diff View State
+  let leftPanelMode = $state<'graph' | 'diff'>('graph');
+  let selectedDiffFile = $state<string | null>(null);
+  let isLoadingDiff = $state(false);
+  let baseContent = $state("");
+  let modifiedContent = $state("");
+
+  // Derived: full-file diff for side-by-side view (same pattern as CommitPanel/FileHistoryPanel)
+  let diffResult = $derived.by<DiffResult | null>(() => {
+      if (!baseContent && !modifiedContent) return null;
+      if (isLargeFile(baseContent) || isLargeFile(modifiedContent)) return null;
+      return computeDiff(baseContent, modifiedContent);
+  });
+
+  let isTooLarge = $derived(
+      isLargeFile(baseContent) || isLargeFile(modifiedContent)
+  );
+
+  // Extract change hunks with context for hunk view mode
+  let hunks = $derived.by<DiffHunk[]>(() => {
+      if (!diffResult) return [];
+      return extractHunks(diffResult, 3);
+  });
+
   async function selectCommit(node: GraphNode) {
       if (selectedCommit?.hash === node.hash) return;
       
       selectedCommit = node;
       changedFiles = [];
+      // Reset diff view when switching commits (optional, or keep if same file exists?)
+      closeDiff(); 
       
       if (!repoPath) return;
 
       isLoadingFiles = true;
+      const targetHash = node.hash;
       try {
-          changedFiles = await GitService.getCommitChangedFiles(node.hash, repoPath);
+          const files = await GitService.getCommitChangedFiles(node.hash, repoPath);
+          if (selectedCommit?.hash === targetHash) {
+              changedFiles = files;
+          }
       } catch (e) {
           console.error("Failed to load commit files", e);
       } finally {
-          isLoadingFiles = false;
+          if (selectedCommit?.hash === targetHash) {
+              isLoadingFiles = false;
+          }
       }
   }
 
   function closeDetails() {
       selectedCommit = null;
       changedFiles = [];
+      closeDiff();
   }
+
+  async function openDiff(file: string) {
+      if (!selectedCommit || !repoPath) return;
+
+      selectedDiffFile = file;
+      leftPanelMode = 'diff';
+      isLoadingDiff = true;
+      baseContent = "";
+      modifiedContent = "";
+
+      try {
+          // Step 1: Get commit diff to find parent hash
+          const diff = await GitService.getCommitDiff(selectedCommit.hash, repoPath, file);
+
+          if (selectedDiffFile !== file) return; // Race check
+
+          // Step 2: Fetch full file contents in parallel for side-by-side view
+          const promises: Promise<string>[] = [];
+          // Modified content (file at selected commit)
+          promises.push(
+              GitService.getFileAtCommit(selectedCommit.hash, file, repoPath)
+                  .catch(() => "") // File might not exist (deleted)
+          );
+          // Base content (file at parent commit)
+          if (diff.parentHash) {
+              promises.push(
+                  GitService.getFileAtCommit(diff.parentHash, file, repoPath)
+                      .catch(() => "") // File might not exist at parent (newly added)
+              );
+          } else {
+              promises.push(Promise.resolve("")); // Root commit — no parent
+          }
+
+          const [mod, base] = await Promise.all(promises);
+
+          if (selectedDiffFile !== file) return; // Race check
+
+          modifiedContent = mod;
+          baseContent = base;
+      } catch (e) {
+          console.error("Failed to load diff", e);
+      } finally {
+          if (selectedDiffFile === file || selectedDiffFile === null) {
+              isLoadingDiff = false;
+          }
+      }
+  }
+
+  function closeDiff() {
+      leftPanelMode = 'graph';
+      selectedDiffFile = null;
+      baseContent = "";
+      modifiedContent = "";
+      isLoadingDiff = false;
+  }
+
 
   // Persistence
   onMount(() => {
@@ -204,10 +297,50 @@
 <div class="w-full h-full overflow-hidden flex bg-[#0d1117] font-sans">
   
   <!-- Main Graph Area -->
-  <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+  <div class="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        {#if leftPanelMode === 'diff'}
+            <!-- Diff View Overlay -->
+             <div class="absolute inset-0 z-20 flex flex-col bg-[#0d1117]">
+             <DiffView
+                 {diffResult}
+                 {hunks}
+                 loading={isLoadingDiff}
+                 {isTooLarge}
+             >
+                {#snippet header(toolbarProps)}
+                    <div class="{HEADER_BASE} px-2 justify-between">
+                        <div class="flex items-center gap-2 overflow-hidden flex-1 mr-4">
+                            <button 
+                                class="text-xs text-[#8b949e] hover:text-[#c9d1d9] flex items-center gap-1 hover:bg-[#30363d] px-2 py-0.5 rounded transition-colors shrink-0"
+                                onclick={closeDiff}
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                                Back to Graph
+                            </button>
+                            <div class="w-px h-3 bg-[#30363d] shrink-0"></div>
+                            <span class="text-xs font-mono text-[#c9d1d9] truncate min-w-0" title={selectedDiffFile}>{selectedDiffFile}</span>
+                        </div>
+
+                        <!-- Diff Toolbar -->
+                        <div class="shrink-0">
+                                <DiffToolbar 
+                                viewMode={toolbarProps.viewMode}
+                                onViewModeChange={toolbarProps.onViewModeChange}
+                                currentHunkIndex={toolbarProps.currentHunkIndex}
+                                totalHunks={toolbarProps.totalHunks}
+                                onPrevHunk={toolbarProps.onPrevHunk}
+                                onNextHunk={toolbarProps.onNextHunk}
+                                />
+                        </div>
+                    </div>
+                {/snippet}
+             </DiffView>
+             </div>
+        {/if}
+
         <!-- Toolbar / Menu -->
-        <div class="h-8 flex items-center px-2 bg-[#161b22] border-b border-[#30363d] relative shrink-0">
-            <button 
+        <div class="{HEADER_BASE} px-2 relative">
+            <button  
                 onclick={() => showMenu = !showMenu}
                 class="text-xs text-[#8b949e] hover:text-[#c9d1d9] px-2 py-1 rounded hover:bg-[#21262d] flex items-center gap-1 transition-colors"
             >
@@ -404,8 +537,8 @@
       <ResizablePanel side="left" initialSize={320} minSize={200} maxSize={600}>
           <div class="h-full flex flex-col bg-[#0d1117] border-l border-[#30363d]">
               <!-- Header -->
-              <div class="flex items-center justify-between px-3 py-2 border-b border-[#30363d] bg-[#161b22] shrink-0">
-                  <span class="text-xs font-bold text-[#c9d1d9]">Commit Details</span>
+              <div class="{HEADER_BASE} justify-between px-2">
+                  <span class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider">Commit Details</span>
                   <button class="text-[#8b949e] hover:text-white p-1 rounded" onclick={closeDetails} title="Close">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                   </button>
@@ -436,7 +569,7 @@
                   
                   <!-- Changes -->
                   <div class="mt-4">
-                      <div class="text-xs font-bold text-[#8b949e] uppercase tracking-wider mb-2 flex justify-between items-center">
+                      <div class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-2 flex justify-between items-center">
                           <span>Changed Files</span>
                           {#if changedFiles.length > 0}
                               <span class="text-[10px] font-normal bg-[#30363d] text-[#c9d1d9] px-1.5 rounded-full">{changedFiles.length}</span>
@@ -451,9 +584,16 @@
                       {:else if changedFiles.length > 0}
                           <div class="space-y-0.5">
                               {#each changedFiles as file}
-                                  <div class="flex items-start gap-2 py-1 px-1 hover:bg-[#161b22] rounded text-xs group cursor-default" title={file}>
+                                  <div 
+                                      class="flex items-start gap-2 py-1 px-1 hover:bg-[#161b22] rounded text-xs group cursor-pointer {selectedDiffFile === file ? 'bg-[#30363d] text-white' : ''}" 
+                                      title={file}
+                                      onclick={() => openDiff(file)}
+                                      role="button"
+                                      tabindex="0"
+                                      onkeydown={(e) => e.key === 'Enter' && openDiff(file)}
+                                  >
                                       <svg class="shrink-0 text-[#8b949e] w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
-                                      <span class="truncate text-[#c9d1d9] leading-tight break-all font-mono">
+                                      <span class="truncate text-[#c9d1d9] leading-tight break-all">
                                           {file}
                                       </span>
                                   </div>

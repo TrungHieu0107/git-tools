@@ -31,6 +31,15 @@ export interface InlineDiffLine {
   sourceIndex: number; // index into DiffResult arrays — maps to hunk ranges
 }
 
+export function escapeHtml(unsafe: string): string {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 const MAX_DIFF_LINES = 10_000;
 
 /** Quick check to avoid O(n*m) blow-up on huge files. */
@@ -410,4 +419,202 @@ export function mapBackendHunksToSideBySide(hunks: BackendDiffHunk[]): DiffHunk[
         lines: pairedLines,
     };
   });
+}
+
+// ── Parsing Raw Git Diff ────────────────────────────────────────
+
+export interface ParsedDiff {
+    diff: DiffResult;
+    hunks: DiffHunk[];
+}
+
+/**
+ * Parses the raw output of `git show <commit> -- <path>` into a ParsedDiff.
+ * This handles standard unified diff format.
+ */
+export function parseGitDiff(diffOutput: string): ParsedDiff {
+    const lines = diffOutput.split('\n');
+    const left: DiffLine[] = [];
+    const right: DiffLine[] = [];
+    const hunks: DiffHunk[] = [];
+
+    let oldLn = 0;
+    let newLn = 0;
+
+    let inDiff = false;
+    let currentHunk: DiffHunk | null = null;
+    let hunkStartIndex = 0; // Index in the global left/right arrays where the current hunk starts
+
+    for (const line of lines) {
+        if (line.startsWith('@@ ')) {
+            inDiff = true;
+            
+            // Close previous hunk if exists
+            if (currentHunk) {
+                currentHunk.endIndex = left.length;
+                hunks.push(currentHunk);
+            }
+
+            // Parse hunk header: @@ -old,len +new,len @@
+            // Example: @@ -1,4 +1,5 @@
+            const parts = line.split(' ');
+            if (parts.length >= 4) {
+                // -old,len
+                const oldPart = parts[1].substring(1); // remove '-'
+                const oldBase = parseInt(oldPart.split(',')[0], 10);
+                oldLn = isNaN(oldBase) ? 0 : oldBase;
+
+                // +new,len
+                const newPart = parts[2].substring(1); // remove '+'
+                const newBase = parseInt(newPart.split(',')[0], 10);
+                newLn = isNaN(newBase) ? 0 : newBase;
+            }
+
+            hunkStartIndex = left.length;
+            currentHunk = {
+                id: `hunk-${hunks.length}`,
+                startIndex: hunkStartIndex,
+                endIndex: 0, // Will set when hunk closes or finishes
+                lines: [], // Populated as we go? Or derived later? 
+                           // We can populate 'lines' (paired) as we parse, but 'parseGitDiff'
+                           // fills 'left' and 'right' separately. 
+                           // For Hunk view, we want 'lines' which are {left, right} pairs.
+                           // Let's populate it implicitly or just reference indices. 
+                           // Actually, DiffHunk interface has `lines: { left: DiffLine; right: DiffLine }[]`.
+                           // We should fill this to avoid re-parsing for Hunk View.
+                lines: []
+            };
+            continue;
+        }
+
+        if (!inDiff) continue;
+
+        let leftLine: DiffLine | null = null;
+        let rightLine: DiffLine | null = null;
+
+        if (line.startsWith('+')) {
+            // Added
+            leftLine = { content: "", type: "added", lineNumber: null };
+            rightLine = { content: line.substring(1), type: "added", lineNumber: newLn++ };
+        } else if (line.startsWith('-')) {
+            // Removed
+            leftLine = { content: line.substring(1), type: "removed", lineNumber: oldLn++ };
+            rightLine = { content: "", type: "removed", lineNumber: null };
+        } else if (line.startsWith(' ') || line === '') {
+            // Context
+            const content = line.startsWith(' ') ? line.substring(1) : line;
+            leftLine = { content, type: "equal", lineNumber: oldLn++ };
+            rightLine = { content, type: "equal", lineNumber: newLn++ };
+        } else if (line.startsWith('\\ No newline at end of file')) {
+            // Ignore
+        } else {
+            // Check if it's the start of a diff (diff --git ...)
+            // If subsequent file in a multi-file diff (not expected here based on single file command, but good safety)
+            if (line.startsWith('diff --git')) {
+                inDiff = false;
+                if (currentHunk) {
+                     currentHunk.endIndex = left.length;
+                     hunks.push(currentHunk);
+                     currentHunk = null;
+                }
+            }
+            // Otherwise unknown junk
+        }
+
+        if (leftLine && rightLine) {
+            left.push(leftLine);
+            right.push(rightLine);
+            if (currentHunk) {
+                currentHunk.lines.push({ left: leftLine, right: rightLine });
+            }
+        }
+    }
+
+    // Close last hunk
+    if (currentHunk) {
+        currentHunk.endIndex = left.length;
+        hunks.push(currentHunk);
+    }
+    
+    // If no hunks were found (e.g. empty diff or full file?), we might want to treat whole thing as one hunk?
+    // But usually parseGitDiff is for "git show", which guarantees diff output.
+    // If it's a new file (all additions), it usually has @@ -0,0 +1,5 @@.
+    
+    // Optimization: Collapse "modified" blocks (sequential remove then add) within the global left/right arrays
+    // AND within the hunk lines.
+    // This allows Side-by-Side to look good.
+    // We can run `collapseDiff` on the global arrays.
+    // For Hunks, we would need to run collapse on each hunk's lines too if we want them to look good in Side-by-Side mode INSIDE the Hunk view.
+    
+    // For now, let's keep it simple. `collapseDiff` returns new arrays.
+    const collapsedGlobal = collapseDiff(left, right);
+    
+    // We should probably reconstruct hunks from the collapsed result to ensure consistency?
+    // Or just accept that "Hunk Mode" might show disjoint add/remove if we don't collapse them specifically.
+    // Given the requirement "Diff content must ... differ only in presentation", consistency is key.
+    
+    // Let's rely on `collapseDiff` for the global `diff` result (used by SideBySide and Inline).
+    // For `hunks`, we can either leave them uncollapsed (pure patch view) or collapse them.
+    // SideBySide view generally wants collapsed. Hunk view (patch) often keeps them separate.
+    // But "Hunk Mode" in tools like Kraken often just means "Grouped".
+    // Let's return the uncollapsed hunks for now, as they represent the patch structure accurately.
+    // We can improve Hunk visualization later if needed.
+    
+    return {
+        diff: collapsedGlobal,
+        hunks
+    };
+}
+
+function collapseDiff(left: DiffLine[], right: DiffLine[]): DiffResult {
+    const newLeft: DiffLine[] = [];
+    const newRight: DiffLine[] = [];
+    
+    let i = 0;
+    while (i < left.length) {
+        // Look for block of "removed" (left) / "empty" (right)
+        if (left[i].type === 'removed' && right[i].type === 'removed') { // right[i].type is "removed" (empty/padding) from our parser
+             // Buffer removals
+             let remStart = i;
+             while (i < left.length && left[i].type === 'removed') i++;
+             let remEnd = i;
+             
+             // Now check next lines for additions (left=added/empty, right=added)
+             let addStart = i;
+             while (i < left.length && right[i].type === 'added') i++;
+             let addEnd = i;
+             
+             // Setup for merging
+             const remCount = remEnd - remStart;
+             const addCount = addEnd - addStart;
+             const common = Math.min(remCount, addCount);
+             
+             // Push collapsed pairs (Modified)
+             for (let k = 0; k < common; k++) {
+                 newLeft.push({ ...left[remStart + k], type: 'modified' });
+                 newRight.push({ ...right[addStart + k], type: 'modified' });
+             }
+             
+             // Push remaining removals
+             for (let k = common; k < remCount; k++) {
+                 newLeft.push(left[remStart + k]);
+                 newRight.push(right[remStart + k]);
+             }
+             
+             // Push remaining additions
+             for (let k = common; k < addCount; k++) {
+                 newLeft.push(left[addStart + k]);
+                 newRight.push(right[addStart + k]);
+             }
+             
+             continue;
+        }
+        
+        // Context or single side
+        newLeft.push(left[i]);
+        newRight.push(right[i]);
+        i++;
+    }
+    
+    return { left: newLeft, right: newRight };
 }

@@ -1480,20 +1480,51 @@ pub async fn cmd_get_commit_changed_files(
         commit_hash,
     ];
 
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
-        .await
+    let output = std::process::Command::new(state.git.binary_path())
+        .args(&args)
+        .current_dir(&path)
+        .output()
         .map_err(|e| e.to_string())?;
 
-    let files: Vec<String> = resp
-        .stdout
-        .lines()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git diff-tree failed: {}", stderr));
+    }
 
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    
+    // Split by newlines
+    let files: Vec<String> = stdout.lines().map(|s| s.to_string()).collect();
+    
     Ok(files)
+}
+
+#[tauri::command]
+pub async fn cmd_get_commit_file_diff(
+    state: State<'_, AppState>,
+    commit_hash: String,
+    file_path: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+
+    // git show <commit> -- <path>
+    let output = std::process::Command::new(state.git.binary_path())
+        .args(&["show", &commit_hash, "--", &file_path])
+        .current_dir(&path)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    Ok(GitCommandResult {
+        success: output.status.success(),
+        stdout,
+        stderr,
+        exit_code: output.status.code().unwrap_or(-1),
+        command_type: GitCommandType::Other,
+    })
 }
 
 // ---------------------------------------------------------------------------
