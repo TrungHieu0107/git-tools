@@ -26,6 +26,7 @@ export interface AppSettings {
   active_repo_id: string | null;
   open_repo_ids: string[];
   excluded_files: string[];
+  repo_filters: Record<string, string>;
 }
 
 export class GitService {
@@ -37,6 +38,10 @@ export class GitService {
 
   static async setExcludedFiles(exclusions: string[]): Promise<AppSettings> {
     return invoke("cmd_set_excluded_files", { exclusions });
+  }
+
+  static async setRepoFilter(repoId: string, filter: string): Promise<AppSettings> {
+    return invoke("cmd_set_repo_filter", { repoId, filter });
   }
 
   static async addRepo(name: string, path: string): Promise<AppSettings> {
@@ -192,6 +197,22 @@ export class GitService {
       return res;
     } catch (e: any) {
       toast.error(`Failed to switch branch: ${e}`);
+      throw e;
+    }
+  }
+
+  static async checkout(branchName: string, repoPath?: string): Promise<GitCommandResult> {
+    try {
+      const res = await invoke<GitCommandResult>("cmd_git_checkout", { branch: branchName, repoPath });
+      if (res.success) {
+          toast.success(`Checked out branch '${branchName}'`);
+          triggerGraphReload();
+      } else {
+          toast.error(`Checkout failed: ${res.stderr}`);
+      }
+      return res;
+    } catch (e: any) {
+      toast.error(`Checkout failed: ${e}`);
       throw e;
     }
   }

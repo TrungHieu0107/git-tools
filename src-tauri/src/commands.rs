@@ -258,6 +258,25 @@ pub fn cmd_set_excluded_files(
     Ok(settings.clone())
 }
 
+#[tauri::command]
+pub fn cmd_set_repo_filter(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    repo_id: String,
+    filter: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    
+    if filter.is_empty() {
+        settings.repo_filters.remove(&repo_id);
+    } else {
+        settings.repo_filters.insert(repo_id, filter);
+    }
+    
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}
+
 // ---------------------------------------------------------------------------
 // Generic async git command
 // ---------------------------------------------------------------------------

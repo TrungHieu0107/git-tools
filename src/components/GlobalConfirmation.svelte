@@ -29,10 +29,10 @@
 {#if state.isOpen}
   <!-- Backdrop -->
   <div class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-start justify-center pt-10" role="presentation">
-      <!-- Modal Container - Top, 80% width -->
+      <!-- Modal Container - Centered, Compact -->
       <div 
           class="bg-[#161b22] border border-[#30363d] rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-200 flex flex-col"
-          style="width: 80%; max-width: 800px; max-height: 80vh;" 
+          style="width: 420px; max-width: 90vw;" 
           role="dialog"
       >
           <!-- Header -->
@@ -44,8 +44,8 @@
           </div>
           
           <!-- Content -->
-          <div class="p-6 bg-[#161b22] overflow-y-auto">
-              <div class="text-sm text-[#c9d1d9] mb-6 leading-relaxed">
+          <div class="p-4 bg-[#161b22] overflow-y-auto">
+              <div class="text-xs text-[#c9d1d9] mb-4 leading-relaxed">
                   {#if state.options.isHtmlMessage}
                       {@html state.options.message}
                   {:else}
@@ -53,15 +53,15 @@
                   {/if}
               </div>
 
-              <div class="flex justify-end gap-3 pt-2">
+              <div class="flex justify-end gap-2 pt-1">
                    <button 
-                      class="px-4 py-2 text-xs font-medium text-[#c9d1d9] hover:text-white bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded transition-colors"
+                      class="px-3 py-1.5 text-xs font-medium text-[#c9d1d9] hover:text-white bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded transition-colors"
                       onclick={handleCancel}
                    >
                       {state.options.cancelLabel}
                    </button>
                    <button 
-                      class="px-4 py-2 text-xs font-medium text-white bg-[#238636] hover:bg-[#2ea043] rounded border border-[rgba(240,246,252,0.1)] shadow-sm transition-colors focus:ring-2 focus:ring-[#238636] focus:outline-none"
+                      class="px-3 py-1.5 text-xs font-medium text-white bg-[#238636] hover:bg-[#2ea043] rounded border border-[rgba(240,246,252,0.1)] shadow-sm transition-colors focus:ring-2 focus:ring-[#238636] focus:outline-none"
                       onclick={handleConfirm}
                       autofocus
                    >

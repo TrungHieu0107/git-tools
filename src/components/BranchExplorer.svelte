@@ -192,7 +192,7 @@
           // We can assume user knows what they are doing OR do a check.
           // Let's rely on git merge command failing if dirty and conflicting.
           
-          await GitService.merge(node.name, repoPath);
+          await GitService.merge(node.fullPath!, repoPath);
           await loadBranches(); // Refresh in case merge refs changed? (unlikely to change branch list, but good for sync)
           // Also maybe notify success?
           // Since we don't have toast, we do nothing on success except maybe log.

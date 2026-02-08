@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getCreateBranchDialogState, closeCreateBranchDialog } from "../lib/create-branch-dialog.svelte";
   import { GitService } from "../lib/GitService";
+  import { confirm } from "../lib/confirmation.svelte";
 
   const dialogState = getCreateBranchDialogState();
 
@@ -57,7 +58,31 @@
       const res = await GitService.createBranch(branchName.trim(), baseBranch, dialogState.options.repoPath || undefined);
       if (res.success) {
         window.dispatchEvent(new CustomEvent("branch-created"));
+        
+        // Capture necessary data before closing
+        const newBranchName = branchName.trim();
+        const repoPath = dialogState.options.repoPath || undefined;
+
+        // Close "Create Branch" dialog FIRST
         closeCreateBranchDialog();
+        
+        // Prompt for checkout
+        const shouldCheckout = await confirm({
+          title: "Checkout new branch?",
+          message: `Branch <strong>${newBranchName}</strong> was created successfully.<br><br>Do you want to check it out now?`,
+          confirmLabel: "Yes, Checkout",
+          cancelLabel: "No",
+          isHtmlMessage: true
+        });
+
+        if (shouldCheckout) {
+           try {
+             await GitService.checkout(newBranchName, repoPath);
+           } catch (e) {
+             console.error("Checkout failed", e);
+             // Error toast is handled in GitService
+           }
+        }
       } else {
         serverError = res.stderr || "Failed to create branch";
       }

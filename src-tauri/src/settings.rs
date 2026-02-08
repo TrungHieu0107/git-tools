@@ -22,6 +22,8 @@ pub struct AppSettings {
     pub open_repo_ids: Vec<String>,
     #[serde(default)]
     pub excluded_files: Vec<String>,
+    #[serde(default)]
+    pub repo_filters: std::collections::HashMap<String, String>,
 }
 
 use crate::terminal::TerminalManager;
