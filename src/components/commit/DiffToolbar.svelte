@@ -1,6 +1,8 @@
-<script lang="ts">
+<script context="module" lang="ts">
   export type ViewMode = "side-by-side" | "hunk" | "inline";
+</script>
 
+<script lang="ts">
   interface Props {
     viewMode: ViewMode;
     onViewModeChange: (mode: ViewMode) => void;

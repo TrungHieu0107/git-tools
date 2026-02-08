@@ -22,9 +22,12 @@ pub struct AppSettings {
     pub excluded_files: Vec<String>,
 }
 
+use crate::terminal::TerminalManager;
+
 pub struct AppState {
     pub settings: Mutex<AppSettings>,
     pub git: GitExecutor,
+    pub terminal: TerminalManager,
 }
 
 impl AppState {
@@ -32,6 +35,7 @@ impl AppState {
         Self {
             settings: Mutex::new(AppSettings::default()),
             git: GitExecutor::new(git_binary),
+            terminal: TerminalManager::new(),
         }
     }
 }

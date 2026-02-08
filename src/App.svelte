@@ -2,12 +2,12 @@
   import { onMount } from 'svelte';
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { GitService, type RepoEntry, type FileStatus } from './lib/GitService';
-  import { runGit, type GitResponse, type GitError } from "./lib/git";
+  import { runGit, type GitResponse, type GitError } from "./lib/git"; 
   import { getAuthRequiredMessage } from "./lib/git-errors";
   import { parseGitLog, calculateGraphLayout, type GraphNode, type GraphEdge } from "./lib/graph-layout";
   import RepoManager from './components/RepoManager.svelte';
   import Conflicts from './components/Conflicts.svelte';
-  import GitCommandCenter from './components/GitCommandCenter.svelte';
+  import TerminalPanel from './components/TerminalPanel.svelte';
   import RepoSelector from './components/RepoSelector.svelte';
   import CommitGraph from './components/CommitGraph.svelte';
   import CommitPanel from './components/CommitPanel.svelte';
@@ -26,13 +26,8 @@
   let repoPath = $state("");
 
   // Simple view routing
-  let currentView = $state<'repos' | 'conflicts' | 'commands'>('repos');
+  let currentView = $state<'repos' | 'conflicts'>('repos'); 
   
-  // Console State
-  let subcommand = $state("status");
-  let response = $state<GitResponse | null>(null);
-  let error = $state<GitError | null>(null);
-
   // Graph State
   let graphNodes = $state<GraphNode[]>([]);
   let graphEdges = $state<GraphEdge[]>([]);
@@ -40,7 +35,7 @@
   let graphLoading = $state(false);
   let hasConflicts = $state(false);
 
-  let activeTab = $state<"console" | "graph" | "commit" | "history" | "settings">("console");
+  let activeTab = $state<"terminal" | "graph" | "commit" | "history" | "settings">("terminal");
   let pendingPushCount = $state(0);
   let commitPanel = $state<any>(null);
   let selectedFile = $state<FileStatus | null>(null);
@@ -81,24 +76,6 @@
     }
   }
 
-  async function execute() {
-      loading = true;
-      error = null;
-      response = null;
-      activeTab = "console"; // Switch to console on run
-
-      try {
-          const cmdArgs = subcommand.trim().split(/\s+/);
-          response = await runGit(repoPath, cmdArgs);
-          await updateConflictStatus(); // Check conflicts after command
-          commitPanel?.refresh?.();
-      } catch (e) {
-          error = e as GitError;
-      } finally {
-          loading = false;
-      }
-  }
-
   function formatErrorMessage(message: string): string {
     return getAuthRequiredMessage(message) ?? message;
   }
@@ -127,20 +104,24 @@
       }
     } catch (e) {
       console.error("Failed to load graph:", e);
-      error = e as GitError;
-      activeTab = "console";
     } finally {
       graphLoading = false;
     }
   }
 
+  // Subscribe to store manually to avoid runes conflict or linter issue
+  let reloadTrigger = $state(0);
+  onMount(() => {
+      const unsub = graphReloadRequested.subscribe(v => reloadTrigger = v);
+      return unsub;
+  });
+
   $effect(() => {
-    if ($graphReloadRequested > 0 && repoPath) {
+    if (reloadTrigger > 0 && repoPath) {
         // Reload graph but preserve current view (don't force switch to graph tab)
         loadGraph(false);
     }
   });
-
 
 
   function navigateToRepos() {
@@ -214,20 +195,6 @@
 
           <!-- Command Section -->
           <div class="space-y-2">
-              <label for="command" class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-2">
-                {@html Icons.Terminal} CLI Command
-              </label>
-              <div class="flex items-center bg-[#0d1117] border border-[#30363d] rounded-md focus-within:border-[#58a6ff] focus-within:ring-1 focus-within:ring-[#58a6ff] transition-colors overflow-hidden">
-                  <span class="px-2 py-2 text-[#8b949e] bg-[#21262d] border-r border-[#30363d] text-xs font-mono select-none">git</span>
-                  <input
-                      id="command"
-                      type="text"
-                      bind:value={subcommand}
-                      placeholder="status"
-                      onkeydown={(e) => e.key === 'Enter' && execute()}
-                      class="flex-1 bg-transparent px-2 py-2 text-[#c9d1d9] placeholder-[#484f58] outline-none text-xs font-mono"
-                  />
-              </div>
               <div class="flex gap-2">
                  {#if hasConflicts}
                      <button 
@@ -237,12 +204,6 @@
                         ⚠ Conflicts
                      </button>
                  {/if}
-                 <button 
-                    class="text-xs px-2 py-1 rounded hover:bg-gray-800 {currentView === 'commands' ? 'text-white font-bold' : 'text-gray-500'}"
-                    onclick={() => currentView = 'commands'}
-                 >
-                    Commands
-                 </button>
                   <button 
                     class="text-xs px-2 py-1 rounded hover:bg-gray-800 {currentView === 'repos' ? 'text-white font-bold' : 'text-gray-500'}"
                     onclick={navigateToRepos}
@@ -250,17 +211,6 @@
                     Repos
                  </button>
              </div>
-               <button
-                  onclick={execute}
-                  disabled={loading}
-                  class="w-full bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md transition-all active:scale-[0.98] flex items-center justify-center gap-2 text-xs"
-              >
-                  {#if loading}
-                    <span>Running...</span>
-                  {:else}
-                    {@html Icons.Play} <span>Run</span>
-                  {/if}
-              </button>
           </div>
 
           <!-- Graph Section -->
@@ -307,10 +257,10 @@
       <!-- Tabs Header -->
       <div class="h-12 border-b border-[#30363d] flex items-center px-2 bg-[#161b22] gap-1">
         <button 
-           onclick={() => activeTab = "console"}
-           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'console' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+           onclick={() => activeTab = "terminal"}
+           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'terminal' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
         >
-           {@html Icons.Terminal} Console
+           {@html Icons.Terminal} Terminal
         </button>
         <button 
            onclick={() => activeTab = "graph"}
@@ -334,44 +284,11 @@
 
       <!-- Tab Content area -->
       <div class="flex-1 relative overflow-hidden">
-         <!-- Console Tab -->
-         <div class="absolute inset-0 flex flex-col {activeTab === 'console' ? 'z-10 visible' : 'z-0 invisible'}">
-            <div class="flex-1 p-0 overflow-hidden relative">
-              {#if !response && !error && !loading}
-                <div class="absolute inset-0 flex flex-col items-center justify-center text-[#484f58] select-none">
-                  <div class="opacity-20 transform scale-150 mb-4">
-                    {@html Icons.Git}
-                  </div>
-                  <p class="text-sm">Run a command to view output</p>
-                </div>
-              {/if}
-
-              <div class="h-full overflow-auto p-4 font-mono text-xs leading-relaxed custom-scrollbar bg-[#0d1117]">
-                {#if error}
-                  <div class="text-[#f85149] mb-2 font-bold flex items-center gap-2">
-                    <span>×</span> {error.type}
-                  </div>
-                  <pre class="text-[#ffa198] whitespace-pre-wrap">{formatErrorMessage(error.message)}</pre>
-                {/if}
-
-                {#if response}
-                  <div class="mb-2">
-                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-full border border-[#30363d] bg-[#0d1117] {response.exit_code === 0 ? 'text-[#3fb950] border-[#2ea043]/30' : 'text-[#f85149] border-[#da3633]/30'}">
-                        exit: {response.exit_code}
-                    </span>
-                  </div>
-                  {#if response.stdout}
-                    <pre class="text-[#c9d1d9] whitespace-pre-wrap">{response.stdout}</pre>
-                  {/if}
-                  {#if response.stderr}
-                    <div class="mt-4 pt-4 border-t border-[#30363d]/50">
-                      <span class="text-[#8b949e] text-[10px] uppercase tracking-wider mb-1 block">stderr</span>
-                      <pre class="text-[#d2a8ff] whitespace-pre-wrap">{response.stderr}</pre>
-                    </div>
-                  {/if}
-                {/if}
-              </div>
-            </div>
+         <!-- Terminal Tab -->
+         <div class="absolute inset-0 flex flex-col {activeTab === 'terminal' ? 'z-10 visible' : 'z-0 invisible'}">
+            {#if activeTab === 'terminal'}
+                <TerminalPanel {repoPath} isActive={activeTab === 'terminal'} />
+            {/if}
          </div>
 
          <!-- Graph Tab -->

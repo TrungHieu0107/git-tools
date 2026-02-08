@@ -4,6 +4,7 @@ mod git;
 mod commands;
 mod models;
 mod settings;
+mod terminal;
 
 use git::GitExecutor;
 use settings::AppState;
@@ -70,6 +71,9 @@ fn main() {
             commands::cmd_search_repo_files,
             commands::cmd_get_commit_diff,
             commands::cmd_get_file_at_commit,
+            commands::cmd_terminal_start,
+            commands::cmd_terminal_write,
+            commands::cmd_terminal_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

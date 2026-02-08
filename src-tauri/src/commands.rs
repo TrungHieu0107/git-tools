@@ -1270,3 +1270,22 @@ fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {
     
     files
 }
+
+// ---------------------------------------------------------------------------
+// Terminal Commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn cmd_terminal_start(app: AppHandle, state: State<'_, AppState>, repo_path: String) -> Result<(), String> {
+    state.terminal.start_session(app, repo_path)
+}
+
+#[tauri::command]
+pub async fn cmd_terminal_write(state: State<'_, AppState>, repo_path: String, input: String) -> Result<(), String> {
+    state.terminal.write_input(&repo_path, &input)
+}
+
+#[tauri::command]
+pub async fn cmd_terminal_stop(state: State<'_, AppState>, repo_path: String) -> Result<(), String> {
+    state.terminal.stop_session(&repo_path)
+}

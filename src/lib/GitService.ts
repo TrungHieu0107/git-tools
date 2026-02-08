@@ -306,4 +306,18 @@ export class GitService {
   static async getFileAtCommit(commitHash: string, filePath: string, repoPath?: string): Promise<string> {
     return invoke("cmd_get_file_at_commit", { commitHash, filePath, repoPath });
   }
+
+  // --- Terminal ---
+
+  static async startTerminal(repoPath: string): Promise<void> {
+    return invoke("cmd_terminal_start", { repoPath });
+  }
+
+  static async writeTerminal(repoPath: string, input: string): Promise<void> {
+    return invoke("cmd_terminal_write", { repoPath, input });
+  }
+
+  static async stopTerminal(repoPath: string): Promise<void> {
+    return invoke("cmd_terminal_stop", { repoPath });
+  }
 }
