@@ -3,8 +3,9 @@
   import { GitService } from "../lib/GitService";
   import { buildBranchTree, filterBranchTree, getAllFolderPaths, type BranchNode } from "../lib/branch-utils";
   import { confirm } from "../lib/confirmation.svelte";
+  import { openCreateBranchDialog } from "../lib/create-branch-dialog.svelte";
 
-  let { repoPath = undefined }: { repoPath?: string } = $props();
+  let { repoPath = undefined, isActive = false }: { repoPath?: string; isActive?: boolean } = $props();
 
   let branches = $state<string[]>([]);
   let currentBranch = $state("");
@@ -135,6 +136,27 @@
     loadBranches();
     window.addEventListener('repo-activated', loadBranches);
     return () => window.removeEventListener('repo-activated', loadBranches);
+  });
+
+  function openCreateBranch() {
+    const localBranches = branches.filter(b => !b.startsWith('remotes/'));
+    openCreateBranchDialog({
+      branches: localBranches,
+      currentBranch: currentBranch || 'main',
+      repoPath: repoPath || ''
+    });
+  }
+
+  $effect(() => {
+    if (!isActive) return;
+    const handleOpenCreate = () => openCreateBranch();
+    const handleBranchCreated = () => loadBranches();
+    window.addEventListener('open-create-branch', handleOpenCreate);
+    window.addEventListener('branch-created', handleBranchCreated);
+    return () => {
+      window.removeEventListener('open-create-branch', handleOpenCreate);
+      window.removeEventListener('branch-created', handleBranchCreated);
+    };
   });
 
   function handleContextMenu(e: MouseEvent, node: BranchNode) {
@@ -362,6 +384,9 @@
                    {@html Icons.CollapseAll}
                 </button>
                 <div class="w-px h-3 bg-[#30363d] mx-1"></div>
+                <button onclick={openCreateBranch} class="text-[#8b949e] hover:text-white p-1 rounded hover:bg-[#30363d]" title="Create Branch (Ctrl+B)">
+                   <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
                 <button onclick={loadBranches} class="text-[#8b949e] hover:text-white p-1 rounded hover:bg-[#30363d]" title="Refresh">
                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
                 </button>

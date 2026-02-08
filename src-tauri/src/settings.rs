@@ -19,6 +19,8 @@ pub struct AppSettings {
     pub repos: Vec<RepoEntry>,
     pub active_repo_id: Option<String>,
     #[serde(default)]
+    pub open_repo_ids: Vec<String>,
+    #[serde(default)]
     pub excluded_files: Vec<String>,
 }
 

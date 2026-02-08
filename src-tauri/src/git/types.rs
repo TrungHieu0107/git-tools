@@ -70,6 +70,7 @@ pub enum GitCommandType {
     Pull,
     Push,
     Fetch,
+    Branch,
     Other,
 }
 

@@ -121,10 +121,15 @@ pub fn cmd_add_repo(
     let id = Uuid::new_v4().to_string();
 
     settings.repos.push(RepoEntry {
-        id,
+        id: id.clone(),
         name,
         path,
     });
+
+    // Auto-open on add
+    if !settings.open_repo_ids.contains(&id) {
+        settings.open_repo_ids.push(id);
+    }
 
     save_settings(&app_handle, &settings)?;
     Ok(settings.clone())
@@ -139,6 +144,7 @@ pub fn cmd_remove_repo(
     let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
 
     settings.repos.retain(|r| r.id != id);
+    settings.open_repo_ids.retain(|r_id| *r_id != id);
 
     if let Some(active_id) = &settings.active_repo_id {
         if active_id == &id {
@@ -162,8 +168,71 @@ pub fn cmd_set_active_repo(
         return Err("Repository ID not found".to_string());
     }
 
-    settings.active_repo_id = Some(id);
+    settings.active_repo_id = Some(id.clone());
+    
+    // Auto-open on set active if not already open
+    if !settings.open_repo_ids.contains(&id) {
+        settings.open_repo_ids.push(id);
+    }
+
     save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}
+
+#[tauri::command]
+pub fn cmd_open_repo(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+
+    if !settings.repos.iter().any(|r| r.id == id) {
+        return Err("Repository ID not found".to_string());
+    }
+
+    if !settings.open_repo_ids.contains(&id) {
+        settings.open_repo_ids.push(id);
+        save_settings(&app_handle, &settings)?;
+    }
+
+    Ok(settings.clone())
+}
+
+#[tauri::command]
+pub fn cmd_close_repo(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    id: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+
+    if let Some(pos) = settings.open_repo_ids.iter().position(|r_id| *r_id == id) {
+        settings.open_repo_ids.remove(pos);
+
+        // If closing active repo, switch to another one
+        if settings.active_repo_id.as_ref() == Some(&id) {
+             // Try to switch to right neighbor, else left neighbor, else None
+            let next_active = if pos < settings.open_repo_ids.len() {
+                Some(settings.open_repo_ids[pos].clone())
+            } else if pos > 0 {
+                Some(settings.open_repo_ids[pos - 1].clone())
+            } else {
+                None
+            };
+            settings.active_repo_id = next_active;
+        }
+        
+        // Also stop terminal session for this repo to clean up resources
+        let _ = state.terminal.stop_session(&id); // Note: terminal uses repo_path, resolving ID might be needed here. 
+        // Wait, terminal manager uses repo_path. We need to find path from ID.
+        if let Some(repo) = settings.repos.iter().find(|r| r.id == id) {
+             let _ = state.terminal.stop_session(&repo.path);
+        }
+
+        save_settings(&app_handle, &settings)?;
+    }
+
     Ok(settings.clone())
 }
 
@@ -247,7 +316,64 @@ pub async fn cmd_git_push(
     state: State<'_, AppState>,
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
-    let resp = git_run(&state, repo_path, &["push"], TIMEOUT_NETWORK).await?;
+    let path = resolve_repo_path(&state, repo_path)?;
+
+    // Check if the current branch has an upstream configured
+    let upstream_check = state
+        .git
+        .run(
+            Path::new(&path),
+            &[
+                "rev-parse".to_string(),
+                "--abbrev-ref".to_string(),
+                "--symbolic-full-name".to_string(),
+                "@{u}".to_string(),
+            ],
+            TIMEOUT_LOCAL,
+        )
+        .await;
+
+    let has_upstream = upstream_check
+        .as_ref()
+        .map(|r| r.exit_code == 0)
+        .unwrap_or(false);
+
+    let resp = if has_upstream {
+        // Normal push — upstream already set
+        state
+            .git
+            .run(Path::new(&path), &["push".to_string()], TIMEOUT_NETWORK)
+            .await
+            .map_err(|e| e.to_string())?
+    } else {
+        // Get current branch name for -u push
+        let branch_resp = state
+            .git
+            .run(
+                Path::new(&path),
+                &["rev-parse".to_string(), "--abbrev-ref".to_string(), "HEAD".to_string()],
+                TIMEOUT_LOCAL,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        let branch = branch_resp.stdout.trim().to_string();
+
+        state
+            .git
+            .run(
+                Path::new(&path),
+                &[
+                    "push".to_string(),
+                    "-u".to_string(),
+                    "origin".to_string(),
+                    branch,
+                ],
+                TIMEOUT_NETWORK,
+            )
+            .await
+            .map_err(|e| e.to_string())?
+    };
+
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
     Ok(map_git_result(resp, GitCommandType::Push))
@@ -439,14 +565,33 @@ pub async fn cmd_get_pending_commits_count(
         .await;
 
     match resp {
-        Ok(output) => {
+        Ok(output) if output.exit_code == 0 => {
             let count = output.stdout.trim().parse::<u32>().unwrap_or(0);
             Ok(count)
         }
-        Err(_) => {
-            // Likely no upstream configured or other error. 
-            // In either case, we can't push to upstream, so pending count is effectively 0 or irrelevant for the push button state (disabled).
-            Ok(0)
+        _ => {
+            // No upstream configured — the branch has never been pushed.
+            // Count commits ahead of the default remote branch (origin/HEAD or origin/main)
+            // so the Push button stays enabled.
+            let fallback_args = vec![
+                "rev-list".to_string(),
+                "--count".to_string(),
+                "HEAD".to_string(),
+                "--not".to_string(),
+                "--remotes=origin".to_string(),
+            ];
+            let fallback = state
+                .git
+                .run(Path::new(&path), &fallback_args, TIMEOUT_QUICK)
+                .await;
+            match fallback {
+                Ok(output) if output.exit_code == 0 => {
+                    let count = output.stdout.trim().parse::<u32>().unwrap_or(0);
+                    // If no remote branches exist at all, show at least 1 to indicate the branch needs pushing
+                    if count == 0 { Ok(1) } else { Ok(count) }
+                }
+                _ => Ok(1) // Fallback: indicate at least 1 commit to push
+            }
         }
     }
 }
@@ -977,6 +1122,23 @@ pub async fn cmd_git_checkout_new_branch(
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
     Ok(map_git_result(resp, GitCommandType::Checkout))
+}
+
+#[tauri::command]
+pub async fn cmd_git_create_branch(
+    state: State<'_, AppState>,
+    name: String,
+    base: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let args: Vec<String> = vec!["branch".into(), name, base];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(map_git_result(resp, GitCommandType::Branch))
 }
 
 #[tauri::command]
