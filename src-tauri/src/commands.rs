@@ -316,7 +316,64 @@ pub async fn cmd_git_push(
     state: State<'_, AppState>,
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
-    let resp = git_run(&state, repo_path, &["push"], TIMEOUT_NETWORK).await?;
+    let path = resolve_repo_path(&state, repo_path)?;
+
+    // Check if the current branch has an upstream configured
+    let upstream_check = state
+        .git
+        .run(
+            Path::new(&path),
+            &[
+                "rev-parse".to_string(),
+                "--abbrev-ref".to_string(),
+                "--symbolic-full-name".to_string(),
+                "@{u}".to_string(),
+            ],
+            TIMEOUT_LOCAL,
+        )
+        .await;
+
+    let has_upstream = upstream_check
+        .as_ref()
+        .map(|r| r.exit_code == 0)
+        .unwrap_or(false);
+
+    let resp = if has_upstream {
+        // Normal push — upstream already set
+        state
+            .git
+            .run(Path::new(&path), &["push".to_string()], TIMEOUT_NETWORK)
+            .await
+            .map_err(|e| e.to_string())?
+    } else {
+        // Get current branch name for -u push
+        let branch_resp = state
+            .git
+            .run(
+                Path::new(&path),
+                &["rev-parse".to_string(), "--abbrev-ref".to_string(), "HEAD".to_string()],
+                TIMEOUT_LOCAL,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        let branch = branch_resp.stdout.trim().to_string();
+
+        state
+            .git
+            .run(
+                Path::new(&path),
+                &[
+                    "push".to_string(),
+                    "-u".to_string(),
+                    "origin".to_string(),
+                    branch,
+                ],
+                TIMEOUT_NETWORK,
+            )
+            .await
+            .map_err(|e| e.to_string())?
+    };
+
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
     Ok(map_git_result(resp, GitCommandType::Push))
@@ -508,14 +565,33 @@ pub async fn cmd_get_pending_commits_count(
         .await;
 
     match resp {
-        Ok(output) => {
+        Ok(output) if output.exit_code == 0 => {
             let count = output.stdout.trim().parse::<u32>().unwrap_or(0);
             Ok(count)
         }
-        Err(_) => {
-            // Likely no upstream configured or other error. 
-            // In either case, we can't push to upstream, so pending count is effectively 0 or irrelevant for the push button state (disabled).
-            Ok(0)
+        _ => {
+            // No upstream configured — the branch has never been pushed.
+            // Count commits ahead of the default remote branch (origin/HEAD or origin/main)
+            // so the Push button stays enabled.
+            let fallback_args = vec![
+                "rev-list".to_string(),
+                "--count".to_string(),
+                "HEAD".to_string(),
+                "--not".to_string(),
+                "--remotes=origin".to_string(),
+            ];
+            let fallback = state
+                .git
+                .run(Path::new(&path), &fallback_args, TIMEOUT_QUICK)
+                .await;
+            match fallback {
+                Ok(output) if output.exit_code == 0 => {
+                    let count = output.stdout.trim().parse::<u32>().unwrap_or(0);
+                    // If no remote branches exist at all, show at least 1 to indicate the branch needs pushing
+                    if count == 0 { Ok(1) } else { Ok(count) }
+                }
+                _ => Ok(1) // Fallback: indicate at least 1 commit to push
+            }
         }
     }
 }
