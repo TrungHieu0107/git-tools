@@ -2,6 +2,11 @@
   import { onMount } from 'svelte';
   import { GitService, type AppSettings } from '../lib/GitService';
 
+  interface Props {
+      repoPath?: string;
+  }
+  let { repoPath }: Props = $props();
+
   let settings = $state<AppSettings | null>(null);
   let newExclusion = $state("");
 
@@ -49,6 +54,18 @@
 <div class="h-full flex flex-col p-6 bg-[#0d1117] text-[#c9d1d9] overflow-auto">
   <h2 class="text-xl font-bold mb-6 text-white pb-2 border-b border-[#30363d]">Settings</h2>
   
+  {#if repoPath}
+      <div class="mb-8">
+          <h3 class="text-sm font-semibold uppercase text-[#8b949e] mb-2 tracking-wider">Repository</h3>
+          <div class="bg-[#161b22] border border-[#30363d] rounded p-3 font-mono text-xs text-[#c9d1d9] select-all">
+              {repoPath}
+          </div>
+          <p class="text-xs text-[#8b949e] mt-2">
+              Repository-specific settings will be available here soon.
+          </p>
+      </div>
+  {/if}
+
   <div class="max-w-2xl">
     <h3 class="text-sm font-semibold uppercase text-[#8b949e] mb-2 tracking-wider">Global File Exclusions</h3>
     <p class="text-xs text-[#8b949e] mb-4 leading-relaxed">

@@ -254,6 +254,14 @@
         >
            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> History
         </button>
+        <div class="flex-1"></div>
+        <button 
+           onclick={() => activeTab = "settings"}
+           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'settings' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+           title="Repository Settings"
+        >
+           {@html Icons.Settings}
+        </button>
       </div>
 
       <!-- Tab Content area -->
@@ -293,7 +301,7 @@
 
           <!-- Settings Tab -->
           <div class="absolute inset-0 bg-[#0d1117] {activeTab === 'settings' ? 'z-20 visible' : 'z-0 invisible'}">
-             <SettingsView />
+             <SettingsView {repoPath} />
           </div>
       </div>
   </div>
