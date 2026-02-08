@@ -4,30 +4,53 @@
     type DiffResult,
     type DiffHunk,
     type InlineDiffLine,
+    mapBackendHunksToInline,
   } from "../../lib/diff";
+  import type { DiffHunk as BackendDiffHunk } from "../../lib/types";
 
   interface Props {
-    diffResult: DiffResult;
-    hunks: DiffHunk[];
+    diffResult?: DiffResult | null;
+    hunks?: DiffHunk[];
+    commitHunks?: BackendDiffHunk[];
     loading: boolean;
   }
-  let { diffResult, hunks, loading }: Props = $props();
+  let { diffResult, hunks = [], commitHunks = [], loading }: Props = $props();
 
   let inlineLines = $derived.by<InlineDiffLine[]>(() => {
-    return toInlineView(diffResult);
+    if (commitHunks.length > 0) {
+        return mapBackendHunksToInline(commitHunks); // Use mapper from diff.ts
+    }
+    if (diffResult) {
+      return toInlineView(diffResult);
+    }
+    return [];
   });
 
   // Build a set of inline-line indices that are the first line of each hunk,
   // so we can place data-hunk-id attributes for scrollIntoView targeting.
   // We map from DiffResult sourceIndex ranges (hunk.startIndex..endIndex)
   // to the first inline line whose sourceIndex falls in that range.
-  let hunkFirstLineMap = $derived.by<Map<number, string>>(() => {
-    const map = new Map<number, string>(); // inline line index → hunk id
+  let hunkFirstLineMap = $derived.by<Map<string | number, string>>(() => {
+    const map = new Map<string | number, string>(); // inline line index → hunk id
+    
+    // Logic for backend hunks (simpler, just count lines)
+    if (commitHunks.length > 0) {
+        let currentLineIdx = 0;
+        for (const hunk of commitHunks) {
+            map.set(currentLineIdx, hunk.id);
+            // header line + lines
+            currentLineIdx += 1 + hunk.lines.length;
+        }
+        return map;
+    }
+
+    // Logic for old client-side hunks
     if (hunks.length === 0) return map;
 
     let hunkIdx = 0;
     for (let i = 0; i < inlineLines.length && hunkIdx < hunks.length; i++) {
       const hunk = hunks[hunkIdx];
+      // Check if this line belongs to the hunk
       if (
         inlineLines[i].sourceIndex >= hunk.startIndex &&
         inlineLines[i].sourceIndex < hunk.endIndex
@@ -38,6 +61,24 @@
     }
     return map;
   });
+
+  export function scrollToHunk(index: number) {
+     if (commitHunks.length > 0) {
+         if (commitHunks[index]) {
+             scrollToId(commitHunks[index].id);
+         }
+         return;
+     }
+     
+     if (hunks && hunks[index]) {
+         scrollToId(hunks[index].id);
+     }
+  }
+
+  function scrollToId(id: string) {
+      const el = document.querySelector(`[data-hunk-id="${id}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   function getRowClass(line: InlineDiffLine): string {
     switch (line.type) {
@@ -92,7 +133,10 @@
     </div>
   {/if}
 
-  <!-- Panel header -->
+  <!-- Panel header (Only show if not in commitHunks mode? Or always?) -->
+  <!-- If used in GlobalDiffViewer, maybe header is redundant or we want it. -->
+  <!-- CommitPanel uses it. GlobalViewer might want it or not. -->
+  <!-- We'll keep it for now. -->
   <div
     class="flex shrink-0 border-b border-[#30363d] text-[10px] uppercase tracking-wider text-[#8b949e] font-semibold"
   >

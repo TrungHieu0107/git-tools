@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import { GitService, type RepoEntry } from './lib/GitService';
+  import { GitService, type RepoEntry, type FileStatus } from './lib/GitService';
   import { runGit, type GitResponse, type GitError } from "./lib/git";
   import { getAuthRequiredMessage } from "./lib/git-errors";
   import { parseGitLog, calculateGraphLayout, type GraphNode, type GraphEdge } from "./lib/graph-layout";
@@ -11,6 +11,7 @@
   import RepoSelector from './components/RepoSelector.svelte';
   import CommitGraph from './components/CommitGraph.svelte';
   import CommitPanel from './components/CommitPanel.svelte';
+  import FileHistoryPanel from './components/FileHistoryPanel.svelte';
   import BranchExplorer from './components/BranchExplorer.svelte';
   import GlobalConfirmation from './components/GlobalConfirmation.svelte';
   import ToastContainer from './components/ToastContainer.svelte';
@@ -38,9 +39,11 @@
   let commitCount = $state("50");
   let graphLoading = $state(false);
   let hasConflicts = $state(false);
-  let activeTab = $state<"console" | "graph" | "commit" | "settings">("console");
+
+  let activeTab = $state<"console" | "graph" | "commit" | "history" | "settings">("console");
   let pendingPushCount = $state(0);
   let commitPanel = $state<any>(null);
+  let selectedFile = $state<FileStatus | null>(null);
 
   async function updateConflictStatus() {
     if (!repoPath) {
@@ -321,6 +324,12 @@
         >
            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><line x1="1.05" y1="12" x2="7" y2="12"></line><line x1="17.01" y1="12" x2="22.96" y2="12"></line></svg> Commit
         </button>
+        <button 
+           onclick={() => activeTab = "history"}
+           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'history' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+        >
+           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> History
+        </button>
       </div>
 
       <!-- Tab Content area -->
@@ -378,7 +387,16 @@
 
           <!-- Commit Tab -->
           <div class="absolute inset-0 {activeTab === 'commit' ? 'z-10 visible' : 'z-0 invisible'}">
-             <CommitPanel bind:this={commitPanel} repoPath={repoPath} isActive={activeTab === 'commit'} />
+             <CommitPanel bind:this={commitPanel} repoPath={repoPath} isActive={activeTab === 'commit'} bind:selectedFile={selectedFile} />
+          </div>
+
+          <!-- History Tab -->
+          <div class="absolute inset-0 bg-[#0d1117] {activeTab === 'history' ? 'z-10 visible' : 'z-0 invisible'}">
+             <FileHistoryPanel 
+               repoPath={repoPath} 
+               filePath={selectedFile?.path ?? null} 
+               onFileSelect={(path) => { selectedFile = { path, status: '', staged: false }; }}
+             />
           </div>
 
           <!-- Settings Tab -->

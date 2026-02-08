@@ -32,26 +32,55 @@ pub enum GitCommandErrorPayload {
     Io { message: String },
 }
 
-impl From<crate::git_engine::GitCommandError> for GitCommandErrorPayload {
-    fn from(error: crate::git_engine::GitCommandError) -> Self {
-        match error {
-            crate::git_engine::GitCommandError::InvalidRepoPath(path) => {
-                GitCommandErrorPayload::InvalidRepoPath {
-                    path: path.to_string_lossy().to_string(),
-                }
-            }
-            crate::git_engine::GitCommandError::NotRepository(path) => {
-                GitCommandErrorPayload::NotRepository {
-                    path: path.to_string_lossy().to_string(),
-                }
-            }
-            crate::git_engine::GitCommandError::MergeConflict => GitCommandErrorPayload::MergeConflict,
-            crate::git_engine::GitCommandError::CommandFailed { code, stderr } => {
-                GitCommandErrorPayload::CommandFailed { code, stderr }
-            }
-            crate::git_engine::GitCommandError::Io(error) => GitCommandErrorPayload::Io {
-                message: error.to_string(),
-            },
-        }
-    }
+/// Represents a commit in a file's history
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileCommit {
+    pub hash: String,
+    pub author: String,
+    pub date: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum DiffLineType {
+    Context,
+    Add,
+    Remove,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffLine {
+    #[serde(rename = "type")]
+    pub type_: DiffLineType,
+    pub content: String,
+    pub old_line_number: Option<u32>,
+    pub new_line_number: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffHunk {
+    pub id: String,
+    pub old_start: u32,
+    pub new_start: u32,
+    pub lines: Vec<DiffLine>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffFile {
+    pub path: String,
+    pub status: String, // "M", "A", "D", "R" etc
+    pub hunks: Vec<DiffHunk>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitDiff {
+    pub commit_hash: String,
+    pub parent_hash: Option<String>,
+    pub files: Vec<DiffFile>,
 }

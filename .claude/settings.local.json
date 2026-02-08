@@ -17,7 +17,11 @@
       "Bash(powershell -Command:*)",
       "Bash(timeout:*)",
       "Bash(test:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(npx svelte-check:*)",
+      "Bash(findstr:*)",
+      "Bash(Select-String \"GlobalDiffViewer\" -Context 0,3)",
+      "Bash(npx vite build:*)"
     ]
   }
 }

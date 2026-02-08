@@ -2,6 +2,7 @@
 
 mod git;
 mod commands;
+mod models;
 mod settings;
 
 use git::GitExecutor;
@@ -65,6 +66,10 @@ fn main() {
             commands::cmd_git_unstage,
             commands::cmd_git_add_all,
             commands::cmd_git_unstage_all,
+            commands::cmd_get_file_history,
+            commands::cmd_search_repo_files,
+            commands::cmd_get_commit_diff,
+            commands::cmd_get_file_at_commit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

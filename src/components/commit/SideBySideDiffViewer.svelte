@@ -1,13 +1,35 @@
 <script lang="ts">
-  import { type DiffLine, type DiffResult, type DiffHunk } from "../../lib/diff";
+  import { type DiffLine, type DiffResult, type DiffHunk, mapBackendHunksToSideBySide } from "../../lib/diff";
+  import type { DiffHunk as BackendDiffHunk } from "../../lib/types";
+  import ResizablePanes from "../resize/ResizablePanes.svelte";
 
   interface Props {
     diffResult: DiffResult | null;
     loading: boolean;
     isTooLarge?: boolean;
     hunks?: DiffHunk[] | null; // When non-null, render hunk view instead of full diff
+    commitHunks?: BackendDiffHunk[]; // New backend hunks
+    autoHeight?: boolean; // New prop for global viewer
+    navigationHunks?: DiffHunk[]; // Optional hunks for placing data-hunk-id markers in full side-by-side view
   }
-  let { diffResult, loading, isTooLarge = false, hunks = null }: Props = $props();
+  let { diffResult, loading, isTooLarge = false, hunks = null, commitHunks = [], autoHeight = false, navigationHunks }: Props = $props();
+
+  let effectiveHunks = $derived.by<DiffHunk[] | null>(() => {
+      if (commitHunks.length > 0) {
+          return mapBackendHunksToSideBySide(commitHunks);
+      }
+      return hunks;
+  });
+
+  // Lookup map: diffResult line index → hunk ID for placing data-hunk-id in full side-by-side view
+  let hunkStartMap = $derived.by<Map<number, string>>(() => {
+      const map = new Map<number, string>();
+      if (!navigationHunks) return map;
+      for (const hunk of navigationHunks) {
+          map.set(hunk.startIndex, hunk.id);
+      }
+      return map;
+  });
 
   // ── Synchronized scrolling ──────────────────────────────────────
   let leftPanel: HTMLDivElement | undefined = $state();
@@ -60,7 +82,7 @@
   }
 </script>
 
-<div class="flex-1 overflow-hidden bg-[#0d1117] h-full relative flex flex-col">
+<div class="flex-1 overflow-hidden bg-[#0d1117] relative flex flex-col" class:h-full={!autoHeight} class:h-auto={autoHeight} class:overflow-visible={autoHeight}>
   {#if loading}
     <div class="absolute inset-0 flex items-center justify-center bg-[#0d1117]/50 z-10">
       <svg
@@ -77,153 +99,162 @@
     </div>
   {/if}
 
-  {#if !diffResult && !loading && !isTooLarge}
+  {#if (!diffResult && !effectiveHunks && !loading && !isTooLarge) || (effectiveHunks && effectiveHunks.length === 0 && !diffResult)}
     <div
       class="flex items-center justify-center p-8 text-[#8b949e] text-sm italic flex-1"
     >
       No diff content
     </div>
-  {:else if isTooLarge}
+  {:else if isTooLarge && !effectiveHunks}
     <div
       class="flex items-center justify-center p-8 text-[#8b949e] text-sm italic flex-1"
     >
       File too large for side-by-side diff view
     </div>
-  {:else if diffResult}
+  {:else if diffResult || effectiveHunks}
     <!-- Panel headers -->
     <div class="flex shrink-0 border-b border-[#30363d] text-[10px] uppercase tracking-wider text-[#8b949e] font-semibold">
-      <div class="w-1/2 px-3 py-1 bg-[#161b22] border-r border-[#30363d]">
+      <div class="flex-1 px-3 py-1 bg-[#161b22] border-r border-[#30363d]">
         Base (HEAD)
       </div>
-      <div class="w-1/2 px-3 py-1 bg-[#161b22]">Modified</div>
+      <div class="flex-1 px-3 py-1 bg-[#161b22]">Modified</div>
     </div>
-
-    {#if hunks && hunks.length > 0}
+    {#if effectiveHunks && effectiveHunks.length > 0}
       <!-- ── HUNK VIEW ─────────────────────────────────────────── -->
-      <div class="flex flex-1 overflow-hidden min-h-0">
-        <!-- Left panel (base) -->
-        <div
-          class="w-1/2 overflow-auto custom-scrollbar border-r border-[#30363d]"
-          bind:this={leftPanel}
-          onscroll={() => handleScroll("left")}
-        >
-          <table class="w-full text-xs font-mono border-collapse">
-            <tbody>
-              {#each hunks as hunk, hunkIdx}
-                {#if hunkIdx > 0}
-                  <tr>
-                    <td colspan="2" class="h-6 bg-[#161b22] border-y border-[#30363d]/50">
-                      <div class="flex items-center justify-center">
-                        <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
-                        <span class="px-2 text-[9px] text-[#484f58] select-none">&ctdot;</span>
-                        <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
-                      </div>
-                    </td>
-                  </tr>
-                {/if}
-                {#each hunk.lines as pair, lineIdx}
-                  <tr
-                    class={getRowClass(pair.left, "left")}
-                    data-hunk-id={lineIdx === 0 ? hunk.id : undefined}
-                  >
-                    <td class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top">
-                      {pair.left.lineNumber ?? ""}
-                    </td>
-                    <td class="pl-2 whitespace-pre align-top">{@html escapeHtml(pair.left.content)}</td>
-                  </tr>
+      <ResizablePanes initialLeftPercent={50} minLeftPercent={25} maxLeftPercent={75}>
+        {#snippet leftContent()}
+          <!-- Left panel (base) -->
+          <div
+            class="h-full overflow-auto custom-scrollbar border-r border-[#30363d]"
+            bind:this={leftPanel}
+            class:overflow-visible={autoHeight}
+            onscroll={() => handleScroll("left")}
+          >
+            <table class="w-full text-xs font-mono border-collapse">
+              <tbody>
+                {#each effectiveHunks as hunk, hunkIdx}
+                  {#if hunkIdx > 0}
+                    <tr>
+                      <td colspan="2" class="h-6 bg-[#161b22] border-y border-[#30363d]/50">
+                        <div class="flex items-center justify-center">
+                          <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
+                          <span class="px-2 text-[9px] text-[#484f58] select-none">&ctdot;</span>
+                          <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
+                        </div>
+                      </td>
+                    </tr>
+                  {/if}
+                  {#each hunk.lines as pair, lineIdx}
+                    <tr
+                      class={getRowClass(pair.left, "left")}
+                      data-hunk-id={lineIdx === 0 ? hunk.id : undefined}
+                    >
+                      <td class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top">
+                        {pair.left.lineNumber ?? ""}
+                      </td>
+                      <td class="pl-2 whitespace-pre align-top">{@html escapeHtml(pair.left.content)}</td>
+                    </tr>
+                  {/each}
                 {/each}
-              {/each}
-            </tbody>
-          </table>
-        </div>
+              </tbody>
+            </table>
+          </div>
+        {/snippet}
 
-        <!-- Right panel (modified) -->
-        <div
-          class="w-1/2 overflow-auto custom-scrollbar"
-          bind:this={rightPanel}
-          onscroll={() => handleScroll("right")}
-        >
-          <table class="w-full text-xs font-mono border-collapse">
-            <tbody>
-              {#each hunks as hunk, hunkIdx}
-                {#if hunkIdx > 0}
-                  <tr>
-                    <td colspan="2" class="h-6 bg-[#161b22] border-y border-[#30363d]/50">
-                      <div class="flex items-center justify-center">
-                        <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
-                        <span class="px-2 text-[9px] text-[#484f58] select-none">&ctdot;</span>
-                        <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
-                      </div>
-                    </td>
-                  </tr>
-                {/if}
-                {#each hunk.lines as pair, lineIdx}
-                  <tr
-                    class={getRowClass(pair.right, "right")}
-                    data-hunk-id={lineIdx === 0 ? hunk.id : undefined}
-                  >
-                    <td class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top">
-                      {pair.right.lineNumber ?? ""}
-                    </td>
-                    <td class="pl-2 whitespace-pre align-top">{@html escapeHtml(pair.right.content)}</td>
-                  </tr>
+        {#snippet rightContent()}
+          <!-- Right panel (modified) -->
+          <div
+            class="h-full overflow-auto custom-scrollbar"
+            bind:this={rightPanel}
+            class:overflow-visible={autoHeight}
+            onscroll={() => handleScroll("right")}
+          >
+            <table class="w-full text-xs font-mono border-collapse">
+              <tbody>
+                {#each effectiveHunks as hunk, hunkIdx}
+                  {#if hunkIdx > 0}
+                    <tr>
+                      <td colspan="2" class="h-6 bg-[#161b22] border-y border-[#30363d]/50">
+                        <div class="flex items-center justify-center">
+                          <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
+                          <span class="px-2 text-[9px] text-[#484f58] select-none">&ctdot;</span>
+                          <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
+                        </div>
+                      </td>
+                    </tr>
+                  {/if}
+                  {#each hunk.lines as pair, lineIdx}
+                    <tr
+                      class={getRowClass(pair.right, "right")}
+                      data-hunk-id={lineIdx === 0 ? hunk.id : undefined}
+                    >
+                      <td class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top">
+                        {pair.right.lineNumber ?? ""}
+                      </td>
+                      <td class="pl-2 whitespace-pre align-top">{@html escapeHtml(pair.right.content)}</td>
+                    </tr>
+                  {/each}
                 {/each}
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    {:else}
+              </tbody>
+            </table>
+          </div>
+        {/snippet}
+      </ResizablePanes>
+    {:else if diffResult}
       <!-- ── FULL SIDE-BY-SIDE VIEW ────────────────────────────── -->
-      <div class="flex flex-1 overflow-hidden min-h-0">
-        <!-- Left panel (base version) -->
-        <div
-          class="w-1/2 overflow-auto custom-scrollbar border-r border-[#30363d]"
-          bind:this={leftPanel}
-          onscroll={() => handleScroll("left")}
-        >
-          <table class="w-full text-xs font-mono border-collapse">
-            <tbody>
-              {#each diffResult.left as line}
-                <tr class={getRowClass(line, "left")}>
-                  <td
-                    class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top"
-                  >
-                    {line.lineNumber ?? ""}
-                  </td>
-                  <td class="pl-2 whitespace-pre align-top"
-                    >{@html escapeHtml(line.content)}</td
-                  >
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
+      <ResizablePanes initialLeftPercent={50} minLeftPercent={25} maxLeftPercent={75}>
+        {#snippet leftContent()}
+          <!-- Left panel (base version) -->
+          <div
+            class="h-full overflow-auto custom-scrollbar border-r border-[#30363d]"
+            bind:this={leftPanel}
+            onscroll={() => handleScroll("left")}
+          >
+            <table class="w-full text-xs font-mono border-collapse">
+              <tbody>
+                {#each diffResult.left as line, i}
+                  <tr class={getRowClass(line, "left")} data-hunk-id={hunkStartMap.get(i) ?? undefined}>
+                    <td
+                      class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top"
+                    >
+                      {line.lineNumber ?? ""}
+                    </td>
+                    <td class="pl-2 whitespace-pre align-top"
+                      >{@html escapeHtml(line.content)}</td
+                    >
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/snippet}
 
-        <!-- Right panel (modified version) -->
-        <div
-          class="w-1/2 overflow-auto custom-scrollbar"
-          bind:this={rightPanel}
-          onscroll={() => handleScroll("right")}
-        >
-          <table class="w-full text-xs font-mono border-collapse">
-            <tbody>
-              {#each diffResult.right as line}
-                <tr class={getRowClass(line, "right")}>
-                  <td
-                    class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top"
-                  >
-                    {line.lineNumber ?? ""}
-                  </td>
-                  <td class="pl-2 whitespace-pre align-top"
-                    >{@html escapeHtml(line.content)}</td
-                  >
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      </div>
+        {#snippet rightContent()}
+          <!-- Right panel (modified version) -->
+          <div
+            class="h-full overflow-auto custom-scrollbar"
+            bind:this={rightPanel}
+            onscroll={() => handleScroll("right")}
+          >
+            <table class="w-full text-xs font-mono border-collapse">
+              <tbody>
+                {#each diffResult.right as line, i}
+                  <tr class={getRowClass(line, "right")} data-hunk-id={hunkStartMap.get(i) ?? undefined}>
+                    <td
+                      class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top"
+                    >
+                      {line.lineNumber ?? ""}
+                    </td>
+                    <td class="pl-2 whitespace-pre align-top"
+                      >{@html escapeHtml(line.content)}</td
+                    >
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/snippet}
+      </ResizablePanes>
     {/if}
   {/if}
 </div>

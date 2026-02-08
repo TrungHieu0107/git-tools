@@ -290,4 +290,20 @@ export class GitService {
   static async getPendingCommitsCount(repoPath?: string): Promise<number> {
     return invoke("cmd_get_pending_commits_count", { repoPath });
   }
+
+  static async getFileHistory(filePath: string, limit = 100, repoPath?: string): Promise<import("./types").FileCommit[]> {
+    return invoke("cmd_get_file_history", { filePath, limit, repoPath });
+  }
+
+  static async searchRepoFiles(pattern?: string, repoPath?: string): Promise<string[]> {
+    return invoke("cmd_search_repo_files", { pattern, repoPath });
+  }
+
+  static async getCommitDiff(commitHash: string, repoPath?: string, filePath?: string): Promise<import("./types").CommitDiff> {
+    return invoke("cmd_get_commit_diff", { commitHash, filePath, repoPath });
+  }
+
+  static async getFileAtCommit(commitHash: string, filePath: string, repoPath?: string): Promise<string> {
+    return invoke("cmd_get_file_at_commit", { commitHash, filePath, repoPath });
+  }
 }

@@ -1,5 +1,7 @@
 // Line-level diff engine using LCS (Longest Common Subsequence).
+// Line-level diff engine using LCS (Longest Common Subsequence).
 // Produces aligned left/right arrays for side-by-side rendering.
+import type { DiffHunk as BackendDiffHunk } from "./types";
 
 export type DiffLineType = "equal" | "added" | "removed" | "modified";
 
@@ -314,4 +316,98 @@ export function toInlineView(result: DiffResult): InlineDiffLine[] {
   }
 
   return lines;
+}
+
+// ── Mappers for Backend Diffs ───────────────────────────────────
+
+export function mapBackendHunksToInline(hunks: BackendDiffHunk[]): InlineDiffLine[] {
+  const lines: InlineDiffLine[] = [];
+  for (const hunk of hunks) {
+    // Add a header/separator line
+    lines.push({
+        content: `@@ -${hunk.oldStart},? +${hunk.newStart},? @@`,
+        type: 'equal', // Use equal to avoid coloring, maybe add special styling later
+        oldLineNumber: null,
+        newLineNumber: null,
+        sourceIndex: 0
+    });
+
+    for (const line of hunk.lines) {
+      lines.push({
+        content: line.content,
+        // Map types: context->equal, add->added, remove->removed
+        type: line.type === 'context' ? 'equal' : line.type === 'add' ? 'added' : 'removed',
+        oldLineNumber: line.oldLineNumber ?? null,
+        newLineNumber: line.newLineNumber ?? null,
+        sourceIndex: 0
+      });
+    }
+  }
+  return lines;
+}
+
+export function mapBackendHunksToSideBySide(hunks: BackendDiffHunk[]): DiffHunk[] {
+  return hunks.map((h, index) => {
+    const pairedLines: { left: DiffLine; right: DiffLine }[] = [];
+    
+    // Simple alignment strategy:
+    // Iterate lines. 
+    // If context: push to both.
+    // If remove: push to left, right empty.
+    // If add: push to right, left empty.
+    // Try to group adjacent remove/add into "modified" rows if they appear sequentially?
+    // Given the stream is flattened, we can't easily peek ahead without buffering.
+    // We already have the whole list.
+    
+    let i = 0;
+    while (i < h.lines.length) {
+        const line = h.lines[i];
+        
+        if (line.type === 'context') {
+            pairedLines.push({
+                left: { content: line.content, type: 'equal', lineNumber: line.oldLineNumber ?? null },
+                right: { content: line.content, type: 'equal', lineNumber: line.newLineNumber ?? null }
+            });
+            i++;
+        } else {
+            // Collect batch of removes and adds
+            let removes: typeof line[] = [];
+            let adds: typeof line[] = [];
+            
+            let j = i;
+            while (j < h.lines.length && (h.lines[j].type === 'remove' || h.lines[j].type === 'add')) {
+                if (h.lines[j].type === 'remove') removes.push(h.lines[j]);
+                else adds.push(h.lines[j]);
+                j++;
+            }
+            
+            // Now distribute them
+            // We want to align them if possible.
+            // Just pair them up 1:1.
+            const max = Math.max(removes.length, adds.length);
+            for (let k = 0; k < max; k++) {
+                const rem = removes[k];
+                const add = adds[k];
+                
+                pairedLines.push({
+                    left: rem 
+                        ? { content: rem.content, type: 'removed', lineNumber: rem.oldLineNumber ?? null }
+                        : { content: '', type: 'equal', lineNumber: null }, // empty cell
+                    right: add
+                        ? { content: add.content, type: 'added', lineNumber: add.newLineNumber ?? null }
+                        : { content: '', type: 'equal', lineNumber: null }
+                });
+            }
+            
+            i = j;
+        }
+    }
+
+    return {
+        id: h.id,
+        startIndex: 0,
+        endIndex: 0,
+        lines: pairedLines,
+    };
+  });
 }

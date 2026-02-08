@@ -6,6 +6,7 @@ use uuid::Uuid;
 use crate::git::service::{TIMEOUT_LOCAL, TIMEOUT_NETWORK, TIMEOUT_QUICK};
 use crate::git::{ConflictFile, DiagnosticInfo, GitError, GitResponse, GitResult, GitCommandType, GitCommandResult};
 use crate::settings::{save_settings, AppSettings, AppState, RepoEntry};
+use crate::models::{FileCommit, CommitDiff, DiffFile, DiffHunk, DiffLine, DiffLineType};
 use tauri::Emitter;
 use serde_json::json;
 use serde::{Deserialize, Serialize};
@@ -995,4 +996,277 @@ pub async fn cmd_git_merge(
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
     Ok(map_git_result(resp, GitCommandType::Merge))
+}
+
+#[tauri::command]
+pub async fn cmd_get_file_history(
+    state: State<'_, AppState>,
+    file_path: String,
+    limit: Option<u32>,
+    repo_path: Option<String>,
+) -> Result<Vec<FileCommit>, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let limit = limit.unwrap_or(100);
+    
+    // git log --follow --format="%H|%an|%ad|%s" --date=short -n <limit> -- <file>
+    let args = vec![
+        "log".to_string(),
+        "--follow".to_string(),
+        format!("--format=%H|%an|%ad|%s"),
+        "--date=short".to_string(),
+        format!("-n{}", limit),
+        "--".to_string(),
+        file_path,
+    ];
+
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut commits = Vec::new();
+
+    for line in resp.stdout.lines() {
+        let parts: Vec<&str> = line.split('|').collect();
+        if parts.len() >= 4 {
+            commits.push(FileCommit {
+                hash: parts[0].to_string(),
+                author: parts[1].to_string(),
+                date: parts[2].to_string(),
+                message: parts[3..].join("|"), // Rejoin message in case it contained pipes
+            });
+        }
+    }
+
+    Ok(commits)
+}
+
+#[tauri::command]
+pub async fn cmd_search_repo_files(
+    state: State<'_, AppState>,
+    pattern: Option<String>,
+    repo_path: Option<String>,
+) -> Result<Vec<String>, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+
+    // git ls-files lists all tracked files
+    let args = vec!["ls-files".to_string()];
+
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let pattern_lower = pattern
+        .as_ref()
+        .map(|p| p.to_lowercase());
+
+    let files: Vec<String> = resp
+        .stdout
+        .lines()
+        .filter(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return false;
+            }
+            // If pattern provided, filter by case-insensitive match
+            if let Some(ref pat) = pattern_lower {
+                line.to_lowercase().contains(pat)
+            } else {
+                true
+            }
+        })
+        .take(100) // Limit results to avoid overwhelming UI
+        .map(|s| s.to_string())
+        .collect();
+
+    Ok(files)
+}
+
+// ---------------------------------------------------------------------------
+// Diff Commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn cmd_get_commit_diff(
+    state: State<'_, AppState>,
+    commit_hash: String,
+    file_path: Option<String>,
+    repo_path: Option<String>,
+) -> Result<CommitDiff, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+
+    // 1. Get diff patch
+    // git show --format= --first-parent --patch <commit> [-- <file_path>]
+    let mut args = vec![
+        "show".to_string(),
+        "--format=".to_string(),
+        "--first-parent".to_string(),
+        "--patch".to_string(),
+        commit_hash.clone(),
+    ];
+    if let Some(ref fp) = file_path {
+        args.push("--".to_string());
+        args.push(fp.clone());
+    }
+
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // 2. Parse output
+    let files = parse_diff_output(&resp.stdout);
+
+    // 3. Get parent hash
+    let parent_hash_args = vec!["rev-parse".to_string(), format!("{}^", commit_hash)];
+    let parent_hash = match state
+        .git
+        .run(Path::new(&path), &parent_hash_args, TIMEOUT_QUICK)
+        .await
+    {
+        Ok(out) => Some(out.stdout.trim().to_string()),
+        Err(_) => None, // Likely root commit
+    };
+
+    Ok(CommitDiff {
+        commit_hash,
+        parent_hash,
+        files,
+    })
+}
+
+#[tauri::command]
+pub async fn cmd_get_file_at_commit(
+    state: State<'_, AppState>,
+    commit_hash: String,
+    file_path: String,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let object = format!("{}:{}", commit_hash, file_path);
+    let args = vec!["show".to_string(), object];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(resp.stdout)
+}
+
+fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {
+    let mut files = Vec::new();
+    let mut current_file: Option<DiffFile> = None;
+    let mut current_hunk: Option<DiffHunk> = None;
+    
+    let mut old_ln: u32 = 0;
+    let mut new_ln: u32 = 0;
+
+    for line in stdout.lines() {
+        if line.starts_with("diff --git") {
+            if let Some(mut f) = current_file.take() {
+                if let Some(h) = current_hunk.take() {
+                    f.hunks.push(h);
+                }
+                files.push(f);
+            }
+            // diff --git a/path b/path
+            // Parse path from " b/" to end
+            let path = if let Some(idx) = line.find(" b/") {
+                line[idx + 3..].trim().to_string()
+            } else {
+                // Fallback
+                line.split_whitespace().last().unwrap_or("").to_string()
+            };
+            
+            current_file = Some(DiffFile {
+                path,
+                status: "M".to_string(),
+                hunks: Vec::new(),
+            });
+            current_hunk = None;
+            continue;
+        }
+
+        if let Some(ref mut file) = current_file {
+            if line.starts_with("new file mode") {
+                file.status = "A".to_string();
+            } else if line.starts_with("deleted file mode") {
+                file.status = "D".to_string();
+            } else if line.starts_with("rename from") {
+                file.status = "R".to_string();
+            } else if line.starts_with("index") || line.starts_with("---") || line.starts_with("+++") {
+                // Skip headers
+                continue;
+            } else if line.starts_with("Binary files") {
+                // Handle binary - for now just leave hunks empty, maybe status is impacted
+            } else if line.starts_with("@@") {
+                // Push previous hunk
+                if let Some(h) = current_hunk.take() {
+                   file.hunks.push(h);
+                }
+                
+                // Parse ranges: @@ -old,len +new,len @@
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    // -old,len
+                    let old_part = &parts[1][1..];
+                    old_ln = old_part.split(',').next().unwrap_or("0").parse().unwrap_or(0);
+                    
+                    // +new,len
+                    let new_part = &parts[2][1..];
+                    new_ln = new_part.split(',').next().unwrap_or("0").parse().unwrap_or(0);
+                    
+                    current_hunk = Some(DiffHunk {
+                        id: Uuid::new_v4().to_string(),
+                        old_start: old_ln,
+                        new_start: new_ln,
+                        lines: Vec::new(),
+                    });
+                }
+            } else if let Some(ref mut hunk) = current_hunk {
+                if line.starts_with('+') {
+                    hunk.lines.push(DiffLine {
+                        type_: DiffLineType::Add,
+                        content: line[1..].to_string(),
+                        old_line_number: None,
+                        new_line_number: Some(new_ln),
+                    });
+                    new_ln += 1;
+                } else if line.starts_with('-') {
+                     // Removed line
+                    hunk.lines.push(DiffLine {
+                        type_: DiffLineType::Remove,
+                        content: line[1..].to_string(),
+                        old_line_number: Some(old_ln),
+                        new_line_number: None,
+                    });
+                    old_ln += 1;
+                } else if line.starts_with(' ') {
+                    // Context line
+                    hunk.lines.push(DiffLine {
+                        type_: DiffLineType::Context,
+                        content: line[1..].to_string(),
+                        old_line_number: Some(old_ln),
+                        new_line_number: Some(new_ln),
+                    });
+                    old_ln += 1;
+                    new_ln += 1;
+                }
+            }
+        }
+    }
+    
+    // Flush last
+    if let Some(mut f) = current_file.take() {
+        if let Some(h) = current_hunk.take() {
+            f.hunks.push(h);
+        }
+        files.push(f);
+    }
+    
+    files
 }

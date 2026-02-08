@@ -14,12 +14,13 @@
   interface Props {
       repoPath?: string;
       isActive?: boolean;
+      selectedFile?: FileStatus | null;
   }
-  let { repoPath, isActive = false }: Props = $props();
+  let { repoPath, isActive = false, selectedFile = $bindable(null) }: Props = $props();
 
   let stagedFiles = $state<FileStatus[]>([]);
   let unstagedFiles = $state<FileStatus[]>([]);
-  let selectedFile = $state<FileStatus | null>(null);
+  // selectedFile is now a prop
   let baseContent = $state<string>("");
   let modifiedContent = $state<string>("");
   let loadingStatus = $state(false);
@@ -225,40 +226,43 @@
     <!-- Left Sidebar -->
     <div class="w-1/3 min-w-[300px] max-w-[450px] flex flex-col border-r border-[#30363d] bg-[#161b22]">
 
-        <!-- Changes (Unstaged) - shown first to match Git workflow -->
-        <ResizableSection initialSize={180} minSize={80} maxSize={400}>
-            <div class="h-full flex flex-col">
-                <CommitFileList
-                    title="Changes"
-                    files={unstagedFiles}
-                    selectedFile={selectedFile}
-                    onSelect={handleSelect}
-                    onAction={handleStage}
-                    actionLabel="Stage"
-                    onActionAll={handleStageAll}
-                    actionAllLabel="Stage All"
-                />
-            </div>
-        </ResizableSection>
+        <!-- Resizable file list sections (scrollable region) -->
+        <div class="flex-1 min-h-0 flex flex-col overflow-auto">
+            <!-- Changes (Unstaged) - shown first to match Git workflow -->
+            <ResizableSection initialSize={180} minSize={80} maxSize={400}>
+                <div class="h-full flex flex-col">
+                    <CommitFileList
+                        title="Changes"
+                        files={unstagedFiles}
+                        selectedFile={selectedFile}
+                        onSelect={handleSelect}
+                        onAction={handleStage}
+                        actionLabel="Stage"
+                        onActionAll={handleStageAll}
+                        actionAllLabel="Stage All"
+                    />
+                </div>
+            </ResizableSection>
 
-        <!-- Staged Changes -->
-        <ResizableSection initialSize={180} minSize={80} maxSize={400}>
-            <div class="h-full flex flex-col border-t border-[#30363d]">
-                <CommitFileList
-                    title="Staged Changes"
-                    files={stagedFiles}
-                    selectedFile={selectedFile}
-                    onSelect={handleSelect}
-                    onAction={handleUnstage}
-                    actionLabel="Unstage"
-                    onActionAll={handleUnstageAll}
-                    actionAllLabel="Unstage All"
-                />
-            </div>
-        </ResizableSection>
+            <!-- Staged Changes -->
+            <ResizableSection initialSize={180} minSize={80} maxSize={400}>
+                <div class="h-full flex flex-col border-t border-[#30363d]">
+                    <CommitFileList
+                        title="Staged Changes"
+                        files={stagedFiles}
+                        selectedFile={selectedFile}
+                        onSelect={handleSelect}
+                        onAction={handleUnstage}
+                        actionLabel="Unstage"
+                        onActionAll={handleUnstageAll}
+                        actionAllLabel="Unstage All"
+                    />
+                </div>
+            </ResizableSection>
+        </div>
 
-        <!-- Commit Actions -->
-        <div class="shrink-0">
+        <!-- Commit Actions: fixed at bottom, non-resizable -->
+        <div class="shrink-0 border-t border-[#30363d]">
             <CommitActions
                 stagedCount={stagedFiles.length}
                 loading={committing || loadingStatus}
