@@ -46,30 +46,30 @@
 
   // Selection & Details
   let selectedCommit = $state<GraphNode | null>(null);
-  let commitDiff = $state<CommitDiff | null>(null);
-  let isLoadingDiff = $state(false);
+  let changedFiles = $state<string[]>([]);
+  let isLoadingFiles = $state(false);
 
   async function selectCommit(node: GraphNode) {
       if (selectedCommit?.hash === node.hash) return;
       
       selectedCommit = node;
-      commitDiff = null;
+      changedFiles = [];
       
       if (!repoPath) return;
 
-      isLoadingDiff = true;
+      isLoadingFiles = true;
       try {
-          commitDiff = await GitService.getCommitDiff(node.hash, repoPath);
+          changedFiles = await GitService.getCommitChangedFiles(node.hash, repoPath);
       } catch (e) {
-          console.error("Failed to load commit diff", e);
+          console.error("Failed to load commit files", e);
       } finally {
-          isLoadingDiff = false;
+          isLoadingFiles = false;
       }
   }
 
   function closeDetails() {
       selectedCommit = null;
-      commitDiff = null;
+      changedFiles = [];
   }
 
   // Persistence
@@ -438,29 +438,23 @@
                   <div class="mt-4">
                       <div class="text-xs font-bold text-[#8b949e] uppercase tracking-wider mb-2 flex justify-between items-center">
                           <span>Changed Files</span>
-                          {#if commitDiff}
-                              <span class="text-[10px] font-normal bg-[#30363d] text-[#c9d1d9] px-1.5 rounded-full">{commitDiff.files.length}</span>
+                          {#if changedFiles.length > 0}
+                              <span class="text-[10px] font-normal bg-[#30363d] text-[#c9d1d9] px-1.5 rounded-full">{changedFiles.length}</span>
                           {/if}
                       </div>
                       
-                      {#if isLoadingDiff}
+                      {#if isLoadingFiles}
                           <div class="flex items-center justify-center py-8 text-[#8b949e] gap-2">
                               <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                              <span class="text-xs">Loading diff...</span>
+                              <span class="text-xs">Loading changes...</span>
                           </div>
-                      {:else if commitDiff}
+                      {:else if changedFiles.length > 0}
                           <div class="space-y-0.5">
-                              {#each commitDiff.files as file}
-                                  <div class="flex items-start gap-2 py-1 px-1 hover:bg-[#161b22] rounded text-xs group cursor-default" title={file.path}>
-                                      <span class="shrink-0 font-mono font-bold w-4 text-center select-none 
-                                         {file.status === 'M' ? 'text-amber-400' : 
-                                          file.status === 'A' ? 'text-green-400' : 
-                                          file.status === 'D' ? 'text-red-400' : 
-                                          file.status === 'R' ? 'text-purple-400' : 'text-[#8b949e]'}">
-                                          {file.status}
-                                      </span>
+                              {#each changedFiles as file}
+                                  <div class="flex items-start gap-2 py-1 px-1 hover:bg-[#161b22] rounded text-xs group cursor-default" title={file}>
+                                      <svg class="shrink-0 text-[#8b949e] w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
                                       <span class="truncate text-[#c9d1d9] leading-tight break-all font-mono">
-                                          {file.path}
+                                          {file}
                                       </span>
                                   </div>
                               {/each}
