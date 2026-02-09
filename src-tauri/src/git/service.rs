@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use tokio::process::Command;
 
-use crate::git::types::{DiagnosticInfo, GitError, GitResponse, GitResult};
+use crate::git::types::{DiagnosticInfo, GitError, GitResponse, GitResponseBytes, GitResult};
 
 /// Timeout tiers for different command categories.
 pub const TIMEOUT_LOCAL: u64 = 30;
@@ -216,6 +216,109 @@ impl GitExecutor {
             return Err(GitError::NotARepo(repo_path.display().to_string()));
         }
         if stderr.contains("CONFLICT") || stdout.contains("CONFLICT") {
+            return Err(GitError::MergeConflict);
+        }
+
+        Err(GitError::CommandError(format!(
+            "git {} failed (exit {}): {}",
+            args_display, exit_code, stderr
+        )))
+    }
+
+    /// Run a git command and return stdout as raw bytes.
+    pub async fn run_with_output_bytes(
+        &self,
+        repo_path: &Path,
+        args: &[String],
+        timeout_secs: u64,
+    ) -> GitResult<GitResponseBytes> {
+        // Validate repo path
+        if !repo_path.exists() || !repo_path.is_dir() {
+            return Err(GitError::InvalidRepoPath(
+                repo_path.display().to_string(),
+            ));
+        }
+
+        let start = Instant::now();
+        let args_display = args.join(" ");
+        println!(
+            "[GIT START (BYTES)] git {} | cwd: {} | timeout: {}s",
+            args_display,
+            repo_path.display(),
+            timeout_secs
+        );
+
+        let mut cmd = Command::new(&self.git_binary);
+        cmd.current_dir(repo_path)
+            .args(args)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GCM_INTERACTIVE", "never")
+            .env("LC_ALL", "C")
+            .env("GIT_OPTIONAL_LOCKS", "0")
+            .env("GIT_PAGER", "")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        #[cfg(target_os = "windows")]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+
+        let child = cmd
+            .spawn()
+            .map_err(|e| GitError::IoError(format!("Failed to spawn git: {}", e)))?;
+
+        let output = match tokio::time::timeout(
+            Duration::from_secs(timeout_secs),
+            child.wait_with_output(),
+        )
+        .await
+        {
+            Ok(Ok(output)) => output,
+            Ok(Err(e)) => {
+                return Err(GitError::IoError(format!(
+                    "git process IO error: {}",
+                    e
+                )));
+            }
+            Err(_) => {
+                println!(
+                    "[GIT TIMEOUT] git {} (after {}s)",
+                    args_display, timeout_secs
+                );
+                return Err(GitError::Timeout(timeout_secs));
+            }
+        };
+
+        let duration = start.elapsed();
+        let stdout_bytes = output.stdout;
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let exit_code = output.status.code().unwrap_or(-1);
+
+        println!(
+            "[GIT END] exit={} | {}ms | stdout={}b stderr={}b | git {}",
+            exit_code,
+            duration.as_millis(),
+            stdout_bytes.len(),
+            stderr.len(),
+            args_display,
+        );
+
+        if output.status.success() {
+            return Ok(GitResponseBytes {
+                stdout: stdout_bytes,
+                stderr,
+                exit_code,
+                duration_ms: duration.as_millis() as u64,
+            });
+        }
+
+        if stderr.contains("not a git repository") {
+            return Err(GitError::NotARepo(repo_path.display().to_string()));
+        }
+        if stderr.contains("CONFLICT") {
             return Err(GitError::MergeConflict);
         }
 

@@ -730,6 +730,7 @@ pub async fn cmd_get_diff_file(
     state: State<'_, AppState>,
     file_path: String,
     staged: bool,
+    encoding: Option<String>,
     repo_path: Option<String>,
 ) -> Result<String, String> {
     let path = resolve_repo_path(&state, repo_path)?;
@@ -739,21 +740,26 @@ pub async fn cmd_get_diff_file(
         args.push("--cached".to_string());
     }
     args.push("--".to_string());
-    args.push(file_path);
+    args.push(file_path.clone());
 
     let resp = state
         .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .run_with_output_bytes(Path::new(&path), &args, TIMEOUT_LOCAL) // Use byte-oriented run
         .await
         .map_err(|e| e.to_string())?;
+
+    let settings = state.settings.lock().map_err(|e| e.to_string())?;
+    // Decode with configured encoding or fallback to UTF-8 lossy
+    let content = crate::git::encoding::decode_bytes(&resp.stdout, Path::new(&file_path), &settings, encoding);
         
-    Ok(resp.stdout)
+    Ok(content)
 }
 
 #[tauri::command]
 pub async fn cmd_get_file_base_content(
     state: State<'_, AppState>,
     file_path: String,
+    encoding: Option<String>,
     repo_path: Option<String>,
 ) -> Result<String, String> {
     let path = resolve_repo_path(&state, repo_path)?;
@@ -763,10 +769,13 @@ pub async fn cmd_get_file_base_content(
     // New/untracked files won't exist at HEAD -- return empty content
     match state
         .git
-        .run(Path::new(&path), &args, TIMEOUT_QUICK)
+        .run_with_output_bytes(Path::new(&path), &args, TIMEOUT_QUICK)
         .await
     {
-        Ok(resp) => Ok(resp.stdout),
+        Ok(resp) => {
+            let settings = state.settings.lock().map_err(|e| e.to_string())?;
+            Ok(crate::git::encoding::decode_bytes(&resp.stdout, Path::new(&file_path), &settings, encoding))
+        },
         Err(_) => Ok(String::new()),
     }
 }
@@ -776,6 +785,7 @@ pub async fn cmd_get_file_modified_content(
     state: State<'_, AppState>,
     file_path: String,
     staged: bool,
+    encoding: Option<String>,
     repo_path: Option<String>,
 ) -> Result<String, String> {
     let path = resolve_repo_path(&state, repo_path)?;
@@ -786,17 +796,23 @@ pub async fn cmd_get_file_modified_content(
         let args = vec!["show".to_string(), show_arg];
         match state
             .git
-            .run(Path::new(&path), &args, TIMEOUT_QUICK)
+            .run_with_output_bytes(Path::new(&path), &args, TIMEOUT_QUICK)
             .await
         {
-            Ok(resp) => Ok(resp.stdout),
+            Ok(resp) => {
+                let settings = state.settings.lock().map_err(|e| e.to_string())?;
+                Ok(crate::git::encoding::decode_bytes(&resp.stdout, Path::new(&file_path), &settings, encoding))
+            },
             Err(_) => Ok(String::new()),
         }
     } else {
         // Unstaged content: read directly from the working directory
         let full_path = Path::new(&path).join(&file_path);
-        match std::fs::read_to_string(&full_path) {
-            Ok(content) => Ok(content),
+        match std::fs::read(&full_path) {
+            Ok(bytes) => {
+                let settings = state.settings.lock().map_err(|e| e.to_string())?;
+                Ok(crate::git::encoding::decode_bytes(&bytes, Path::new(&file_path), &settings, encoding))
+            },
             Err(_) => Ok(String::new()),
         }
     }
@@ -1287,6 +1303,7 @@ pub async fn cmd_get_commit_diff(
     commit_hash: String,
     file_path: Option<String>,
     repo_path: Option<String>,
+    encoding: Option<String>,
 ) -> Result<CommitDiff, String> {
     let path = resolve_repo_path(&state, repo_path)?;
 
@@ -1306,12 +1323,26 @@ pub async fn cmd_get_commit_diff(
 
     let resp = state
         .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .run_with_output_bytes(Path::new(&path), &args, TIMEOUT_LOCAL)
         .await
         .map_err(|e| e.to_string())?;
+    
+    // Decode with override or default
+    // Decode with override or default
+    let decoded_stdout = {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        if let Some(ref fp) = file_path {
+            // If specific file, use its path context for config resolution
+            crate::git::encoding::decode_bytes(&resp.stdout, Path::new(fp), &settings, encoding)
+        } else {
+            // If no file path (entire commit), use root path logic (likely just UTF-8 unless simple override)
+            // For mixed files, applying one encoding is risky, but if user overrides, they want it.
+            crate::git::encoding::decode_bytes(&resp.stdout, Path::new(""), &settings, encoding)
+        }
+    };
 
     // 2. Parse output
-    let files = parse_diff_output(&resp.stdout);
+    let files = parse_diff_output(&decoded_stdout);
 
     // 3. Get parent hash
     let parent_hash_args = vec!["rev-parse".to_string(), format!("{}^", commit_hash)];
@@ -1337,16 +1368,19 @@ pub async fn cmd_get_file_at_commit(
     commit_hash: String,
     file_path: String,
     repo_path: Option<String>,
+    encoding: Option<String>,
 ) -> Result<String, String> {
     let path = resolve_repo_path(&state, repo_path)?;
     let object = format!("{}:{}", commit_hash, file_path);
     let args = vec!["show".to_string(), object];
     let resp = state
         .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .run_with_output_bytes(Path::new(&path), &args, TIMEOUT_LOCAL)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(resp.stdout)
+
+    let settings = state.settings.lock().map_err(|e| e.to_string())?;
+    Ok(crate::git::encoding::decode_bytes(&resp.stdout, Path::new(&file_path), &settings, encoding))
 }
 
 fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {

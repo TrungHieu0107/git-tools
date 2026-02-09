@@ -13,6 +13,8 @@
     // Optional snippet for custom header/toolbar layout
     // If not provided, a default basic toolbar is rendered
     header?: import("svelte").Snippet<[any]>;
+    selectedEncoding?: string;
+    onEncodingChange?: (encoding: string) => void;
   }
 
   let {
@@ -20,7 +22,9 @@
     hunks = [],
     loading = false,
     isTooLarge = false,
-    header
+    header,
+    selectedEncoding,
+    onEncodingChange,
   }: Props = $props();
 
   // -- State --
@@ -70,7 +74,9 @@
     currentHunkIndex,
     totalHunks: hunks.length,
     onPrevHunk: handlePrevHunk,
-    onNextHunk: handleNextHunk
+    onNextHunk: handleNextHunk,
+    selectedEncoding,
+    onEncodingChange
   });
 </script>
 
@@ -89,6 +95,8 @@
                 totalHunks={hunks.length}
                 onPrevHunk={handlePrevHunk}
                 onNextHunk={handleNextHunk}
+                selectedEncoding={selectedEncoding}
+                onEncodingChange={onEncodingChange}
             />
         </div>
     {/if}

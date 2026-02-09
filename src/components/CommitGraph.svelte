@@ -59,6 +59,7 @@
   let isLoadingDiff = $state(false);
   let baseContent = $state("");
   let modifiedContent = $state("");
+  let selectedEncoding = $state<string | undefined>(undefined);
 
   // Derived: full-file diff for side-by-side view (same pattern as CommitPanel/FileHistoryPanel)
   let diffResult = $derived.by<DiffResult | null>(() => {
@@ -120,7 +121,7 @@
 
       try {
           // Step 1: Get commit diff to find parent hash
-          const diff = await GitService.getCommitDiff(selectedCommit.hash, repoPath, file);
+          const diff = await GitService.getCommitDiff(selectedCommit.hash, repoPath, file, selectedEncoding);
 
           if (selectedDiffFile !== file) return; // Race check
 
@@ -128,13 +129,13 @@
           const promises: Promise<string>[] = [];
           // Modified content (file at selected commit)
           promises.push(
-              GitService.getFileAtCommit(selectedCommit.hash, file, repoPath)
+              GitService.getFileAtCommit(selectedCommit.hash, file, repoPath, selectedEncoding)
                   .catch(() => "") // File might not exist (deleted)
           );
           // Base content (file at parent commit)
           if (diff.parentHash) {
               promises.push(
-                  GitService.getFileAtCommit(diff.parentHash, file, repoPath)
+                  GitService.getFileAtCommit(diff.parentHash, file, repoPath, selectedEncoding)
                       .catch(() => "") // File might not exist at parent (newly added)
               );
           } else {
@@ -162,6 +163,14 @@
       baseContent = "";
       modifiedContent = "";
       isLoadingDiff = false;
+      selectedEncoding = undefined;
+  }
+
+  function handleEncodingChange(encoding: string) {
+      selectedEncoding = encoding;
+      if (selectedDiffFile) {
+          openDiff(selectedDiffFile);
+      }
   }
 
 
@@ -306,6 +315,8 @@
                  {hunks}
                  loading={isLoadingDiff}
                  {isTooLarge}
+                 {selectedEncoding}
+                 onEncodingChange={handleEncodingChange}
              >
                 {#snippet header(toolbarProps)}
                     <div class="{HEADER_BASE} px-2 justify-between">
@@ -330,6 +341,8 @@
                                 totalHunks={toolbarProps.totalHunks}
                                 onPrevHunk={toolbarProps.onPrevHunk}
                                 onNextHunk={toolbarProps.onNextHunk}
+                                selectedEncoding={toolbarProps.selectedEncoding}
+                                onEncodingChange={toolbarProps.onEncodingChange}
                                 />
                         </div>
                     </div>

@@ -9,6 +9,14 @@ pub struct GitResponse {
     pub duration_ms: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GitResponseBytes {
+    pub stdout: Vec<u8>,
+    pub stderr: String,
+    pub exit_code: i32,
+    pub duration_ms: u64,
+}
+
 #[derive(Error, Debug, Serialize)]
 #[serde(tag = "type", content = "message")]
 #[allow(dead_code)]

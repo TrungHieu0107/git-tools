@@ -26,6 +26,7 @@
   let loadingStatus = $state(false);
   let loadingDiff = $state(false);
   let committing = $state(false);
+  let selectedEncoding = $state<string | undefined>(undefined);
 
 
 
@@ -91,8 +92,8 @@
       try {
           // Fetch base (HEAD) and modified content in parallel
           const [base, modified] = await Promise.all([
-              GitService.getFileBaseContent(file.path, repoPath),
-              GitService.getFileModifiedContent(file.path, file.staged, repoPath),
+              GitService.getFileBaseContent(file.path, repoPath, selectedEncoding),
+              GitService.getFileModifiedContent(file.path, file.staged, repoPath, selectedEncoding),
           ]);
           baseContent = base;
           modifiedContent = modified;
@@ -107,10 +108,17 @@
 
   function handleSelect(file: FileStatus) {
       selectedFile = file;
-
+      selectedEncoding = undefined; // Reset encoding on new file
       // Refresh file lists so changes made outside the app (e.g. in an
       // editor) are picked up whenever the user switches files.
       loadStatus(true);
+  }
+
+  function handleEncodingChange(encoding: string) {
+      selectedEncoding = encoding;
+      if (selectedFile) {
+          loadDiff(selectedFile);
+      }
   }
 
   // Actions
@@ -258,6 +266,8 @@
                  {hunks}
                  loading={loadingDiff}
                  {isTooLarge}
+                 {selectedEncoding}
+                 onEncodingChange={handleEncodingChange}
              >
                 {#snippet header(toolbarProps)}
                     <!-- File header bar -->
@@ -277,6 +287,8 @@
                             totalHunks={toolbarProps.totalHunks}
                             onPrevHunk={toolbarProps.onPrevHunk}
                             onNextHunk={toolbarProps.onNextHunk}
+                            selectedEncoding={toolbarProps.selectedEncoding}
+                            onEncodingChange={toolbarProps.onEncodingChange}
                         />
                     </div>
                 {/snippet}

@@ -17,13 +17,14 @@
   let loading = $state(false);
   let error = $state<string | null>(null);
 
-  // Search state - load all files once, filter in-memory for instant autocomplete
+  // Search state - load on demand
   let searchQuery = $state("");
-  let allFiles = $state<string[]>([]);
+  let searchResults = $state<string[]>([]);
   let filesLoading = $state(false);
   let filesError = $state<string | null>(null);
   let showDropdown = $state(false);
   let selectedIndex = $state(-1);
+  let searchDebounceTimer: number | null = null; // Removed $state as it's not needed for UI
 
   // Diff View State
   let selectedCommitHash = $state<string | null>(null);
@@ -31,6 +32,7 @@
   let baseContent = $state("");
   let modifiedContent = $state("");
   let commitHunks = $state<BackendDiffHunk[]>([]);
+  let selectedEncoding = $state<string | undefined>(undefined);
 
   // Derived: full-file diff for side-by-side and hunk modes (same pattern as CommitPanel)
   let diffResult = $derived.by<DiffResult | null>(() => {
@@ -51,24 +53,6 @@
 
   let totalHunks = $derived(hunks.length);
 
-  // Computed: filtered files based on search query (in-memory for instant results)
-  let filteredFiles = $derived.by(() => {
-    if (!searchQuery.trim()) return [];
-    const query = searchQuery.toLowerCase().trim();
-    return allFiles
-      .filter(file => file.toLowerCase().includes(query))
-      .slice(0, 50);
-  });
-
-  // Load all repository files when repo changes
-  $effect(() => {
-    if (!repoPath) {
-      allFiles = [];
-      return;
-    }
-    loadAllFiles();
-  });
-
   // Effect to load history when filePath or repoPath changes
   $effect(() => {
     if (!repoPath || !filePath) {
@@ -84,35 +68,48 @@
     loadHistory();
   });
 
-  async function loadAllFiles() {
-    if (!repoPath) return;
+  function handleSearchInput() {
+    selectedIndex = -1;
+    showDropdown = true;
+    
+    if (searchDebounceTimer) {
+        clearTimeout(searchDebounceTimer);
+    }
+
+    if (!searchQuery.trim()) {
+        searchResults = [];
+        return;
+    }
 
     filesLoading = true;
-    filesError = null;
+    searchDebounceTimer = window.setTimeout(() => {
+        performSearch(searchQuery);
+    }, 300);
+  }
 
+  async function performSearch(query: string) {
+    if (!repoPath) return;
+    
+    filesError = null;
     try {
-      allFiles = await GitService.searchRepoFiles(undefined, repoPath);
+        // Call backend with query
+        searchResults = await GitService.searchRepoFiles(query, repoPath);
     } catch (e: any) {
-      console.error("Failed to load repository files:", e);
-      filesError = typeof e === "string" ? e : e.message || String(e);
-      allFiles = [];
+        console.error("Search failed:", e);
+        filesError = typeof e === "string" ? e : e.message || String(e);
+        searchResults = [];
     } finally {
-      filesLoading = false;
+        filesLoading = false;
     }
   }
 
-  function handleSearchInput() {
-    selectedIndex = -1;
-    showDropdown = searchQuery.length > 0;
-  }
-
   function handleKeydown(e: KeyboardEvent) {
-    if (!showDropdown || filteredFiles.length === 0) return;
+    if (!showDropdown || searchResults.length === 0) return;
 
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        selectedIndex = Math.min(selectedIndex + 1, filteredFiles.length - 1);
+        selectedIndex = Math.min(selectedIndex + 1, searchResults.length - 1);
         break;
       case "ArrowUp":
         e.preventDefault();
@@ -120,10 +117,10 @@
         break;
       case "Enter":
         e.preventDefault();
-        if (selectedIndex >= 0 && selectedIndex < filteredFiles.length) {
-          selectFile(filteredFiles[selectedIndex]);
-        } else if (filteredFiles.length > 0) {
-          selectFile(filteredFiles[0]);
+        if (selectedIndex >= 0 && selectedIndex < searchResults.length) {
+          selectFile(searchResults[selectedIndex]);
+        } else if (searchResults.length > 0) {
+          selectFile(searchResults[0]);
         }
         break;
       case "Escape":
@@ -135,7 +132,7 @@
   }
 
   function selectFile(path: string) {
-    searchQuery = "";
+    searchQuery = ""; // Optionally keep the query or clear it? Keeping it clear for now.
     showDropdown = false;
     selectedIndex = -1;
     selectedCommitHash = null;
@@ -145,6 +142,21 @@
     if (onFileSelect) {
       onFileSelect(path);
     }
+  }
+
+  function handleEncodingChange(encoding: string) {
+      selectedEncoding = encoding;
+      // Re-load current commit if selected
+      const currentCommit = commits.find(c => c.hash === selectedCommitHash);
+      if (currentCommit) {
+          // Force reload by clearing previous state?
+          // Actually selectCommit checks for hash equality and returns early.
+          // We need to bypass that check or reset hash first.
+          // Or split load logic.
+          // For now, let's just reset hash momentarily or make selectCommit smarter?
+          selectedCommitHash = null; // Reset to force reload
+          selectCommit(currentCommit);
+      }
   }
 
   function closeDropdown() {
@@ -182,7 +194,7 @@
 
       try {
           // Step 1: Get file-scoped diff (hunks + parent hash)
-          const diff = await GitService.getCommitDiff(commit.hash, repoPath, filePath);
+          const diff = await GitService.getCommitDiff(commit.hash, repoPath, filePath, selectedEncoding);
           // Extract hunks for the single file (should be 0 or 1 file entries)
           if (diff.files.length > 0) {
               commitHunks = diff.files[0].hunks;
@@ -192,13 +204,13 @@
           const promises: Promise<string>[] = [];
           // Modified content (file at selected commit)
           promises.push(
-              GitService.getFileAtCommit(commit.hash, filePath, repoPath)
+              GitService.getFileAtCommit(commit.hash, filePath, repoPath, selectedEncoding)
                   .catch(() => "") // File might not exist (deleted)
           );
           // Base content (file at parent commit)
           if (diff.parentHash) {
               promises.push(
-                  GitService.getFileAtCommit(diff.parentHash, filePath, repoPath)
+                  GitService.getFileAtCommit(diff.parentHash, filePath, repoPath, selectedEncoding)
                       .catch(() => "") // File might not exist at parent (newly added)
               );
           } else {
@@ -303,14 +315,10 @@
       {/if}
     </div>
 
-    {#if allFiles.length > 0 && !searchQuery}
-      <div class="text-xs text-[#6e7681] mt-1">{allFiles.length} files indexed</div>
-    {/if}
-
     {#if showDropdown && searchQuery}
       <div class="absolute left-4 right-4 top-full mt-1 bg-[#161b22] border border-[#30363d] rounded shadow-lg z-50 max-h-72 overflow-auto custom-scrollbar">
-        {#if filteredFiles.length > 0}
-          {#each filteredFiles as file, i}
+        {#if searchResults.length > 0}
+          {#each searchResults as file, i}
             <button
               onmousedown={() => selectFile(file)}
               onmouseenter={() => selectedIndex = i}
@@ -322,7 +330,7 @@
               <span class="truncate">{@html highlightMatch(file, searchQuery)}</span>
             </button>
           {/each}
-        {:else}
+        {:else if !filesLoading}
           <div class="px-3 py-3 text-sm text-[#8b949e]">
             No files found matching "{searchQuery}"
           </div>
@@ -412,6 +420,8 @@
               {hunks}
               loading={diffLoading}
               {isTooLarge}
+              {selectedEncoding}
+              onEncodingChange={handleEncodingChange}
           >
             {#snippet header(toolbarProps)}
                 <!-- Toolbar -->
@@ -426,6 +436,8 @@
                     totalHunks={toolbarProps.totalHunks}
                     onPrevHunk={toolbarProps.onPrevHunk}
                     onNextHunk={toolbarProps.onNextHunk}
+                    selectedEncoding={toolbarProps.selectedEncoding}
+                    onEncodingChange={toolbarProps.onEncodingChange}
                     />
                 </div>
             {/snippet}

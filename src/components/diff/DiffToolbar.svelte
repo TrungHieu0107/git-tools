@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+  import EncodingSelector from "../../lib/components/EncodingSelector.svelte";
   interface Props {
     viewMode: ViewMode;
     onViewModeChange: (mode: ViewMode) => void;
@@ -10,6 +11,8 @@
     totalHunks: number;
     onPrevHunk: () => void;
     onNextHunk: () => void;
+    selectedEncoding?: string;
+    onEncodingChange?: (encoding: string) => void;
   }
   let {
     viewMode,
@@ -18,6 +21,8 @@
     totalHunks,
     onPrevHunk,
     onNextHunk,
+    selectedEncoding,
+    onEncodingChange,
   }: Props = $props();
 
   const modes: { value: ViewMode; label: string }[] = [
@@ -45,6 +50,14 @@
       </button>
     {/each}
   </div>
+
+  {#if onEncodingChange}
+      <div class="w-px h-4 bg-[#30363d]"></div>
+      <EncodingSelector 
+          selectedEncoding={selectedEncoding} 
+          on:change={(e: CustomEvent<string>) => onEncodingChange(e.detail)} 
+      />
+  {/if}
 
   <!-- Separator -->
   <div class="w-px h-4 bg-[#30363d]"></div>

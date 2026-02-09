@@ -1023,6 +1023,7 @@ dependencies = [
 name = "git-tools"
 version = "0.1.0"
 dependencies = [
+ "encoding_rs",
  "glob",
  "serde",
  "serde_json",
