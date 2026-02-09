@@ -18,11 +18,20 @@ pub struct RepoEntry {
 pub struct AppSettings {
     pub repos: Vec<RepoEntry>,
     pub active_repo_id: Option<String>,
+    #[serde(default)]
+    pub open_repo_ids: Vec<String>,
+    #[serde(default)]
+    pub excluded_files: Vec<String>,
+    #[serde(default)]
+    pub repo_filters: std::collections::HashMap<String, String>,
 }
+
+use crate::terminal::TerminalManager;
 
 pub struct AppState {
     pub settings: Mutex<AppSettings>,
     pub git: GitExecutor,
+    pub terminal: TerminalManager,
 }
 
 impl AppState {
@@ -30,6 +39,7 @@ impl AppState {
         Self {
             settings: Mutex::new(AppSettings::default()),
             git: GitExecutor::new(git_binary),
+            terminal: TerminalManager::new(),
         }
     }
 }

@@ -60,3 +60,26 @@ pub struct DiagnosticInfo {
 }
 
 pub type GitResult<T> = Result<T, GitError>;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum GitCommandType {
+    Checkout,
+    Merge,
+    Commit,
+    Pull,
+    Push,
+    Fetch,
+    Branch,
+    Other,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommandResult {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+    pub command_type: GitCommandType,
+}

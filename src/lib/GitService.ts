@@ -1,4 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "./toast.svelte";
+import type { GitCommandResult } from "./types";
+import { triggerGraphReload } from "./stores/git-events";
 
 export interface ConflictFile {
   base: string;
@@ -12,9 +15,18 @@ export interface RepoEntry {
   path: string;
 }
 
+export interface FileStatus {
+  path: string;
+  status: string;
+  staged: boolean;
+}
+
 export interface AppSettings {
   repos: RepoEntry[];
   active_repo_id: string | null;
+  open_repo_ids: string[];
+  excluded_files: string[];
+  repo_filters: Record<string, string>;
 }
 
 export class GitService {
@@ -22,6 +34,14 @@ export class GitService {
 
   static async getSettings(): Promise<AppSettings> {
     return invoke("cmd_get_settings");
+  }
+
+  static async setExcludedFiles(exclusions: string[]): Promise<AppSettings> {
+    return invoke("cmd_set_excluded_files", { exclusions });
+  }
+
+  static async setRepoFilter(repoId: string, filter: string): Promise<AppSettings> {
+    return invoke("cmd_set_repo_filter", { repoId, filter });
   }
 
   static async addRepo(name: string, path: string): Promise<AppSettings> {
@@ -34,6 +54,14 @@ export class GitService {
 
   static async setActiveRepo(id: string): Promise<AppSettings> {
     return invoke("cmd_set_active_repo", { id });
+  }
+
+  static async openRepo(id: string): Promise<AppSettings> {
+    return invoke("cmd_open_repo", { id });
+  }
+
+  static async closeRepo(id: string): Promise<AppSettings> {
+    return invoke("cmd_close_repo", { id });
   }
 
   static async getActiveRepo(): Promise<RepoEntry | null> {
@@ -89,5 +117,265 @@ export class GitService {
    */
   static async checkConflictState(repoPath?: string): Promise<boolean> {
     return invoke("cmd_check_conflict_state", { repoPath });
+  }
+
+  static async getStatusFiles(repoPath?: string): Promise<FileStatus[]> {
+    return invoke("cmd_get_status_files", { repoPath });
+  }
+
+  static async getDiff(filePath: string, staged: boolean, repoPath?: string): Promise<string> {
+    return invoke("cmd_get_diff_file", { filePath, staged, repoPath });
+  }
+
+  static async getFileBaseContent(filePath: string, repoPath?: string): Promise<string> {
+    return invoke("cmd_get_file_base_content", { filePath, repoPath });
+  }
+
+  static async getFileModifiedContent(filePath: string, staged: boolean, repoPath?: string): Promise<string> {
+    return invoke("cmd_get_file_modified_content", { filePath, staged, repoPath });
+  }
+
+  static async stageFile(path: string, repoPath?: string): Promise<void> {
+    try {
+        await invoke("cmd_git_add", { path, repoPath });
+        toast.success(`Staged ${path}`);
+    } catch(e: any) {
+        toast.error(`Stage failed: ${e}`);
+        throw e;
+    }
+  }
+
+  static async unstageFile(path: string, repoPath?: string): Promise<void> {
+      try {
+        await invoke("cmd_git_unstage", { path, repoPath });
+        toast.success(`Unstaged ${path}`);
+    } catch(e: any) {
+        toast.error(`Unstage failed: ${e}`);
+        throw e;
+    }
+  }
+
+  static async stageAll(repoPath?: string): Promise<void> {
+      try {
+          await invoke("cmd_git_add_all", { repoPath });
+          toast.success("Staged all files");
+      } catch (e: any) {
+          toast.error(`Stage all failed: ${e}`);
+          throw e;
+      }
+  }
+
+  static async unstageAll(repoPath?: string): Promise<void> {
+      try {
+          await invoke("cmd_git_unstage_all", { repoPath });
+          toast.success("Unstaged all files");
+      } catch (e: any) {
+          toast.error(`Unstage all failed: ${e}`);
+          throw e;
+      }
+  }
+
+  // --- Branch Management ---
+
+  static async getBranches(includeRemote = false, repoPath?: string): Promise<string[]> {
+    return invoke("cmd_get_git_branches", { includeRemote, repoPath });
+  }
+
+  static async getCurrentBranch(repoPath?: string): Promise<string> {
+    return invoke("cmd_get_current_branch", { repoPath });
+  }
+
+  static async switchBranch(branchName: string, repoPath?: string): Promise<GitCommandResult> {
+    try {
+      const res = await invoke<GitCommandResult>("cmd_git_switch_branch", { branchName, repoPath });
+      if (res.success) {
+          toast.success(`Switched to branch '${branchName}'`);
+          triggerGraphReload();
+      } else {
+          toast.error(`Failed to switch branch: ${res.stderr}`);
+      }
+      return res;
+    } catch (e: any) {
+      toast.error(`Failed to switch branch: ${e}`);
+      throw e;
+    }
+  }
+
+  static async checkout(branchName: string, repoPath?: string): Promise<GitCommandResult> {
+    try {
+      const res = await invoke<GitCommandResult>("cmd_git_checkout", { branch: branchName, repoPath });
+      if (res.success) {
+          toast.success(`Checked out branch '${branchName}'`);
+          triggerGraphReload();
+      } else {
+          toast.error(`Checkout failed: ${res.stderr}`);
+      }
+      return res;
+    } catch (e: any) {
+      toast.error(`Checkout failed: ${e}`);
+      throw e;
+    }
+  }
+
+  static async checkoutNew(name: string, startPoint: string, repoPath?: string): Promise<GitCommandResult> {
+    try {
+      const res = await invoke<GitCommandResult>("cmd_git_checkout_new_branch", { name, startPoint, repoPath });
+      if (res.success) {
+          toast.success(`Created branch '${name}'`);
+          triggerGraphReload();
+      } else {
+          toast.error(`Failed to create branch: ${res.stderr}`);
+      }
+      return res;
+    } catch (e: any) {
+      toast.error(`Failed to create branch: ${e}`);
+      throw e;
+    }
+  }
+
+  static async createBranch(name: string, base: string, repoPath?: string): Promise<GitCommandResult> {
+    try {
+      const res = await invoke<GitCommandResult>("cmd_git_create_branch", { name, base, repoPath });
+      if (res.success) {
+        toast.success(`Branch '${name}' created successfully`);
+      } else {
+        toast.error(`Failed to create branch: ${res.stderr}`);
+      }
+      return res;
+    } catch (e: any) {
+      toast.error(`Failed to create branch: ${e}`);
+      throw e;
+    }
+  }
+
+  static async getCommitGraph(limit: number, repoPath?: string): Promise<string> {
+    return invoke("cmd_get_commit_graph", { limit, repoPath });
+  }
+
+  static async merge(branch: string, repoPath?: string): Promise<GitCommandResult> {
+    try {
+      const res = await invoke<GitCommandResult>("cmd_git_merge", { branch, repoPath });
+      if (res.success) {
+          toast.success(`Merged '${branch}'`);
+          triggerGraphReload();
+      } else {
+          toast.error(`Merge failed: ${res.stderr}`);
+      }
+      return res;
+    } catch (e: any) {
+      toast.error(`Merge failed: ${e}`);
+      throw e;
+    }
+  }
+
+  static async fetch(repoPath?: string): Promise<GitCommandResult> {
+    try {
+      const res = await invoke<GitCommandResult>("cmd_git_fetch", { repoPath });
+      if (res.success) {
+          toast.success("Fetch completed");
+          triggerGraphReload();
+      } else {
+          toast.error(`Fetch failed: ${res.stderr}`);
+      }
+      return res;
+    } catch (e: any) {
+      toast.error(`Fetch failed: ${e}`);
+      throw e;
+    }
+  }
+
+  static async pull(repoPath?: string): Promise<GitCommandResult> {
+    try {
+      const res = await invoke<GitCommandResult>("cmd_git_pull", { repoPath });
+      if (res.success) {
+          toast.success("Pull completed");
+          triggerGraphReload();
+      } else {
+          toast.error(`Pull failed: ${res.stderr}`);
+      }
+      return res;
+    } catch (e: any) {
+      toast.error(`Pull failed: ${e}`);
+      throw e;
+    }
+  }
+
+  static async push(repoPath?: string): Promise<GitCommandResult> {
+    try {
+      const res = await invoke<GitCommandResult>("cmd_git_push", { repoPath });
+      if (res.success) {
+          toast.success("Push completed");
+          triggerGraphReload();
+      } else {
+          toast.error(`Push failed: ${res.stderr}`);
+      }
+      return res;
+    } catch (e: any) {
+      toast.error(`Push failed: ${e}`);
+      throw e;
+    }
+  }
+
+  static async commit(message: string, repoPath?: string): Promise<GitCommandResult> {
+    try {
+      const res = await invoke<GitCommandResult>("cmd_git_commit", { message, repoPath });
+      if (res.success) {
+          toast.success("Commit successful");
+          triggerGraphReload();
+      } else {
+          toast.error(`Commit failed: ${res.stderr}`);
+      }
+      return res;
+    } catch (e: any) {
+      toast.error(`Commit failed: ${e}`);
+      throw e;
+    }
+  }
+
+  static async getPendingCommitsCount(repoPath?: string): Promise<number> {
+    return invoke("cmd_get_pending_commits_count", { repoPath });
+  }
+
+  static async getFileHistory(filePath: string, limit = 100, repoPath?: string): Promise<import("./types").FileCommit[]> {
+    return invoke("cmd_get_file_history", { filePath, limit, repoPath });
+  }
+
+  static async searchRepoFiles(pattern?: string, repoPath?: string): Promise<string[]> {
+    return invoke("cmd_search_repo_files", { pattern, repoPath });
+  }
+
+  static async getCommitChangedFiles(commitHash: string, repoPath?: string): Promise<string[]> {
+    try {
+      return await invoke<string[]>("cmd_get_commit_changed_files", { commitHash, repoPath });
+    } catch (e: any) {
+      console.error("Failed to get changed files for commit", e);
+      throw e;
+    }
+  }
+
+  static async getCommitFileDiff(commitHash: string, filePath: string, repoPath?: string): Promise<GitCommandResult> {
+    return invoke("cmd_get_commit_file_diff", { commitHash, filePath, repoPath });
+  }
+
+  static async getCommitDiff(commitHash: string, repoPath?: string, filePath?: string): Promise<import("./types").CommitDiff> {
+    return invoke("cmd_get_commit_diff", { commitHash, filePath, repoPath });
+  }
+
+  static async getFileAtCommit(commitHash: string, filePath: string, repoPath?: string): Promise<string> {
+    return invoke("cmd_get_file_at_commit", { commitHash, filePath, repoPath });
+  }
+
+  // --- Terminal ---
+
+  static async startTerminal(repoPath: string): Promise<void> {
+    return invoke("cmd_terminal_start", { repoPath });
+  }
+
+  static async writeTerminal(repoPath: string, input: string): Promise<void> {
+    return invoke("cmd_terminal_write", { repoPath, input });
+  }
+
+  static async stopTerminal(repoPath: string): Promise<void> {
+    return invoke("cmd_terminal_stop", { repoPath });
   }
 }

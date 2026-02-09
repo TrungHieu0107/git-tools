@@ -1,20 +1,30 @@
 # Node.js
 node_modules/
 dist/
-npm-debug.log
 
-# Rust
+# Rust / Cargo
 /src-tauri/target/
 /target/
 **/*.rs.bk
-Cargo.lock
 
-# Tauri
+# Tauri generated
 src-tauri/gen/schemas/
+
+# Vite temp files
+*.timestamp-*.mjs
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
 
 # OS
 .DS_Store
 Thumbs.db
+nul
 
 # IDE
 .vscode/

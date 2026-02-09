@@ -1,0 +1,82 @@
+﻿cargo :     Checking git-tools v0.1.0 
+(D:\learn\git-tools\src-tauri)
+At line:1 char:1
++ cargo check 2>&1 | Out-File -FilePath 
+"cargo_errors.txt" -Encoding ut ...
++ ~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ( 
+       Checking gi...ools\src-tauri):String)  
+   [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandEr 
+   ror
+ 
+error[E0433]: failed to resolve: could not 
+find `git_engine` in the crate root
+  --> src\models.rs:35:18
+   |
+35 | impl 
+From<crate::git_engine::GitCommandError> for 
+GitCommandErrorPayload {
+   |                  ^^^^^^^^^^ could not 
+find `git_engine` in the crate root
+
+error[E0433]: failed to resolve: could not 
+find `git_engine` in the crate root
+  --> src\models.rs:36:27
+   |
+36 |     fn from(error: 
+crate::git_engine::GitCommandError) -> Self {
+   |                           ^^^^^^^^^^ 
+could not find `git_engine` in the crate root
+
+error[E0433]: failed to resolve: could not 
+find `git_engine` in the crate root
+  --> src\models.rs:38:20
+   |
+38 |             crate::git_engine::GitCommand
+Error::InvalidRepoPath(path) => {
+   |                    ^^^^^^^^^^ could not 
+find `git_engine` in the crate root
+
+error[E0433]: failed to resolve: could not 
+find `git_engine` in the crate root
+  --> src\models.rs:43:20
+   |
+43 |             crate::git_engine::GitCommand
+Error::NotRepository(path) => {
+   |                    ^^^^^^^^^^ could not 
+find `git_engine` in the crate root
+
+error[E0433]: failed to resolve: could not 
+find `git_engine` in the crate root
+  --> src\models.rs:48:20
+   |
+48 |             crate::git_engine::GitCommand
+Error::MergeConflict => 
+GitCommandErrorPayload::MergeConflict,
+   |                    ^^^^^^^^^^ could not 
+find `git_engine` in the crate root
+
+error[E0433]: failed to resolve: could not 
+find `git_engine` in the crate root
+  --> src\models.rs:49:20
+   |
+49 |             crate::git_engine::GitCommand
+Error::CommandFailed { code, stderr } => {
+   |                    ^^^^^^^^^^ could not 
+find `git_engine` in the crate root
+
+error[E0433]: failed to resolve: could not 
+find `git_engine` in the crate root
+  --> src\models.rs:52:20
+   |
+52 |             
+crate::git_engine::GitCommandError::Io(error) 
+=> GitCommandErrorPayload::Io {
+   |                    ^^^^^^^^^^ could not 
+find `git_engine` in the crate root
+
+For more information about this error, try 
+`rustc --explain E0433`.
+error: could not compile `git-tools` (bin 
+"git-tools") due to 7 previous errors

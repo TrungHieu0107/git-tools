@@ -1,336 +1,143 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { GitService, type RepoEntry } from './lib/GitService';
-  import { runGit, type GitResponse, type GitError } from "./lib/git";
-  import { getAuthRequiredMessage } from "./lib/git-errors";
-  import { parseGitLog, calculateGraphLayout, type GraphNode, type GraphEdge } from "./lib/graph-layout";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { GitService, type RepoEntry, type FileStatus, type AppSettings } from './lib/GitService';
+  import GlobalConfirmation from './components/GlobalConfirmation.svelte';
+  import CreateBranchDialog from './components/CreateBranchDialog.svelte';
+  import ToastContainer from './components/ToastContainer.svelte';
   import RepoManager from './components/RepoManager.svelte';
-  import Conflicts from './components/Conflicts.svelte';
-  import GitCommandCenter from './components/GitCommandCenter.svelte';
-  import RepoSelector from './components/RepoSelector.svelte';
-  import CommitGraph from './components/CommitGraph.svelte';
+  import Workspace from './components/Workspace.svelte';
+  import TabBar from './components/TabBar.svelte';
 
-  let activeRepo = $state<RepoEntry | null>(null);
-  let loading = $state(true);
-  
-  // Fix for binding error: declare repoPath as state
-  let repoPath = $state("");
+  let settings = $state<AppSettings | null>(null);
+  let openRepos = $state<RepoEntry[]>([]);
+  let activeRepoId = $state<string | null>(null);
+  let showRepoManager = $state(false);
 
-  // Simple view routing
-  let currentView = $state<'repos' | 'conflicts' | 'commands'>('repos');
-  
-  // Console State
-  let subcommand = $state("status");
-  let response = $state<GitResponse | null>(null);
-  let error = $state<GitError | null>(null);
-
-  // Graph State
-  let graphNodes = $state<GraphNode[]>([]);
-  let graphEdges = $state<GraphEdge[]>([]);
-  let commitCount = $state("50");
-  let graphLoading = $state(false);
-  let hasConflicts = $state(false);
-  let activeTab = $state<"console" | "graph">("console");
-
-  async function updateConflictStatus() {
-    if (!repoPath) {
-        hasConflicts = false;
-        return;
-    }
+  // Load settings and hydrate state
+  async function loadSettings() {
     try {
-        hasConflicts = await GitService.checkConflictState(repoPath);
+        settings = await GitService.getSettings();
+        
+        // Populate openRepos based on IDs
+        if (settings) {
+            const allRepos = settings.repos;
+            const openIds = settings.open_repo_ids || [];
+            
+            // Map IDs to RepoEntries
+            openRepos = openIds
+                .map(id => allRepos.find(r => r.id === id))
+                .filter((r): r is RepoEntry => !!r); 
+            
+            activeRepoId = settings.active_repo_id;
+            
+            // If no open repos, show manager
+            if (openRepos.length === 0) {
+                showRepoManager = true;
+            } else {
+                showRepoManager = false;
+            }
+        }
     } catch (e) {
-        console.error("Failed to check conflict state:", e);
-        hasConflicts = false;
+        console.error("Failed to load settings:", e);
     }
   }
 
-  async function checkActiveRepo() {
-    loading = true;
-    try {
-      activeRepo = await GitService.getActiveRepo();
-      if (activeRepo) {
-         repoPath = activeRepo.path; // Sync state
-         await updateConflictStatus();
-         // Keep current view if possible, else default to 'repos'
-         if (currentView === 'repos') {
-             currentView = 'conflicts';
-         }
-      } else {
-        currentView = 'repos';
-      }
-    } catch (e) {
-      console.error(e);
-      // Fallback to repo manager if error
-      currentView = 'repos';
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function execute() {
-      loading = true;
-      error = null;
-      response = null;
-      activeTab = "console"; // Switch to console on run
-
+  // Handle Tab Actions
+  async function handleActivate(id: string) {
+      if (activeRepoId === id) return;
       try {
-          const cmdArgs = subcommand.trim().split(/\s+/);
-          response = await runGit(repoPath, cmdArgs);
-          await updateConflictStatus(); // Check conflicts after command
+          await GitService.setActiveRepo(id);
+          // Reload settings to get updated state (active_id might change)
+          await loadSettings();
       } catch (e) {
-          error = e as GitError;
-      } finally {
-          loading = false;
+          console.error("Failed to activate repo:", e);
       }
   }
 
-  function formatErrorMessage(message: string): string {
-    return getAuthRequiredMessage(message) ?? message;
+  async function handleClose(id: string) {
+      try {
+          // If we are closing the active repo, we might need to switch logic is handled by backend
+          // Backend updates active_repo_id automatically if active is closed
+          await GitService.closeRepo(id);
+          await loadSettings();
+      } catch (e) {
+          console.error("Failed to close repo:", e);
+      }
   }
 
-  async function loadGraph() {
-    if (!repoPath) return;
-    graphLoading = true;
-    try {
-      // Format must match parseGitLog expectation: hash|parents|refs|author|date|subject
-      const logOutput = await runGit(repoPath, ["--no-pager", "log", `--max-count=${commitCount}`, "--pretty=format:%H|%P|%d|%an|%cI|%s", "--date=local"]);
-      const commits = parseGitLog(logOutput.stdout);
-      const layout = calculateGraphLayout(commits);
-      graphNodes = layout.nodes;
-      graphEdges = layout.edges;
-      activeTab = "graph";
-    } catch (e) {
-      console.error("Failed to load graph:", e);
-      error = e as GitError;
-      activeTab = "console";
-    } finally {
-      graphLoading = false;
-    }
+  function handleAdd() {
+      showRepoManager = true;
+      activeRepoId = null; // Deselect tabs while in manager? Or keep it overlay?
+      // Let's treat Repo Manager as an overlay or a "new tab" state
+      // For now, if activeRepoId is null/empty, we show manager.
   }
 
-  function navigateToRepos() {
-    currentView = 'repos';
-    activeRepo = null; // Clear active repo when navigating to repos view
-    repoPath = ""; // Clear repo path
-  }
-
+  // Events from RepoManager
   onMount(() => {
-    checkActiveRepo();
+    loadSettings();
     
-    // Listen for repo changes from RepoManager
-    const handleRepoChange = () => {
-        checkActiveRepo();
+    // Listen for repo activation from Repo Manager
+    const handleRepoActivated = async (e: CustomEvent<{ id: string }>) => {
+        const id = e.detail.id;
+        // Open the repo (add to open_ids)
+        await GitService.openRepo(id);
+        await handleActivate(id);
     };
-    window.addEventListener('repo-activated', handleRepoChange);
+
+    window.addEventListener('repo-activated', handleRepoActivated as EventListener);
+    
+    const handleCloseManager = () => {
+        showRepoManager = false;
+        // Restore active repo ID from settings if available
+        if (settings) activeRepoId = settings.active_repo_id;
+    };
+    window.addEventListener('close-repo-manager', handleCloseManager);
 
     return () => {
-        window.removeEventListener('repo-activated', handleRepoChange);
+        window.removeEventListener('repo-activated', handleRepoActivated as EventListener);
+        window.removeEventListener('close-repo-manager', handleCloseManager);
     };
   });
-
-
-  // Icons
-  const Icons = {
-    Play: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
-    Folder: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>`,
-    Terminal: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>`,
-    Git: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>`,
-    Network: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="3"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="19" r="3"/><line x1="12" y1="8" x2="6" y2="19"/><line x1="12" y1="8" x2="18" y2="19"/></svg>`
-  };
 </script>
 
-<main class="h-screen w-screen bg-[#0d1117] text-[#c9d1d9] flex overflow-hidden font-sans text-sm selection:bg-[#1f6feb] selection:text-white">
-  <!-- Left Sidebar -->
-  <aside class="w-72 bg-[#161b22] border-r border-[#30363d] flex flex-col shrink-0 z-10">
-      <!-- Header -->
-      <div class="h-12 border-b border-[#30363d] flex items-center px-4 gap-2 select-none bg-[#161b22]">
-        <div class="text-[#238636]">
-          {@html Icons.Git}
-        </div>
-        <h1 class="font-semibold text-white tracking-tight">GitHelper</h1>
-      </div>
+<main class="h-screen w-screen bg-[#0d1117] text-[#c9d1d9] flex flex-col overflow-hidden font-sans text-sm selection:bg-[#1f6feb] selection:text-white">
+  
+  {#if settings}
+    <!-- Tab Bar -->
+    <TabBar 
+        openRepos={openRepos} 
+        activeRepoId={activeRepoId}
+        onActivate={handleActivate} 
+        onClose={handleClose} 
+        onAdd={handleAdd}
+    />
+  {/if}
 
-      <!-- Controls -->
-      <div class="p-4 space-y-6 flex-1 overflow-y-auto custom-scrollbar">
-          <!-- Repo Section -->
-          <div class="space-y-2">
-              <label for="repo" class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-2">
-                {@html Icons.Folder} Repository
-              </label>
-              <div class="relative group">
-                  <input
-                      id="repo"
-                      type="text"
-                      bind:value={repoPath}
-                      placeholder="path/to/repo"
-                      class="w-full bg-[#0d1117] border border-[#30363d] rounded-md px-3 py-2 text-[#c9d1d9] placeholder-[#484f58] focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] outline-none transition-colors text-xs font-mono"
-                  />
-              </div>
-          </div>
-
-          <!-- Divider -->
-          <div class="h-px bg-[#30363d] my-2"></div>
-
-          <!-- Command Section -->
-          <div class="space-y-2">
-              <label for="command" class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-2">
-                {@html Icons.Terminal} CLI Command
-              </label>
-              <div class="flex items-center bg-[#0d1117] border border-[#30363d] rounded-md focus-within:border-[#58a6ff] focus-within:ring-1 focus-within:ring-[#58a6ff] transition-colors overflow-hidden">
-                  <span class="px-2 py-2 text-[#8b949e] bg-[#21262d] border-r border-[#30363d] text-xs font-mono select-none">git</span>
-                  <input
-                      id="command"
-                      type="text"
-                      bind:value={subcommand}
-                      placeholder="status"
-                      onkeydown={(e) => e.key === 'Enter' && execute()}
-                      class="flex-1 bg-transparent px-2 py-2 text-[#c9d1d9] placeholder-[#484f58] outline-none text-xs font-mono"
-                  />
-              </div>
-              <div class="flex gap-2">
-                 {#if hasConflicts}
-                     <button 
-                        class="text-xs px-2 py-1 rounded hover:bg-red-900/50 text-red-400 font-bold border border-red-900 animate-pulse {currentView === 'conflicts' ? 'bg-red-900 text-white' : ''}"
-                        onclick={() => currentView = 'conflicts'}
-                     >
-                        ⚠ Conflicts
-                     </button>
-                 {/if}
-                 <button 
-                    class="text-xs px-2 py-1 rounded hover:bg-gray-800 {currentView === 'commands' ? 'text-white font-bold' : 'text-gray-500'}"
-                    onclick={() => currentView = 'commands'}
-                 >
-                    Commands
-                 </button>
-                  <button 
-                    class="text-xs px-2 py-1 rounded hover:bg-gray-800 {currentView === 'repos' ? 'text-white font-bold' : 'text-gray-500'}"
-                    onclick={navigateToRepos}
-                 >
-                    Repos
-                 </button>
-             </div>
-               <button
-                  onclick={execute}
-                  disabled={loading}
-                  class="w-full bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md transition-all active:scale-[0.98] flex items-center justify-center gap-2 text-xs"
-              >
-                  {#if loading}
-                    <span>Running...</span>
-                  {:else}
-                    {@html Icons.Play} <span>Run</span>
-                  {/if}
-              </button>
-          </div>
-
-          <!-- Divider -->
-          <div class="h-px bg-[#30363d] my-2"></div>
-
-          <!-- Graph Section -->
-          <div class="space-y-2">
-              <label for="limit" class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-2">
-                {@html Icons.Network} Commit Graph
-              </label>
-              <div class="flex gap-2">
-                <input
-                    id="limit"
-                    type="number"
-                    bind:value={commitCount}
-                    class="w-16 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1.5 text-[#c9d1d9] text-center outline-none focus:border-[#58a6ff] text-xs"
-                />
-                <button
-                    onclick={loadGraph}
-                    disabled={graphLoading}
-                    class="flex-1 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md shadow-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-[rgba(240,246,252,0.1)] text-xs"
-                >
-                    {#if graphLoading}
-                        <span>Loading...</span>
-                    {:else}
-                        <span>Load Graph</span>
-                    {/if}
-                </button>
-              </div>
-          </div>
-      </div>
+  <!-- Content Area -->
+  <div class="flex-1 relative overflow-hidden">
       
-      <!-- Footer Info -->
-      <div class="p-3 border-t border-[#30363d] text-[10px] text-[#484f58] text-center bg-[#161b22]">
-        GitHelper v0.2.0
-      </div>
-  </aside>
+      <!-- Repo Manager (Overlay or Empty State) -->
+      {#if showRepoManager || openRepos.length === 0}
+          <div class="absolute inset-0 z-50 bg-[#0d1117]">
+              <RepoManager />
+          </div>
+      {/if}
 
-  <!-- Right Panel - Content -->
-  <main class="flex-1 flex flex-col min-w-0 bg-[#0d1117] relative">
-      <!-- Tabs Header -->
-      <div class="h-12 border-b border-[#30363d] flex items-center px-2 bg-[#161b22] gap-1">
-        <button 
-           onclick={() => activeTab = "console"}
-           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'console' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
-        >
-           {@html Icons.Terminal} Console
-        </button>
-        <button 
-           onclick={() => activeTab = "graph"}
-           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'graph' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
-        >
-           {@html Icons.Network} Graph
-        </button>
-      </div>
+      <!-- Workspaces (Persisted DOM) -->
+      {#each openRepos as repo (repo.id)}
+          <Workspace 
+            repoId={repo.id} 
+            repoPath={repo.path} 
+            isActive={activeRepoId === repo.id && !showRepoManager} 
+          />
+      {/each}
 
-      <!-- Tab Content area -->
-      <div class="flex-1 relative overflow-hidden">
-         <!-- Console Tab -->
-         <div class="absolute inset-0 flex flex-col {activeTab === 'console' ? 'z-10 visible' : 'z-0 invisible'}">
-            <div class="flex-1 p-0 overflow-hidden relative">
-              {#if !response && !error && !loading}
-                <div class="absolute inset-0 flex flex-col items-center justify-center text-[#484f58] select-none">
-                  <div class="opacity-20 transform scale-150 mb-4">
-                    {@html Icons.Git}
-                  </div>
-                  <p class="text-sm">Run a command to view output</p>
-                </div>
-              {/if}
+  </div>
 
-              <div class="h-full overflow-auto p-4 font-mono text-xs leading-relaxed custom-scrollbar bg-[#0d1117]">
-                {#if error}
-                  <div class="text-[#f85149] mb-2 font-bold flex items-center gap-2">
-                    <span>×</span> {error.type}
-                  </div>
-                  <pre class="text-[#ffa198] whitespace-pre-wrap">{formatErrorMessage(error.message)}</pre>
-                {/if}
-
-                {#if response}
-                  <div class="mb-2">
-                    <span class="text-[10px] font-mono px-2 py-0.5 rounded-full border border-[#30363d] bg-[#0d1117] {response.exit_code === 0 ? 'text-[#3fb950] border-[#2ea043]/30' : 'text-[#f85149] border-[#da3633]/30'}">
-                        exit: {response.exit_code}
-                    </span>
-                  </div>
-                  {#if response.stdout}
-                    <pre class="text-[#c9d1d9] whitespace-pre-wrap">{response.stdout}</pre>
-                  {/if}
-                  {#if response.stderr}
-                    <div class="mt-4 pt-4 border-t border-[#30363d]/50">
-                      <span class="text-[#8b949e] text-[10px] uppercase tracking-wider mb-1 block">stderr</span>
-                      <pre class="text-[#d2a8ff] whitespace-pre-wrap">{response.stderr}</pre>
-                    </div>
-                  {/if}
-                {/if}
-              </div>
-            </div>
-         </div>
-
-         <!-- Graph Tab -->
-         <div class="absolute inset-0 bg-[#0d1117] {activeTab === 'graph' ? 'z-10 visible' : 'z-0 invisible'}">
-            {#if graphNodes.length === 0 && !graphLoading}
-                <div class="absolute inset-0 flex flex-col items-center justify-center text-[#484f58] select-none">
-                  <p class="text-sm">No graph loaded. Enter commit limit and click "Load Graph".</p>
-                </div>
-            {:else}
-                <CommitGraph nodes={graphNodes} edges={graphEdges} />
-            {/if}
-         </div>
-      </div>
-  </main>
+  <GlobalConfirmation />
+  <CreateBranchDialog />
+  <ToastContainer />
 </main>
 
 <style>
@@ -339,21 +146,5 @@
     padding: 0;
     background-color: #0d1117;
     color: #c9d1d9;
-  }
-  
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: #0d1117;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #30363d;
-    border: 2px solid #0d1117;
-    border-radius: 99px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #484f58;
   }
 </style>

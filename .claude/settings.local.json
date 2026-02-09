@@ -15,6 +15,27 @@
       "Bash(wmic os get:*)",
       "Bash(wmic:*)",
       "Bash(powershell -Command:*)",
+      "Bash(timeout:*)",
+      "Bash(test:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx svelte-check:*)",
+      "Bash(findstr:*)",
+      "Bash(Select-String \"GlobalDiffViewer\" -Context 0,3)",
+      "Bash(npx vite build:*)",
+      "Bash(ls -la \"D:\\\\learn\\\\git-tools\\\\src\\\\components\\\\diff\"\" 2>/dev/null || echo \"Directory check done \")",
+      "Bash(git mv:*)",
+      "Bash(git rm:*)"
+      "Bash(cargo check:*)",
+      "Bash(dir:*)",
+      "Bash(cargo clean:*)",
+      "Bash(cargo build:*)",
+      "Bash(rustc:*)",
+      "Bash(rustup show:*)",
+      "Bash(rustup component list:*)",
+      "Bash(wmic computersystem get:*)",
+      "Bash(wmic os get:*)",
+      "Bash(wmic:*)",
+      "Bash(powershell -Command:*)",
       "Bash(timeout:*)"
     ]
   }

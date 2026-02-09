@@ -30,8 +30,8 @@
 
   async function continueOp() {
       try {
-          await GitService.continueOp();
-          alert("Continue operation started...");
+          // await GitService.continueOp();
+          alert("Continue operation not implemented yet.");
       } catch(e) {
           alert("Error: " + e);
       }
@@ -40,8 +40,8 @@
   async function abortOp() {
      if(!confirm("Are you sure you want to abort? All resolution progress will be lost.")) return;
       try {
-          await GitService.abortOp();
-          alert("Operation aborted.");
+          // await GitService.abortOp();
+          alert("Abort operation not implemented yet.");
       } catch(e) {
             alert("Error: " + e);
       }
