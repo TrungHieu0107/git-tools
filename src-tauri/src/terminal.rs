@@ -36,7 +36,7 @@ impl TerminalManager {
 
     pub fn start_session(&self, app: AppHandle, repo_path: String) -> Result<(), String> {
         let mut sessions = self.sessions.lock().map_err(|e| e.to_string())?;
-        
+
         if sessions.contains_key(&repo_path) {
             return Ok(());
         }
@@ -69,11 +69,14 @@ impl TerminalManager {
             for line in reader.lines() {
                 match line {
                     Ok(l) => {
-                        let _ = app_clone.emit("terminal-output", serde_json::json!({
-                            "repoPath": repo_path_clone,
-                            "type": "stdout",
-                            "data": l
-                        }));
+                        let _ = app_clone.emit(
+                            "terminal-output",
+                            serde_json::json!({
+                                "repoPath": repo_path_clone,
+                                "type": "stdout",
+                                "data": l
+                            }),
+                        );
                     }
                     Err(_) => break,
                 }
@@ -87,21 +90,27 @@ impl TerminalManager {
             for line in reader.lines() {
                 match line {
                     Ok(l) => {
-                        let _ = app_clone.emit("terminal-output", serde_json::json!({
-                            "repoPath": repo_path_clone,
-                            "type": "stderr",
-                            "data": l
-                        }));
+                        let _ = app_clone.emit(
+                            "terminal-output",
+                            serde_json::json!({
+                                "repoPath": repo_path_clone,
+                                "type": "stderr",
+                                "data": l
+                            }),
+                        );
                     }
                     Err(_) => break,
                 }
             }
         });
 
-        sessions.insert(repo_path, TerminalSession {
-            process: child,
-            stdin,
-        });
+        sessions.insert(
+            repo_path,
+            TerminalSession {
+                process: child,
+                stdin,
+            },
+        );
 
         Ok(())
     }

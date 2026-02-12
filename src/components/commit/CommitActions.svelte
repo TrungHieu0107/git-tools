@@ -2,17 +2,31 @@
   interface Props {
       stagedCount: number;
       loading: boolean;
-      onCommit: (message: string, push: boolean) => void;
+      generating: boolean;
+      onCommit: (message: string, push: boolean) => Promise<void> | void;
+      onGenerate: () => Promise<void> | void;
+      message?: string;
   }
-  let { stagedCount, loading, onCommit }: Props = $props();
+  let {
+    stagedCount,
+    loading,
+    generating,
+    onCommit,
+    onGenerate,
+    message = $bindable(""),
+  }: Props = $props();
 
-  let message = $state("");
   let pushAfterCommit = $state(false);
 
-  function handleCommit() {
+  async function handleCommit() {
       if (stagedCount === 0 || !message.trim() || loading) return;
-      onCommit(message, pushAfterCommit);
+      await onCommit(message, pushAfterCommit);
       message = ""; // Reset message on success? Parent should handle clears, but simple clear here
+  }
+
+  async function handleGenerate() {
+      if (stagedCount === 0 || loading || generating) return;
+      await onGenerate();
   }
 </script>
 
@@ -27,10 +41,25 @@
 
     <!-- Toolbar -->
     <div class="flex items-center justify-between">
-        <label class="flex items-center gap-2 text-xs text-[#8b949e] cursor-pointer select-none">
-            <input type="checkbox" bind:checked={pushAfterCommit} disabled={loading} class="rounded border-[#30363d] bg-[#0d1117] text-[#238636] focus:ring-0 focus:ring-offset-0" />
-            <span>Commit & Push</span>
-        </label>
+        <div class="flex items-center gap-3">
+            <label class="flex items-center gap-2 text-xs text-[#8b949e] cursor-pointer select-none">
+                <input type="checkbox" bind:checked={pushAfterCommit} disabled={loading} class="rounded border-[#30363d] bg-[#0d1117] text-[#238636] focus:ring-0 focus:ring-offset-0" />
+                <span>Commit & Push</span>
+            </label>
+
+            <button
+                class="px-3 py-1.5 rounded bg-[#1f6feb] text-white text-xs font-semibold hover:bg-[#388bfd] disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm border border-[rgba(240,246,252,0.1)]"
+                disabled={stagedCount === 0 || loading || generating}
+                onclick={handleGenerate}
+                title="Generate commit message from staged changes"
+            >
+                {#if generating}
+                    Generating...
+                {:else}
+                    Generate Message
+                {/if}
+            </button>
+        </div>
 
         <button
             class="px-4 py-1.5 rounded bg-[#238636] text-white text-xs font-semibold hover:bg-[#2ea043] disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm border border-[rgba(240,246,252,0.1)]"

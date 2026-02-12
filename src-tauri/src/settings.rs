@@ -26,6 +26,8 @@ pub struct AppSettings {
     pub repo_filters: std::collections::HashMap<String, String>,
     #[serde(default)]
     pub file_encodings: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub gemini_api_token: Option<String>,
 }
 
 use crate::terminal::TerminalManager;

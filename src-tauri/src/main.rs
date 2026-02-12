@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod git;
 mod commands;
+mod git;
 mod models;
 mod settings;
 mod terminal;
@@ -47,10 +47,12 @@ fn main() {
             commands::cmd_git_status,
             commands::cmd_set_excluded_files,
             commands::cmd_set_repo_filter,
+            commands::cmd_set_gemini_api_token,
             commands::cmd_git_pull,
             commands::cmd_git_push,
             commands::cmd_git_fetch,
             commands::cmd_git_commit,
+            commands::cmd_generate_commit_message,
             commands::cmd_git_add_all,
             commands::cmd_git_checkout,
             commands::cmd_git_branch_list,

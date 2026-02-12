@@ -33,6 +33,8 @@ export interface AppSettings {
   open_repo_ids: string[];
   excluded_files: string[];
   repo_filters: Record<string, string>;
+  file_encodings?: Record<string, string>;
+  gemini_api_token?: string | null;
 }
 
 export class GitService {
@@ -48,6 +50,10 @@ export class GitService {
 
   static async setRepoFilter(repoId: string, filter: string): Promise<AppSettings> {
     return invoke("cmd_set_repo_filter", { repoId, filter });
+  }
+
+  static async setGeminiApiToken(token: string): Promise<AppSettings> {
+    return invoke("cmd_set_gemini_api_token", { token });
   }
 
   static async addRepo(name: string, path: string): Promise<AppSettings> {
@@ -127,6 +133,10 @@ export class GitService {
 
   static async getStatusFiles(repoPath?: string): Promise<FileStatus[]> {
     return invoke("cmd_get_status_files", { repoPath });
+  }
+
+  static async generateCommitMessage(repoPath?: string): Promise<string> {
+    return invoke("cmd_generate_commit_message", { repoPath });
   }
 
   static async getDiff(filePath: string, staged: boolean, repoPath?: string, encoding?: string): Promise<string> {

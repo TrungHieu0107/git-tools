@@ -9,14 +9,21 @@
 
   let settings = $state<AppSettings | null>(null);
   let newExclusion = $state("");
+  let geminiToken = $state("");
+  let savingGeminiToken = $state(false);
+  let geminiSaveError = $state("");
+
+  function applyLoadedSettings(loaded: AppSettings) {
+    settings = loaded;
+    if (!settings.excluded_files) {
+      settings.excluded_files = [];
+    }
+    geminiToken = settings.gemini_api_token || "";
+  }
 
   onMount(async () => {
     try {
-        settings = await GitService.getSettings();
-        // Ensure array exists
-        if (settings && !settings.excluded_files) {
-            settings.excluded_files = [];
-        }
+        applyLoadedSettings(await GitService.getSettings());
     } catch (e) {
         console.error("Failed to load settings", e);
     }
@@ -32,7 +39,7 @@
 
     const exclusions = [...current, newExclusion.trim()];
     try {
-        settings = await GitService.setExcludedFiles(exclusions);
+        applyLoadedSettings(await GitService.setExcludedFiles(exclusions));
         newExclusion = "";
     } catch (e) {
         console.error("Failed to add exclusion", e);
@@ -44,10 +51,28 @@
     const exclusions = [...settings.excluded_files];
     exclusions.splice(index, 1);
     try {
-        settings = await GitService.setExcludedFiles(exclusions);
+        applyLoadedSettings(await GitService.setExcludedFiles(exclusions));
     } catch (e) {
         console.error("Failed to remove exclusion", e);
     }
+  }
+
+  async function saveGeminiToken() {
+    savingGeminiToken = true;
+    geminiSaveError = "";
+    try {
+      applyLoadedSettings(await GitService.setGeminiApiToken(geminiToken.trim()));
+    } catch (e) {
+      geminiSaveError = String(e);
+      console.error("Failed to save Gemini token", e);
+    } finally {
+      savingGeminiToken = false;
+    }
+  }
+
+  async function clearGeminiToken() {
+    geminiToken = "";
+    await saveGeminiToken();
   }
 </script>
 
@@ -67,6 +92,50 @@
   {/if}
 
   <div class="max-w-2xl">
+    <div class="mb-8">
+      <h3 class="text-sm font-semibold uppercase text-[#8b949e] mb-2 tracking-wider">Gemini Commit Message</h3>
+      <p class="text-xs text-[#8b949e] mb-4 leading-relaxed">
+        Configure a global Gemini API token to auto-generate commit messages from staged changes.
+        Token is stored locally in this app settings file.
+      </p>
+
+      <div class="flex gap-2 items-center">
+        <div class="flex-1">
+          <input
+            type="password"
+            bind:value={geminiToken}
+            placeholder="Enter Gemini API token..."
+            class="w-full bg-[#0d1117] border border-[#30363d] px-3 py-2 rounded-md text-sm outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] placeholder-[#484f58] transition-all font-mono text-xs"
+            onkeydown={(e) => e.key === 'Enter' && saveGeminiToken()}
+          />
+        </div>
+        <button
+          onclick={saveGeminiToken}
+          disabled={savingGeminiToken}
+          class="px-4 py-2 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 disabled:hover:bg-[#238636] text-white rounded-md text-xs font-bold border border-[rgba(240,246,252,0.1)] transition-all shadow-sm active:scale-[0.98]"
+        >
+          {savingGeminiToken ? 'Saving...' : 'Save Token'}
+        </button>
+        <button
+          onclick={clearGeminiToken}
+          disabled={savingGeminiToken || !settings?.gemini_api_token}
+          class="px-4 py-2 bg-[#21262d] hover:bg-[#30363d] disabled:opacity-50 text-[#c9d1d9] rounded-md text-xs font-bold border border-[#30363d] transition-all"
+        >
+          Clear
+        </button>
+      </div>
+
+      {#if settings?.gemini_api_token}
+        <p class="text-[11px] text-[#8b949e] mt-2">Gemini token is configured.</p>
+      {:else}
+        <p class="text-[11px] text-[#8b949e] mt-2">No Gemini token configured.</p>
+      {/if}
+
+      {#if geminiSaveError}
+        <p class="text-[11px] text-[#f85149] mt-2 break-all">{geminiSaveError}</p>
+      {/if}
+    </div>
+
     <h3 class="text-sm font-semibold uppercase text-[#8b949e] mb-2 tracking-wider">Global File Exclusions</h3>
     <p class="text-xs text-[#8b949e] mb-4 leading-relaxed">
       Files matching these glob patterns will be virtually ignored by GitHelper. They strictly won't appear in 

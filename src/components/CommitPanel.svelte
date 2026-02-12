@@ -28,6 +28,8 @@
   let loadingStatus = $state(false);
   let loadingDiff = $state(false);
   let committing = $state(false);
+  let generatingCommitMessage = $state(false);
+  let commitMessage = $state("");
   let selectedEncoding = $state<string | undefined>(undefined);
   let fileViewMode = $state<"tree" | "path">("path");
   let fileListsContainerEl = $state<HTMLDivElement | null>(null);
@@ -180,8 +182,22 @@
           modifiedContent = "";
       } catch (e: any) {
           // Toast handled in service mostly, but here for double check
+          throw e;
       } finally {
           committing = false;
+      }
+  }
+
+  async function handleGenerateCommitMessage() {
+      if (!repoPath || stagedFiles.length === 0 || generatingCommitMessage) return;
+      generatingCommitMessage = true;
+      try {
+          commitMessage = await GitService.generateCommitMessage(repoPath);
+          toast.success("Generated commit message from staged changes");
+      } catch (e: any) {
+          toast.error(`Generate message failed: ${e}`);
+      } finally {
+          generatingCommitMessage = false;
       }
   }
 
@@ -517,8 +533,11 @@
         <div class="shrink-0 border-t border-[#30363d]">
             <CommitActions
                 stagedCount={stagedFiles.length}
-                loading={committing || loadingStatus}
+                loading={committing || loadingStatus || generatingCommitMessage}
+                generating={generatingCommitMessage}
+                bind:message={commitMessage}
                 onCommit={handleCommit}
+                onGenerate={handleGenerateCommitMessage}
             />
         </div>
     </div>

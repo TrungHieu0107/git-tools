@@ -1,19 +1,23 @@
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
+use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 use crate::git::service::{TIMEOUT_LOCAL, TIMEOUT_NETWORK, TIMEOUT_QUICK};
-use crate::git::{ConflictFile, DiagnosticInfo, GitError, GitResponse, GitResult, GitCommandType, GitCommandResult};
+use crate::git::{
+    ConflictFile, DiagnosticInfo, GitCommandResult, GitCommandType, GitError, GitResponse,
+    GitResult,
+};
+use crate::models::{CommitDiff, DiffFile, DiffHunk, DiffLine, DiffLineType, FileCommit};
 use crate::settings::{save_settings, AppSettings, AppState, RepoEntry};
-use crate::models::{FileCommit, CommitDiff, DiffFile, DiffHunk, DiffLine, DiffLineType};
-use tauri::Emitter;
-use serde_json::json;
-use serde::{Deserialize, Serialize};
 use glob::Pattern;
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use tauri::Emitter;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -21,7 +25,10 @@ use glob::Pattern;
 
 /// Resolve the repository path: prefer an explicit override, fall back to the
 /// active repository stored in settings.
-fn resolve_repo_path(state: &State<AppState>, explicit_path: Option<String>) -> Result<String, String> {
+fn resolve_repo_path(
+    state: &State<AppState>,
+    explicit_path: Option<String>,
+) -> Result<String, String> {
     if let Some(path) = explicit_path {
         let trimmed = path.trim();
         if !trimmed.is_empty() {
@@ -80,7 +87,6 @@ fn hide_console_window(cmd: &mut std::process::Command) {
 #[cfg(not(target_os = "windows"))]
 fn hide_console_window(_cmd: &mut std::process::Command) {}
 
-
 fn is_excluded(path: &str, exclusions: &[String]) -> bool {
     if exclusions.is_empty() {
         return false;
@@ -112,6 +118,98 @@ fn split_rename_path(path: &str) -> Option<(String, String)> {
         return None;
     }
     Some((old_path.to_string(), new_path.to_string()))
+}
+
+const GEMINI_MODEL: &str = "gemini-2.5-flash";
+const GEMINI_MAX_DIFF_CHARS: usize = 40_000;
+const GEMINI_MAX_FILE_SUMMARY_CHARS: usize = 4_000;
+
+fn truncate_for_prompt(input: &str, max_chars: usize) -> (String, bool) {
+    let mut out = String::new();
+    let mut truncated = false;
+
+    for (idx, ch) in input.chars().enumerate() {
+        if idx >= max_chars {
+            truncated = true;
+            break;
+        }
+        out.push(ch);
+    }
+
+    (out, truncated)
+}
+
+fn build_commit_message_prompt(
+    staged_files: &str,
+    staged_diff: &str,
+    diff_was_truncated: bool,
+) -> String {
+    let mut prompt = String::from(
+        "You are an expert software engineer writing Git commit messages.\n\
+Task: Generate a single commit message from the staged changes.\n\
+Rules:\n\
+- Return plain text only (no markdown, no code fences).\n\
+- Keep the subject line under 72 characters.\n\
+- Use imperative voice.\n\
+- Prefer Conventional Commit prefixes when clear (feat, fix, refactor, docs, test, chore).\n\
+- Include a short body only when it adds important context.\n\n",
+    );
+
+    prompt.push_str("Staged files (name-status):\n");
+    prompt.push_str(staged_files.trim());
+    prompt.push_str("\n\nStaged diff:\n");
+    prompt.push_str(staged_diff.trim());
+
+    if diff_was_truncated {
+        prompt.push_str("\n\n[NOTE] Diff content was truncated due to size.");
+    }
+
+    prompt
+}
+
+fn sanitize_commit_message(raw: &str) -> String {
+    let mut text = raw.trim().to_string();
+
+    if text.starts_with("```") {
+        let mut lines: Vec<&str> = text.lines().collect();
+        if !lines.is_empty() {
+            lines.remove(0);
+        }
+        if !lines.is_empty()
+            && lines
+                .last()
+                .is_some_and(|line| line.trim().starts_with("```"))
+        {
+            lines.pop();
+        }
+        text = lines.join("\n").trim().to_string();
+    }
+
+    if let Some(rest) = text.strip_prefix("Commit message:") {
+        text = rest.trim().to_string();
+    }
+
+    text
+}
+
+fn extract_gemini_text(response_json: &serde_json::Value) -> Option<String> {
+    let candidates = response_json.get("candidates")?.as_array()?;
+    let first = candidates.first()?;
+    let parts = first.get("content")?.get("parts")?.as_array()?;
+
+    let mut out = String::new();
+    for part in parts {
+        if let Some(text) = part.get("text").and_then(|v| v.as_str()) {
+            out.push_str(text);
+        }
+    }
+
+    let trimmed = out.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,7 +362,10 @@ fn parse_unstaged_zero_context_diff(diff_output: &str) -> Result<ParsedUnstagedP
         return Err("Unable to parse diff header".to_string());
     }
 
-    Ok(ParsedUnstagedPatch { header_lines, hunks })
+    Ok(ParsedUnstagedPatch {
+        header_lines,
+        hunks,
+    })
 }
 
 fn find_patch_line_index(
@@ -312,16 +413,12 @@ fn build_stage_line_patch(
                 "Unable to find removed line {} in unstaged diff",
                 old_line_number
             ))?;
-            let add_idx = find_patch_line_index(
-                patch,
-                ParsedPatchLineKind::Add,
-                None,
-                Some(new_line_number),
-            )
-            .ok_or(format!(
-                "Unable to find added line {} in unstaged diff",
-                new_line_number
-            ))?;
+            let add_idx =
+                find_patch_line_index(patch, ParsedPatchLineKind::Add, None, Some(new_line_number))
+                    .ok_or(format!(
+                        "Unable to find added line {} in unstaged diff",
+                        new_line_number
+                    ))?;
 
             if remove_idx.0 != add_idx.0 {
                 return Err("Selected modified line pair is in different hunks".to_string());
@@ -363,25 +460,18 @@ fn build_stage_line_patch(
             patch_lines.push(format!("-{}", remove_line.content));
         }
         (None, Some(new_line_number)) => {
-            let add_idx = find_patch_line_index(
-                patch,
-                ParsedPatchLineKind::Add,
-                None,
-                Some(new_line_number),
-            )
-            .ok_or(format!(
-                "Unable to find added line {} in unstaged diff",
-                new_line_number
-            ))?;
+            let add_idx =
+                find_patch_line_index(patch, ParsedPatchLineKind::Add, None, Some(new_line_number))
+                    .ok_or(format!(
+                        "Unable to find added line {} in unstaged diff",
+                        new_line_number
+                    ))?;
 
             let add_line = &patch.hunks[add_idx.0].lines[add_idx.1];
             let new_start = add_line
                 .new_line
                 .ok_or("Selected added line is missing new line number".to_string())?;
-            patch_lines.push(format!(
-                "@@ -{},0 +{},1 @@",
-                add_line.old_anchor, new_start
-            ));
+            patch_lines.push(format!("@@ -{},0 +{},1 @@", add_line.old_anchor, new_start));
             patch_lines.push(format!("+{}", add_line.content));
         }
         (None, None) => {
@@ -470,7 +560,7 @@ pub fn cmd_set_active_repo(
     }
 
     settings.active_repo_id = Some(id.clone());
-    
+
     // Auto-open on set active if not already open
     if !settings.open_repo_ids.contains(&id) {
         settings.open_repo_ids.push(id);
@@ -513,7 +603,7 @@ pub fn cmd_close_repo(
 
         // If closing active repo, switch to another one
         if settings.active_repo_id.as_ref() == Some(&id) {
-             // Try to switch to right neighbor, else left neighbor, else None
+            // Try to switch to right neighbor, else left neighbor, else None
             let next_active = if pos < settings.open_repo_ids.len() {
                 Some(settings.open_repo_ids[pos].clone())
             } else if pos > 0 {
@@ -523,12 +613,12 @@ pub fn cmd_close_repo(
             };
             settings.active_repo_id = next_active;
         }
-        
+
         // Also stop terminal session for this repo to clean up resources
-        let _ = state.terminal.stop_session(&id); // Note: terminal uses repo_path, resolving ID might be needed here. 
-        // Wait, terminal manager uses repo_path. We need to find path from ID.
+        let _ = state.terminal.stop_session(&id); // Note: terminal uses repo_path, resolving ID might be needed here.
+                                                  // Wait, terminal manager uses repo_path. We need to find path from ID.
         if let Some(repo) = settings.repos.iter().find(|r| r.id == id) {
-             let _ = state.terminal.stop_session(&repo.path);
+            let _ = state.terminal.stop_session(&repo.path);
         }
 
         save_settings(&app_handle, &settings)?;
@@ -567,13 +657,30 @@ pub fn cmd_set_repo_filter(
     filter: String,
 ) -> Result<AppSettings, String> {
     let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
-    
+
     if filter.is_empty() {
         settings.repo_filters.remove(&repo_id);
     } else {
         settings.repo_filters.insert(repo_id, filter);
     }
-    
+
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}
+
+#[tauri::command]
+pub fn cmd_set_gemini_api_token(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    token: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    let trimmed = token.trim().to_string();
+    settings.gemini_api_token = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    };
     save_settings(&app_handle, &settings)?;
     Ok(settings.clone())
 }
@@ -588,8 +695,7 @@ pub async fn run_git(
     subcommand: Vec<String>,
     repo_path: Option<String>,
 ) -> GitResult<GitResponse> {
-    let path = resolve_repo_path(&state, repo_path)
-        .map_err(|e| GitError::CommandError(e))?;
+    let path = resolve_repo_path(&state, repo_path).map_err(|e| GitError::CommandError(e))?;
     state
         .git
         .run(Path::new(&path), &subcommand, TIMEOUT_LOCAL)
@@ -671,7 +777,11 @@ pub async fn cmd_git_push(
             .git
             .run(
                 Path::new(&path),
-                &["rev-parse".to_string(), "--abbrev-ref".to_string(), "HEAD".to_string()],
+                &[
+                    "rev-parse".to_string(),
+                    "--abbrev-ref".to_string(),
+                    "HEAD".to_string(),
+                ],
                 TIMEOUT_LOCAL,
             )
             .await
@@ -725,8 +835,7 @@ pub async fn cmd_git_commit(
     };
 
     if !exclusions.is_empty() {
-        let diff_args: Vec<String> =
-            vec!["diff".into(), "--cached".into(), "--name-only".into()];
+        let diff_args: Vec<String> = vec!["diff".into(), "--cached".into(), "--name-only".into()];
         let diff_resp = state
             .git
             .run(Path::new(&path), &diff_args, TIMEOUT_QUICK)
@@ -755,6 +864,122 @@ pub async fn cmd_git_commit(
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
     Ok(map_git_result(resp, GitCommandType::Commit))
+}
+
+#[tauri::command]
+pub async fn cmd_generate_commit_message(
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+
+    let token = {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.gemini_api_token.clone()
+    }
+    .ok_or("Gemini API token is missing. Set it in Settings first.")?;
+
+    let staged_files_args: Vec<String> =
+        vec!["diff".into(), "--cached".into(), "--name-status".into()];
+    let staged_files_resp = state
+        .git
+        .run(Path::new(&path), &staged_files_args, TIMEOUT_QUICK)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let staged_files = staged_files_resp.stdout.trim().to_string();
+    if staged_files.is_empty() {
+        return Err("No staged files found. Stage your changes first.".to_string());
+    }
+
+    let staged_diff_args: Vec<String> = vec![
+        "diff".into(),
+        "--cached".into(),
+        "--patch".into(),
+        "--no-color".into(),
+        "--unified=3".into(),
+    ];
+    let staged_diff_resp = state
+        .git
+        .run(Path::new(&path), &staged_diff_args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let (staged_files_for_prompt, _) =
+        truncate_for_prompt(&staged_files, GEMINI_MAX_FILE_SUMMARY_CHARS);
+    let (staged_diff_for_prompt, diff_was_truncated) =
+        truncate_for_prompt(&staged_diff_resp.stdout, GEMINI_MAX_DIFF_CHARS);
+
+    let prompt = build_commit_message_prompt(
+        &staged_files_for_prompt,
+        &staged_diff_for_prompt,
+        diff_was_truncated,
+    );
+
+    let api_url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+        GEMINI_MODEL
+    );
+
+    let payload = json!({
+        "contents": [
+            {
+                "parts": [
+                    { "text": prompt }
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+            "topP": 0.9,
+            "maxOutputTokens": 220
+        }
+    });
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(TIMEOUT_NETWORK))
+        .build()
+        .map_err(|e| format!("Failed to initialize Gemini client: {}", e))?;
+
+    let response = client
+        .post(&api_url)
+        .header("x-goog-api-key", token)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to call Gemini API: {}", e))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read Gemini response: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!("Gemini API error ({}): {}", status, body));
+    }
+
+    let response_json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("Invalid Gemini response: {}", e))?;
+
+    let generated = if let Some(text) = extract_gemini_text(&response_json) {
+        text
+    } else if let Some(message) = response_json
+        .get("error")
+        .and_then(|v| v.get("message"))
+        .and_then(|v| v.as_str())
+    {
+        return Err(format!("Gemini API error: {}", message));
+    } else {
+        return Err("Gemini did not return any commit message text.".to_string());
+    };
+
+    let message = sanitize_commit_message(&generated);
+    if message.trim().is_empty() {
+        return Err("Gemini returned an empty commit message.".to_string());
+    }
+
+    Ok(message)
 }
 
 #[tauri::command]
@@ -835,11 +1060,7 @@ pub async fn cmd_git_branch_list(
         TIMEOUT_LOCAL,
     )
     .await?;
-    Ok(resp
-        .stdout
-        .lines()
-        .map(|s| s.trim().to_string())
-        .collect())
+    Ok(resp.stdout.lines().map(|s| s.trim().to_string()).collect())
 }
 
 #[tauri::command]
@@ -871,18 +1092,15 @@ pub async fn cmd_get_pending_commits_count(
     repo_path: Option<String>,
 ) -> Result<u32, String> {
     let path = resolve_repo_path(&state, repo_path)?;
-    
+
     // git rev-list --count @{u}..HEAD
     let args = vec![
         "rev-list".to_string(),
         "--count".to_string(),
         "@{u}..HEAD".to_string(),
     ];
-    
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_QUICK)
-        .await;
+
+    let resp = state.git.run(Path::new(&path), &args, TIMEOUT_QUICK).await;
 
     match resp {
         Ok(output) if output.exit_code == 0 => {
@@ -908,9 +1126,13 @@ pub async fn cmd_get_pending_commits_count(
                 Ok(output) if output.exit_code == 0 => {
                     let count = output.stdout.trim().parse::<u32>().unwrap_or(0);
                     // If no remote branches exist at all, show at least 1 to indicate the branch needs pushing
-                    if count == 0 { Ok(1) } else { Ok(count) }
+                    if count == 0 {
+                        Ok(1)
+                    } else {
+                        Ok(count)
+                    }
                 }
-                _ => Ok(1) // Fallback: indicate at least 1 commit to push
+                _ => Ok(1), // Fallback: indicate at least 1 commit to push
             }
         }
     }
@@ -981,7 +1203,7 @@ pub async fn cmd_get_status_files(
             if line.starts_with("?? ") {
                 let mut path = line[3..].trim().to_string();
                 if path.starts_with('"') && path.ends_with('"') {
-                    path = path[1..path.len()-1].to_string();
+                    path = path[1..path.len() - 1].to_string();
                 }
 
                 if is_excluded(&path, &exclusions) {
@@ -997,14 +1219,16 @@ pub async fn cmd_get_status_files(
         }
 
         let chars: Vec<char> = line.chars().collect();
-        if chars.len() < 2 { continue; }
-        
+        if chars.len() < 2 {
+            continue;
+        }
+
         let x = chars[0];
         let y = chars[1];
         let mut file_path = line[3..].trim().to_string();
 
         if file_path.starts_with('"') && file_path.ends_with('"') {
-            file_path = file_path[1..file_path.len()-1].to_string();
+            file_path = file_path[1..file_path.len() - 1].to_string();
         }
 
         if is_excluded(&file_path, &exclusions) {
@@ -1042,7 +1266,7 @@ pub async fn cmd_get_diff_file(
     repo_path: Option<String>,
 ) -> Result<String, String> {
     let path = resolve_repo_path(&state, repo_path)?;
-    
+
     let mut args = vec!["diff".to_string()];
     if staged {
         args.push("--cached".to_string());
@@ -1058,8 +1282,13 @@ pub async fn cmd_get_diff_file(
 
     let settings = state.settings.lock().map_err(|e| e.to_string())?;
     // Decode with configured encoding or fallback to UTF-8 lossy
-    let content = crate::git::encoding::decode_bytes(&resp.stdout, Path::new(&file_path), &settings, encoding);
-        
+    let content = crate::git::encoding::decode_bytes(
+        &resp.stdout,
+        Path::new(&file_path),
+        &settings,
+        encoding,
+    );
+
     Ok(content)
 }
 
@@ -1088,8 +1317,13 @@ pub async fn cmd_get_file_base_content(
     {
         Ok(resp) => {
             let settings = state.settings.lock().map_err(|e| e.to_string())?;
-            Ok(crate::git::encoding::decode_bytes(&resp.stdout, Path::new(&file_path), &settings, encoding))
-        },
+            Ok(crate::git::encoding::decode_bytes(
+                &resp.stdout,
+                Path::new(&file_path),
+                &settings,
+                encoding,
+            ))
+        }
         Err(_) => Ok(String::new()),
     }
 }
@@ -1115,8 +1349,13 @@ pub async fn cmd_get_file_modified_content(
         {
             Ok(resp) => {
                 let settings = state.settings.lock().map_err(|e| e.to_string())?;
-                Ok(crate::git::encoding::decode_bytes(&resp.stdout, Path::new(&file_path), &settings, encoding))
-            },
+                Ok(crate::git::encoding::decode_bytes(
+                    &resp.stdout,
+                    Path::new(&file_path),
+                    &settings,
+                    encoding,
+                ))
+            }
             Err(_) => Ok(String::new()),
         }
     } else {
@@ -1125,8 +1364,13 @@ pub async fn cmd_get_file_modified_content(
         match std::fs::read(&full_path) {
             Ok(bytes) => {
                 let settings = state.settings.lock().map_err(|e| e.to_string())?;
-                Ok(crate::git::encoding::decode_bytes(&bytes, Path::new(&file_path), &settings, encoding))
-            },
+                Ok(crate::git::encoding::decode_bytes(
+                    &bytes,
+                    Path::new(&file_path),
+                    &settings,
+                    encoding,
+                ))
+            }
             Err(_) => Ok(String::new()),
         }
     }
@@ -1147,7 +1391,7 @@ pub async fn cmd_git_add(
     };
 
     if is_excluded(&path, &exclusions) {
-         return Err(format!("File {} is excluded from git operations", path));
+        return Err(format!("File {} is excluded from git operations", path));
     }
 
     let args: Vec<String> = vec!["add".into(), path];
@@ -1205,10 +1449,8 @@ pub async fn cmd_git_stage_line(
     let parsed = parse_unstaged_zero_context_diff(&diff_resp.stdout)?;
     let patch = build_stage_line_patch(&parsed, &line)?;
 
-    let temp_patch_path = std::env::temp_dir().join(format!(
-        "git-tools-stage-line-{}.patch",
-        Uuid::new_v4()
-    ));
+    let temp_patch_path =
+        std::env::temp_dir().join(format!("git-tools-stage-line-{}.patch", Uuid::new_v4()));
     std::fs::write(&temp_patch_path, patch.as_bytes())
         .map_err(|e| format!("Failed to write temporary patch file: {}", e))?;
 
@@ -1279,10 +1521,8 @@ pub async fn cmd_git_unstage_line(
     let parsed = parse_unstaged_zero_context_diff(&diff_resp.stdout)?;
     let patch = build_stage_line_patch(&parsed, &line)?;
 
-    let temp_patch_path = std::env::temp_dir().join(format!(
-        "git-tools-unstage-line-{}.patch",
-        Uuid::new_v4()
-    ));
+    let temp_patch_path =
+        std::env::temp_dir().join(format!("git-tools-unstage-line-{}.patch", Uuid::new_v4()));
     std::fs::write(&temp_patch_path, patch.as_bytes())
         .map_err(|e| format!("Failed to write temporary patch file: {}", e))?;
 
@@ -1420,18 +1660,16 @@ pub async fn cmd_git_stash_file(
     };
 
     if is_excluded(&stash_path, &exclusions) {
-        return Err(format!("File {} is excluded from git operations", stash_path));
+        return Err(format!(
+            "File {} is excluded from git operations",
+            stash_path
+        ));
     }
 
     let include_untracked = file.status.trim() == "??";
     let stash_message = format!("stash {}", stash_path);
 
-    let mut args: Vec<String> = vec![
-        "stash".into(),
-        "push".into(),
-        "-m".into(),
-        stash_message,
-    ];
+    let mut args: Vec<String> = vec!["stash".into(), "push".into(), "-m".into(), stash_message];
     if include_untracked {
         args.push("-u".into());
     }
@@ -1509,10 +1747,7 @@ pub async fn cmd_open_repo_file(
     #[cfg(target_os = "windows")]
     {
         let mut cmd = std::process::Command::new("cmd");
-        cmd.arg("/C")
-            .arg("start")
-            .arg("")
-            .arg(&path_str);
+        cmd.arg("/C").arg("start").arg("").arg(&path_str);
         hide_console_window(&mut cmd);
         cmd.spawn().map_err(|e| e.to_string())?;
     }
@@ -1545,13 +1780,7 @@ pub async fn cmd_get_conflicts(
     state: State<'_, AppState>,
     repo_path: Option<String>,
 ) -> Result<Vec<String>, String> {
-    let resp = git_run(
-        &state,
-        repo_path,
-        &["status", "--porcelain"],
-        TIMEOUT_LOCAL,
-    )
-    .await?;
+    let resp = git_run(&state, repo_path, &["status", "--porcelain"], TIMEOUT_LOCAL).await?;
 
     let mut conflicts = Vec::new();
     for line in resp.stdout.lines() {
@@ -1563,7 +1792,7 @@ pub async fn cmd_get_conflicts(
             "UU" | "AA" | "DU" | "UD" => {
                 let mut path = line[3..].trim().to_string();
                 if path.starts_with('"') && path.ends_with('"') {
-                    path = path[1..path.len()-1].to_string();
+                    path = path[1..path.len() - 1].to_string();
                 }
                 conflicts.push(path);
             }
@@ -1589,11 +1818,7 @@ pub async fn cmd_get_conflict_file(
         git_show_stage(&state.git, &repo, "3", &path),
     )?;
 
-    Ok(ConflictFile {
-        base,
-        ours,
-        theirs,
-    })
+    Ok(ConflictFile { base, ours, theirs })
 }
 
 /// Helper to fetch a single conflict stage via `git show :<stage>:<path>`.
@@ -1731,8 +1956,7 @@ pub fn cmd_write_file(
         return Err("Invalid path: cannot write outside of repository".to_string());
     }
 
-    fs::write(&full_path, content)
-        .map_err(|e| format!("Failed to write file {}: {}", path, e))?;
+    fs::write(&full_path, content).map_err(|e| format!("Failed to write file {}: {}", path, e))?;
 
     Ok(())
 }
@@ -1751,15 +1975,22 @@ pub async fn cmd_get_git_branches(
     // but the prompt implies we should ALWAYS do it or feature flag it.
     // The previous implementation took a bool. The user said "The application must display ALL branches".
     // I will respect the bool but default the frontend to pass true.
-    
+
     let mut args = vec!["branch".to_string(), "--format=%(refname)".to_string()];
     if include_remote {
         args.push("-a".to_string());
     }
 
-    let resp = git_run(&state, repo_path, &args.iter().map(|s| s.as_str()).collect::<Vec<&str>>(), TIMEOUT_LOCAL).await?;
-    
-    let branches = resp.stdout
+    let resp = git_run(
+        &state,
+        repo_path,
+        &args.iter().map(|s| s.as_str()).collect::<Vec<&str>>(),
+        TIMEOUT_LOCAL,
+    )
+    .await?;
+
+    let branches = resp
+        .stdout
         .lines()
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
@@ -1775,7 +2006,7 @@ pub async fn cmd_get_git_branches(
             }
         })
         .collect();
-        
+
     Ok(branches)
 }
 
@@ -1784,7 +2015,13 @@ pub async fn cmd_get_current_branch(
     state: State<'_, AppState>,
     repo_path: Option<String>,
 ) -> Result<String, String> {
-    let resp = git_run(&state, repo_path, &["branch", "--show-current"], TIMEOUT_QUICK).await?;
+    let resp = git_run(
+        &state,
+        repo_path,
+        &["branch", "--show-current"],
+        TIMEOUT_QUICK,
+    )
+    .await?;
     Ok(resp.stdout.trim().to_string())
 }
 
@@ -1823,12 +2060,7 @@ pub async fn cmd_git_checkout_new_branch(
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
     let path = resolve_repo_path(&state, repo_path)?;
-    let args: Vec<String> = vec![
-        "checkout".into(),
-        "-b".into(),
-        name,
-        start_point,
-    ];
+    let args: Vec<String> = vec!["checkout".into(), "-b".into(), name, start_point];
     let resp = state
         .git
         .run(Path::new(&path), &args, TIMEOUT_LOCAL)
@@ -1884,7 +2116,7 @@ pub async fn cmd_get_file_history(
 ) -> Result<Vec<FileCommit>, String> {
     let path = resolve_repo_path(&state, repo_path)?;
     let limit = limit.unwrap_or(100);
-    
+
     // git log --follow --format="%H|%an|%ad|%s" --date=short -n <limit> -- <file>
     let args = vec![
         "log".to_string(),
@@ -1936,9 +2168,7 @@ pub async fn cmd_search_repo_files(
         .await
         .map_err(|e| e.to_string())?;
 
-    let pattern_lower = pattern
-        .as_ref()
-        .map(|p| p.to_lowercase());
+    let pattern_lower = pattern.as_ref().map(|p| p.to_lowercase());
 
     let files: Vec<String> = resp
         .stdout
@@ -1995,7 +2225,7 @@ pub async fn cmd_get_commit_diff(
         .run_with_output_bytes(Path::new(&path), &args, TIMEOUT_LOCAL)
         .await
         .map_err(|e| e.to_string())?;
-    
+
     // Decode with override or default
     // Decode with override or default
     let decoded_stdout = {
@@ -2049,14 +2279,19 @@ pub async fn cmd_get_file_at_commit(
         .map_err(|e| e.to_string())?;
 
     let settings = state.settings.lock().map_err(|e| e.to_string())?;
-    Ok(crate::git::encoding::decode_bytes(&resp.stdout, Path::new(&file_path), &settings, encoding))
+    Ok(crate::git::encoding::decode_bytes(
+        &resp.stdout,
+        Path::new(&file_path),
+        &settings,
+        encoding,
+    ))
 }
 
 fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {
     let mut files = Vec::new();
     let mut current_file: Option<DiffFile> = None;
     let mut current_hunk: Option<DiffHunk> = None;
-    
+
     let mut old_ln: u32 = 0;
     let mut new_ln: u32 = 0;
 
@@ -2076,7 +2311,7 @@ fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {
                 // Fallback
                 line.split_whitespace().last().unwrap_or("").to_string()
             };
-            
+
             current_file = Some(DiffFile {
                 path,
                 status: "M".to_string(),
@@ -2093,7 +2328,10 @@ fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {
                 file.status = "D".to_string();
             } else if line.starts_with("rename from") {
                 file.status = "R".to_string();
-            } else if line.starts_with("index") || line.starts_with("---") || line.starts_with("+++") {
+            } else if line.starts_with("index")
+                || line.starts_with("---")
+                || line.starts_with("+++")
+            {
                 // Skip headers
                 continue;
             } else if line.starts_with("Binary files") {
@@ -2101,20 +2339,30 @@ fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {
             } else if line.starts_with("@@") {
                 // Push previous hunk
                 if let Some(h) = current_hunk.take() {
-                   file.hunks.push(h);
+                    file.hunks.push(h);
                 }
-                
+
                 // Parse ranges: @@ -old,len +new,len @@
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 3 {
                     // -old,len
                     let old_part = &parts[1][1..];
-                    old_ln = old_part.split(',').next().unwrap_or("0").parse().unwrap_or(0);
-                    
+                    old_ln = old_part
+                        .split(',')
+                        .next()
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
+
                     // +new,len
                     let new_part = &parts[2][1..];
-                    new_ln = new_part.split(',').next().unwrap_or("0").parse().unwrap_or(0);
-                    
+                    new_ln = new_part
+                        .split(',')
+                        .next()
+                        .unwrap_or("0")
+                        .parse()
+                        .unwrap_or(0);
+
                     current_hunk = Some(DiffHunk {
                         id: Uuid::new_v4().to_string(),
                         old_start: old_ln,
@@ -2132,7 +2380,7 @@ fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {
                     });
                     new_ln += 1;
                 } else if line.starts_with('-') {
-                     // Removed line
+                    // Removed line
                     hunk.lines.push(DiffLine {
                         type_: DiffLineType::Remove,
                         content: line[1..].to_string(),
@@ -2154,7 +2402,7 @@ fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {
             }
         }
     }
-    
+
     // Flush last
     if let Some(mut f) = current_file.take() {
         if let Some(h) = current_hunk.take() {
@@ -2162,7 +2410,7 @@ fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {
         }
         files.push(f);
     }
-    
+
     files
 }
 
@@ -2193,9 +2441,7 @@ pub async fn cmd_get_commit_changed_files(
     command.args(&args).current_dir(&path);
     hide_console_window(&mut command);
 
-    let output = command
-        .output()
-        .map_err(|e| e.to_string())?;
+    let output = command.output().map_err(|e| e.to_string())?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -2307,9 +2553,7 @@ pub async fn cmd_get_commit_file_diff(
         .current_dir(&path);
     hide_console_window(&mut command);
 
-    let output = command
-        .output()
-        .map_err(|e| e.to_string())?;
+    let output = command.output().map_err(|e| e.to_string())?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -2328,16 +2572,27 @@ pub async fn cmd_get_commit_file_diff(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
-pub async fn cmd_terminal_start(app: AppHandle, state: State<'_, AppState>, repo_path: String) -> Result<(), String> {
+pub async fn cmd_terminal_start(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_path: String,
+) -> Result<(), String> {
     state.terminal.start_session(app, repo_path)
 }
 
 #[tauri::command]
-pub async fn cmd_terminal_write(state: State<'_, AppState>, repo_path: String, input: String) -> Result<(), String> {
+pub async fn cmd_terminal_write(
+    state: State<'_, AppState>,
+    repo_path: String,
+    input: String,
+) -> Result<(), String> {
     state.terminal.write_input(&repo_path, &input)
 }
 
 #[tauri::command]
-pub async fn cmd_terminal_stop(state: State<'_, AppState>, repo_path: String) -> Result<(), String> {
+pub async fn cmd_terminal_stop(
+    state: State<'_, AppState>,
+    repo_path: String,
+) -> Result<(), String> {
     state.terminal.stop_session(&repo_path)
 }

@@ -51,7 +51,10 @@ impl GitExecutor {
                 .output()
             {
                 if output.status.success() {
-                    println!("[GIT] Found git on PATH: {}", String::from_utf8_lossy(&output.stdout).trim());
+                    println!(
+                        "[GIT] Found git on PATH: {}",
+                        String::from_utf8_lossy(&output.stdout).trim()
+                    );
                     return Ok(PathBuf::from("git"));
                 }
             }
@@ -67,7 +70,10 @@ impl GitExecutor {
                 .output()
             {
                 if output.status.success() {
-                    println!("[GIT] Found git on PATH: {}", String::from_utf8_lossy(&output.stdout).trim());
+                    println!(
+                        "[GIT] Found git on PATH: {}",
+                        String::from_utf8_lossy(&output.stdout).trim()
+                    );
                     return Ok(PathBuf::from("git"));
                 }
             }
@@ -83,7 +89,10 @@ impl GitExecutor {
 
             // %LOCALAPPDATA%\Programs\Git\cmd\git.exe  (user-scoped install)
             if let Ok(local) = std::env::var("LOCALAPPDATA") {
-                candidates.push(PathBuf::from(format!(r"{}\Programs\Git\cmd\git.exe", local)));
+                candidates.push(PathBuf::from(format!(
+                    r"{}\Programs\Git\cmd\git.exe",
+                    local
+                )));
             }
 
             // Scoop install: %USERPROFILE%\scoop\apps\git\current\cmd\git.exe
@@ -126,9 +135,7 @@ impl GitExecutor {
     ) -> GitResult<GitResponse> {
         // Validate repo path
         if !repo_path.exists() || !repo_path.is_dir() {
-            return Err(GitError::InvalidRepoPath(
-                repo_path.display().to_string(),
-            ));
+            return Err(GitError::InvalidRepoPath(repo_path.display().to_string()));
         }
 
         let start = Instant::now();
@@ -165,28 +172,23 @@ impl GitExecutor {
             .map_err(|e| GitError::IoError(format!("Failed to spawn git: {}", e)))?;
 
         // Await with timeout
-        let output = match tokio::time::timeout(
-            Duration::from_secs(timeout_secs),
-            child.wait_with_output(),
-        )
-        .await
-        {
-            Ok(Ok(output)) => output,
-            Ok(Err(e)) => {
-                return Err(GitError::IoError(format!(
-                    "git process IO error: {}",
-                    e
-                )));
-            }
-            Err(_) => {
-                // Timeout elapsed – the child is dropped which sends SIGKILL / TerminateProcess
-                println!(
-                    "[GIT TIMEOUT] git {} (after {}s)",
-                    args_display, timeout_secs
-                );
-                return Err(GitError::Timeout(timeout_secs));
-            }
-        };
+        let output =
+            match tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait_with_output())
+                .await
+            {
+                Ok(Ok(output)) => output,
+                Ok(Err(e)) => {
+                    return Err(GitError::IoError(format!("git process IO error: {}", e)));
+                }
+                Err(_) => {
+                    // Timeout elapsed – the child is dropped which sends SIGKILL / TerminateProcess
+                    println!(
+                        "[GIT TIMEOUT] git {} (after {}s)",
+                        args_display, timeout_secs
+                    );
+                    return Err(GitError::Timeout(timeout_secs));
+                }
+            };
 
         let duration = start.elapsed();
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -234,9 +236,7 @@ impl GitExecutor {
     ) -> GitResult<GitResponseBytes> {
         // Validate repo path
         if !repo_path.exists() || !repo_path.is_dir() {
-            return Err(GitError::InvalidRepoPath(
-                repo_path.display().to_string(),
-            ));
+            return Err(GitError::InvalidRepoPath(repo_path.display().to_string()));
         }
 
         let start = Instant::now();
@@ -270,27 +270,22 @@ impl GitExecutor {
             .spawn()
             .map_err(|e| GitError::IoError(format!("Failed to spawn git: {}", e)))?;
 
-        let output = match tokio::time::timeout(
-            Duration::from_secs(timeout_secs),
-            child.wait_with_output(),
-        )
-        .await
-        {
-            Ok(Ok(output)) => output,
-            Ok(Err(e)) => {
-                return Err(GitError::IoError(format!(
-                    "git process IO error: {}",
-                    e
-                )));
-            }
-            Err(_) => {
-                println!(
-                    "[GIT TIMEOUT] git {} (after {}s)",
-                    args_display, timeout_secs
-                );
-                return Err(GitError::Timeout(timeout_secs));
-            }
-        };
+        let output =
+            match tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait_with_output())
+                .await
+            {
+                Ok(Ok(output)) => output,
+                Ok(Err(e)) => {
+                    return Err(GitError::IoError(format!("git process IO error: {}", e)));
+                }
+                Err(_) => {
+                    println!(
+                        "[GIT TIMEOUT] git {} (after {}s)",
+                        args_display, timeout_secs
+                    );
+                    return Err(GitError::Timeout(timeout_secs));
+                }
+            };
 
         let duration = start.elapsed();
         let stdout_bytes = output.stdout;
@@ -349,16 +344,14 @@ impl GitExecutor {
             .spawn()
             .map_err(|e| GitError::IoError(format!("Failed to spawn git: {}", e)))?;
 
-        let output = match tokio::time::timeout(
-            Duration::from_secs(timeout_secs),
-            child.wait_with_output(),
-        )
-        .await
-        {
-            Ok(Ok(output)) => output,
-            Ok(Err(e)) => return Err(GitError::IoError(e.to_string())),
-            Err(_) => return Err(GitError::Timeout(timeout_secs)),
-        };
+        let output =
+            match tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait_with_output())
+                .await
+            {
+                Ok(Ok(output)) => output,
+                Ok(Err(e)) => return Err(GitError::IoError(e.to_string())),
+                Err(_) => return Err(GitError::Timeout(timeout_secs)),
+            };
 
         let duration = start.elapsed();
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -379,7 +372,10 @@ impl GitExecutor {
 
     /// Collect diagnostic information about the git setup.
     pub async fn diagnostics(&self) -> DiagnosticInfo {
-        let version = match self.run_bare(&["--version".to_string()], TIMEOUT_QUICK).await {
+        let version = match self
+            .run_bare(&["--version".to_string()], TIMEOUT_QUICK)
+            .await
+        {
             Ok(r) => Some(r.stdout.trim().to_string()),
             Err(_) => None,
         };
