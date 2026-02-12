@@ -21,7 +21,7 @@
 
   let { nodes = [], lanes = [], connections = [], repoPath, pendingPushCount = 0, onGraphReload }: Props = $props();
 
-  const ROW_HEIGHT = 44;
+  const ROW_HEIGHT = 32;
   const COL_WIDTH = 32;
   const STROKE_WIDTH = 2;
   const PADDING_TOP = 8;
@@ -32,6 +32,9 @@
   const TOOLTIP_MAX_HEIGHT = 88;
   const AVATAR_SIZE = 18;
   const AVATAR_RADIUS = AVATAR_SIZE / 2;
+  const STASH_AVATAR_IMAGE_OPACITY = 0.58;
+  const STASH_AVATAR_BASE_OPACITY = 0.45;
+  const STASH_AVATAR_DASH = "3 2";
   const SVG_INSTANCE_ID = `graph-${Math.random().toString(36).slice(2, 9)}`;
   const AVATAR_CLIP_ID = `${SVG_INSTANCE_ID}-avatar-clip`;
   const AVATAR_SHADOW_ID = `${SVG_INSTANCE_ID}-avatar-shadow`;
@@ -1344,6 +1347,7 @@
                                     {@const cy = nodeRenderY(node)}
                                     {@const isSelected = selectedCommit?.hash === node.hash}
                                     {@const isHovered = hoveredCommitHash === node.hash}
+                                    {@const isStashNode = node.isStash}
                                     {@const avatarUrl = avatarCache.get(node.author) ?? getAvatarUrl(node.author)}
                                     <g
                                         class="graph-node"
@@ -1358,7 +1362,16 @@
                                                 cy="0"
                                                 r={AVATAR_RADIUS}
                                                 fill={node.color}
+                                                opacity={isStashNode ? STASH_AVATAR_BASE_OPACITY : 1}
                                             />
+                                            {#if isStashNode}
+                                                <circle
+                                                    cx="0"
+                                                    cy="0"
+                                                    r={AVATAR_RADIUS}
+                                                    fill="rgba(255,255,255,0.22)"
+                                                />
+                                            {/if}
                                             <!-- White border circle -->
                                             <circle
                                                 cx="0"
@@ -1367,6 +1380,8 @@
                                                 fill="none"
                                                 stroke={isSelected ? "#f0f6fc" : "rgba(255,255,255,0.9)"}
                                                 stroke-width="2"
+                                                stroke-dasharray={isStashNode ? STASH_AVATAR_DASH : undefined}
+                                                opacity={isStashNode ? 0.85 : 1}
                                             />
                                             <!-- Avatar image, clipped to circle -->
                                             <image
@@ -1377,6 +1392,7 @@
                                                 height={AVATAR_SIZE}
                                                 clip-path={`url(#${AVATAR_CLIP_ID})`}
                                                 preserveAspectRatio="xMidYMid slice"
+                                                opacity={isStashNode ? STASH_AVATAR_IMAGE_OPACITY : 1}
                                             />
                                             <!-- Selection ring + glow -->
                                             {#if isSelected}
@@ -1387,6 +1403,7 @@
                                                 fill="none"
                                                 stroke={node.color}
                                                 stroke-width="1"
+                                                stroke-dasharray={isStashNode ? STASH_AVATAR_DASH : undefined}
                                                 opacity="0.3"
                                             />
                                             <circle
@@ -1396,6 +1413,7 @@
                                                 fill="none"
                                                 stroke={node.color}
                                                 stroke-width="2"
+                                                stroke-dasharray={isStashNode ? STASH_AVATAR_DASH : undefined}
                                                 opacity="0.8"
                                                 />
                                             {/if}
