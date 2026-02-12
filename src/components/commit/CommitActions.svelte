@@ -79,8 +79,8 @@
   }
 </script>
 
-<div class="border-t border-[#30363d] bg-[#161b22] px-3 pt-2.5 pb-3 flex flex-col gap-2.5">
-  <div class="flex items-center gap-2 text-[13px] text-[#e6edf3] font-semibold">
+<div class="border-t border-[#30363d] bg-[linear-gradient(180deg,#1a202d,#151a23)] px-3 pt-2.5 pb-3 flex flex-col gap-2.5">
+  <div class="flex items-center gap-2 text-[13px] text-[#dce7f8] font-semibold">
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
       <circle cx="12" cy="12" r="3"></circle>
       <line x1="2" y1="12" x2="7" y2="12"></line>
@@ -89,19 +89,19 @@
     <span>Commit</span>
   </div>
 
-  <div class="rounded-md border border-[#30363d] bg-[#0f141d] p-2.5">
+  <div class="rounded-md border border-[#2d3e57] bg-[#101722] p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
     <div class="flex items-center gap-2">
       <input
         value={summary}
         oninput={handleSummaryInput}
         placeholder="Commit summary"
-        class="flex-1 bg-transparent text-[13px] text-[#d0d7de] placeholder-[#7d8590] outline-none"
+        class="flex-1 bg-transparent text-[13px] text-[#d7e3f3] placeholder-[#7f93ac] outline-none"
         disabled={busy || generating}
       />
-      <span class="text-xs {summaryTooLong ? 'text-[#f85149]' : 'text-[#8b949e]'}">{summary.length}</span>
+      <span class="text-xs {summaryTooLong ? 'text-[#f85149]' : 'text-[#8f79d9]'}">{summary.length}</span>
       <button
         type="button"
-        class="h-7 w-7 rounded-md border border-[#2f3d55] bg-[#1a2232] text-[#9fb3c8] hover:text-[#d0d7de] hover:bg-[#23314a] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors"
+        class="h-7 w-7 rounded-md border border-[#6340c1] bg-[linear-gradient(135deg,#301f4d,#233a5c)] text-[#d8c9ff] hover:text-white hover:bg-[linear-gradient(135deg,#442971,#2f4d79)] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors"
         disabled={!canGenerate}
         onclick={handleGenerate}
         title="Generate commit message"
@@ -123,7 +123,7 @@
     <textarea
       value={description}
       oninput={handleDescriptionInput}
-      class="mt-2 w-full bg-transparent text-[12px] leading-relaxed text-[#c9d1d9] placeholder-[#7d8590] outline-none resize-none h-10"
+      class="mt-2 w-full bg-transparent text-[12px] leading-relaxed text-[#c7d6ea] placeholder-[#788ca7] outline-none resize-none h-10"
       placeholder="Description"
       disabled={busy || generating}
     ></textarea>
@@ -132,7 +132,7 @@
   <div class="flex items-center justify-between gap-2">
     <button
       type="button"
-      class="inline-flex items-center gap-1.5 text-xs text-[#8b949e] hover:text-[#c9d1d9] transition-colors"
+      class="inline-flex items-center gap-1.5 text-xs text-[#96abc7] hover:text-[#d1e1f6] transition-colors"
       onclick={() => (showOptions = !showOptions)}
       aria-expanded={showOptions}
     >
@@ -152,7 +152,7 @@
 
     <button
       type="button"
-      class="h-7 px-2.5 rounded border border-[#2f3d55] bg-[#1a2232] text-[#c5d3e8] text-[11px] font-semibold hover:bg-[#23314a] disabled:opacity-45 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1.5"
+      class="h-7 px-2.5 rounded border border-[#6e41db] bg-[linear-gradient(135deg,#3d1f7b,#4f30aa)] text-[#ede4ff] text-[11px] font-semibold hover:bg-[linear-gradient(135deg,#4b2394,#613ec5)] disabled:opacity-45 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1.5"
       disabled={!canGenerate}
       onclick={handleGenerate}
     >
@@ -164,8 +164,8 @@
   </div>
 
   {#if showOptions}
-    <div class="rounded-md border border-[#30363d] bg-[#111722] p-2 flex flex-col gap-1.5">
-      <label class="inline-flex items-center gap-2 text-xs text-[#8b949e] cursor-pointer select-none">
+    <div class="rounded-md border border-[#2a3f5f] bg-[#111b2a] p-2 flex flex-col gap-1.5">
+      <label class="inline-flex items-center gap-2 text-xs text-[#a8c2e2] cursor-pointer select-none">
         <input
           type="checkbox"
           bind:checked={pushAfterCommit}
@@ -174,7 +174,7 @@
         />
         <span>Commit & Push</span>
       </label>
-      <label class="inline-flex items-center gap-2 text-xs text-[#6e7681] cursor-not-allowed select-none">
+      <label class="inline-flex items-center gap-2 text-xs text-[#6f81a0] cursor-not-allowed select-none">
         <input
           type="checkbox"
           bind:checked={amendPrevious}
@@ -188,7 +188,7 @@
 
   <div class="pt-1 px-1 pb-1">
     <button
-      class="w-full h-8 rounded-sm bg-[#1d3a2b] text-[#b3d7c2] text-xs font-semibold hover:bg-[#245039] disabled:opacity-45 disabled:cursor-not-allowed transition-colors border border-[#2f6f4f] shadow-sm flex items-center justify-center gap-2"
+      class="w-full h-8 rounded-sm bg-[linear-gradient(135deg,#1f754d,#229b61)] text-[#e8fff3] text-xs font-semibold hover:bg-[linear-gradient(135deg,#24865a,#2abd76)] disabled:opacity-45 disabled:cursor-not-allowed transition-colors border border-[#38b774] shadow-sm flex items-center justify-center gap-2"
       disabled={!canCommit}
       onclick={handleCommit}
     >
