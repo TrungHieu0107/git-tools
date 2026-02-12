@@ -180,6 +180,21 @@ export class GitService {
       }
   }
 
+  static async discardChanges(files: FileStatus[], repoPath?: string): Promise<void> {
+      if (files.length === 0) return;
+      try {
+          await invoke("cmd_git_discard_changes", { files, repoPath });
+          if (files.length === 1) {
+              toast.success(`Discarded changes in ${files[0].path}`);
+          } else {
+              toast.success("Discarded all changes");
+          }
+      } catch (e: any) {
+          toast.error(`Discard failed: ${e}`);
+          throw e;
+      }
+  }
+
   // --- Branch Management ---
 
   static async getBranches(includeRemote = false, repoPath?: string): Promise<string[]> {

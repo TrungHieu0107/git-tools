@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { GitService, type FileStatus } from "../lib/GitService";
   import { toast } from "../lib/toast.svelte";
   import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
+  import { confirm } from "../lib/confirmation.svelte";
 
   import CommitFileList from "./commit/CommitFileList.svelte";
 
@@ -28,6 +30,9 @@
   let loadingDiff = $state(false);
   let committing = $state(false);
   let selectedEncoding = $state<string | undefined>(undefined);
+  let fileViewMode = $state<"tree" | "path">("path");
+
+  const FILE_VIEW_MODE_KEY = "commit_panel_file_view_mode";
 
 
 
@@ -175,12 +180,78 @@
       } catch (e) { /* toast handled */ }
   }
 
+  function getUniqueFilesForDiscard(files: FileStatus[]): FileStatus[] {
+      const uniqueByPath = new Map<string, FileStatus>();
+      for (const file of files) {
+          const existing = uniqueByPath.get(file.path);
+          if (!existing) {
+              uniqueByPath.set(file.path, file);
+              continue;
+          }
+          // Prefer tracked status over untracked if duplicates ever appear.
+          if (existing.status === "??" && file.status !== "??") {
+              uniqueByPath.set(file.path, file);
+          }
+      }
+      return [...uniqueByPath.values()];
+  }
+
+  async function handleDiscardFile(file: FileStatus) {
+      if (!repoPath) return;
+      const confirmed = await confirm({
+          title: "Discard Change",
+          message: `Discard all changes in "${file.path}"?\nThis action cannot be undone.`,
+          confirmLabel: "Discard",
+          cancelLabel: "Cancel"
+      });
+      if (!confirmed) return;
+
+      try {
+          await GitService.discardChanges([file], repoPath);
+          await loadStatus(true);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
+  async function handleDiscardAll() {
+      if (!repoPath) return;
+      const files = getUniqueFilesForDiscard([...unstagedFiles, ...stagedFiles]);
+      if (files.length === 0) return;
+
+      const confirmed = await confirm({
+          title: "Discard All Changes",
+          message: `Discard all local changes in ${files.length} file(s)?\nThis action cannot be undone.`,
+          confirmLabel: "Discard All",
+          cancelLabel: "Cancel"
+      });
+      if (!confirmed) return;
+
+      try {
+          await GitService.discardChanges(files, repoPath);
+          await loadStatus(true);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
 
 
   $effect(() => {
       if (repoPath) {
           loadStatus();
       }
+  });
+
+  onMount(() => {
+      const saved = localStorage.getItem(FILE_VIEW_MODE_KEY);
+      if (saved === "tree" || saved === "path") {
+          fileViewMode = saved;
+      }
+  });
+
+  $effect(() => {
+      localStorage.setItem(FILE_VIEW_MODE_KEY, fileViewMode);
   });
 
   // Refresh data when the Commit tab becomes active, so file lists
@@ -209,6 +280,27 @@
 <div class="flex h-full w-full bg-[#0d1117] overflow-hidden text-[#c9d1d9]">
     <!-- Left Sidebar -->
     <div class="w-1/3 min-w-[300px] max-w-[450px] flex flex-col border-r border-[#30363d] bg-[#161b22]">
+        <div class="h-9 px-3 border-b border-[#30363d] bg-[#21262d] flex items-center justify-between shrink-0">
+            <span class="text-[11px] uppercase tracking-wider font-semibold text-[#8b949e]">Files View</span>
+            <div class="inline-flex rounded border border-[#30363d] overflow-hidden">
+                <button
+                    type="button"
+                    class="px-2.5 py-1 text-[11px] font-medium transition-colors {fileViewMode === 'tree' ? 'bg-[#30363d] text-white' : 'bg-[#161b22] text-[#8b949e] hover:text-[#c9d1d9]'}"
+                    onclick={() => fileViewMode = "tree"}
+                    title="View files as directory tree"
+                >
+                    Tree
+                </button>
+                <button
+                    type="button"
+                    class="px-2.5 py-1 text-[11px] font-medium border-l border-[#30363d] transition-colors {fileViewMode === 'path' ? 'bg-[#30363d] text-white' : 'bg-[#161b22] text-[#8b949e] hover:text-[#c9d1d9]'}"
+                    onclick={() => fileViewMode = "path"}
+                    title="View files by full path list"
+                >
+                    Path
+                </button>
+            </div>
+        </div>
 
         <!-- Resizable file list sections (scrollable region) -->
         <div class="flex-1 min-h-0 flex flex-col overflow-auto">
@@ -222,6 +314,11 @@
                         onSelect={handleSelect}
                         onAction={handleStage}
                         actionLabel="Stage"
+                        onDiscard={handleDiscardFile}
+                        onDiscardAll={handleDiscardAll}
+                        discardAllLabel="Discard All"
+                        showDiscardAll={unstagedFiles.length + stagedFiles.length > 0}
+                        viewMode={fileViewMode}
                         onActionAll={handleStageAll}
                         actionAllLabel="Stage All"
                     />
@@ -238,6 +335,8 @@
                         onSelect={handleSelect}
                         onAction={handleUnstage}
                         actionLabel="Unstage"
+                        onDiscard={handleDiscardFile}
+                        viewMode={fileViewMode}
                         onActionAll={handleUnstageAll}
                         actionAllLabel="Unstage All"
                     />

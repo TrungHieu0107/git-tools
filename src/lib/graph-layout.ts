@@ -5,6 +5,7 @@ export interface Commit {
   subject: string;
   author: string;
   date: string;
+  isStash: boolean;
 }
 
 function hashString(value: string): number {
@@ -86,6 +87,7 @@ export interface ConnectionPath {
   toRow: number; // Target row
   color: string; // Connection color
   parentIndex: number; // 0 = first parent, >0 = merge parent
+  lineStyle: "solid" | "dashed";
 }
 
 const PALETTE = [
@@ -100,11 +102,16 @@ const PALETTE = [
   "#49b856", // Mint
 ];
 
+function isStashRef(ref: string): boolean {
+  const normalized = ref.trim();
+  return normalized === "refs/stash" || /^stash@\{\d+\}$/.test(normalized);
+}
+
 export function parseGitLog(output: string): Commit[] {
   if (!output.trim()) return [];
 
   // Format: %H|%P|%d|%an|%cI|%s
-  return output
+  const parsed = output
     .split("\n")
     .filter((line) => line.trim())
     .map((line) => {
@@ -133,6 +140,35 @@ export function parseGitLog(output: string): Commit[] {
         subject,
         author,
         date,
+        isStash: refs.some(isStashRef),
+      };
+    });
+
+  // Stash entries are synthetic merge commits. Keep only the visible WIP commit
+  // and hide helper parents ("index on ...", "untracked files on ...") so stash
+  // is rendered as one commit.
+  const stashHelperHashes = new Set<string>();
+  for (const commit of parsed) {
+    if (!commit.isStash) continue;
+    for (let parentIndex = 1; parentIndex < commit.parents.length; parentIndex += 1) {
+      const parentHash = commit.parents[parentIndex];
+      if (parentHash) stashHelperHashes.add(parentHash);
+    }
+  }
+
+  if (stashHelperHashes.size === 0) {
+    return parsed;
+  }
+
+  return parsed
+    .filter((commit) => !stashHelperHashes.has(commit.hash))
+    .map((commit) => {
+      if (!commit.isStash) return commit;
+      return {
+        ...commit,
+        parents: commit.parents.filter(
+          (parentHash, parentIndex) => parentIndex === 0 || !stashHelperHashes.has(parentHash),
+        ),
       };
     });
 }
@@ -250,6 +286,7 @@ export function calculateGraphLayout(commits: Commit[]): {
     for (let parentIndex = 0; parentIndex < node.parents.length; parentIndex += 1) {
       const parentHash = node.parents[parentIndex];
       const parentNode = nodeByHash.get(parentHash);
+      const isStashMainParent = node.isStash && parentIndex === 0;
 
       if (!parentNode) {
         // Parent outside loaded range; continue the first-parent lane visually.
@@ -260,6 +297,20 @@ export function calculateGraphLayout(commits: Commit[]): {
       }
 
       if (parentNode.x === node.x) {
+        if (isStashMainParent) {
+          connections.push({
+            fromColumn: node.x,
+            fromRow: node.y,
+            toColumn: parentNode.x,
+            toRow: parentNode.y,
+            color: node.color,
+            parentIndex,
+            lineStyle: "dashed",
+          });
+          addLaneSegment(parentNode.x, parentNode.y, parentNode.y);
+          continue;
+        }
+
         addLaneSegment(node.x, node.y, parentNode.y);
         continue;
       }
@@ -271,6 +322,7 @@ export function calculateGraphLayout(commits: Commit[]): {
         toRow: parentNode.y,
         color: parentIndex === 0 ? node.color : parentNode.color,
         parentIndex,
+        lineStyle: isStashMainParent ? "dashed" : "solid",
       });
 
       // Anchor destination lane at parent row to avoid visual gaps.

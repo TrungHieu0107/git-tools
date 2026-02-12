@@ -35,6 +35,9 @@
   const SVG_INSTANCE_ID = `graph-${Math.random().toString(36).slice(2, 9)}`;
   const AVATAR_CLIP_ID = `${SVG_INSTANCE_ID}-avatar-clip`;
   const AVATAR_SHADOW_ID = `${SVG_INSTANCE_ID}-avatar-shadow`;
+  const CHANGED_FILES_VIEW_MODE_KEY = "commit_graph_changed_files_view_mode";
+  const PATH_LABEL_MAX_LENGTH = 42;
+  const PATH_COLLAPSE_TOKEN = "....";
 
   const HEADER_BASE = "h-8 flex items-center bg-[#111827] border-b border-[#1e293b] shrink-0";
   
@@ -81,6 +84,8 @@
   let selectedCommit = $state<GraphNode | null>(null);
   let changedFiles = $state<CommitChangedFile[]>([]);
   let isLoadingFiles = $state(false);
+  let changedFilesViewMode = $state<"tree" | "path">("path");
+  let changedFilesCollapsedDirs = $state<Set<string>>(new Set());
 
   // Diff View State
   let leftPanelMode = $state<'graph' | 'diff'>('graph');
@@ -112,6 +117,7 @@
       
       selectedCommit = node;
       changedFiles = [];
+      changedFilesCollapsedDirs = new Set();
       // Reset diff view when switching commits (optional, or keep if same file exists?)
       closeDiff(); 
       
@@ -213,10 +219,19 @@
               });
           } catch(e) { console.error("Failed to load column settings", e); }
       }
+
+      const changedFilesViewSaved = localStorage.getItem(CHANGED_FILES_VIEW_MODE_KEY);
+      if (changedFilesViewSaved === "tree" || changedFilesViewSaved === "path") {
+          changedFilesViewMode = changedFilesViewSaved;
+      }
   });
 
   $effect(() => {
       localStorage.setItem("gh_table_columns", JSON.stringify(columns));
+  });
+
+  $effect(() => {
+      localStorage.setItem(CHANGED_FILES_VIEW_MODE_KEY, changedFilesViewMode);
   });
 
 
@@ -287,7 +302,36 @@
       key: string;
       color: string;
       path: string;
+      lineStyle: "solid" | "dashed";
   };
+
+  type ChangedFilesTreeDirectory = {
+      name: string;
+      path: string;
+      children: Map<string, ChangedFilesTreeDirectory>;
+      files: CommitChangedFile[];
+  };
+
+  type ChangedFilesDirectoryRow = {
+      kind: "directory";
+      key: string;
+      depth: number;
+      path: string;
+      name: string;
+      fileCount: number;
+      collapsed: boolean;
+  };
+
+  type ChangedFilesFileRow = {
+      kind: "file";
+      key: string;
+      depth: number;
+      file: CommitChangedFile;
+      label: string;
+      title: string;
+  };
+
+  type ChangedFilesRow = ChangedFilesDirectoryRow | ChangedFilesFileRow;
 
   let graphColumn = $derived(columns.find(c => c.id === "graph"));
   let graphColumnOffset = $derived.by(() => {
@@ -376,7 +420,8 @@
       lanes.map((lane, idx) => ({
           key: `lane-${lane.column}-${lane.rowStart}-${idx}`,
           color: lane.color,
-          path: `M ${columnToX(lane.column)} ${rowToY(lane.rowStart)} V ${rowToY(lane.rowEnd)}`
+          path: `M ${columnToX(lane.column)} ${rowToY(lane.rowStart)} V ${rowToY(lane.rowEnd)}`,
+          lineStyle: "solid"
       }))
   );
 
@@ -393,7 +438,8 @@
           return {
               key: `conn-${conn.fromColumn}-${conn.fromRow}-${conn.toColumn}-${conn.toRow}-${idx}`,
               color: conn.color,
-              path
+              path,
+              lineStyle: conn.lineStyle
           };
       })
   );
@@ -569,6 +615,189 @@
       hoveredCommitHash = null;
       hoveredBranchColor = null;
       hideCommitTooltip();
+  }
+
+  function getTreePath(filePath: string): string {
+      const normalized = filePath.replaceAll("\\", "/");
+      const renameParts = normalized.split(" -> ");
+      return (renameParts[renameParts.length - 1] ?? normalized).trim();
+  }
+
+  function getBaseName(filePath: string): string {
+      const path = getTreePath(filePath);
+      const segments = path.split("/").filter(Boolean);
+      return segments.length > 0 ? segments[segments.length - 1] : path;
+  }
+
+  function collapseSinglePath(path: string, maxLength: number): string {
+      const normalized = path.replaceAll("\\", "/").trim();
+      if (normalized.length <= maxLength) return normalized;
+
+      const segments = normalized.split("/").filter(Boolean);
+      if (segments.length <= 1) {
+          return `...${normalized.slice(-Math.max(1, maxLength - 3))}`;
+      }
+
+      let first = segments[0];
+      let last = segments[segments.length - 1];
+      let candidate = `${first}/${PATH_COLLAPSE_TOKEN}/${last}`;
+
+      if (candidate.length > maxLength) {
+          const lastBudget = Math.max(10, maxLength - (first.length + PATH_COLLAPSE_TOKEN.length + 5));
+          if (last.length > lastBudget) {
+              last = `...${last.slice(-Math.max(1, lastBudget - 3))}`;
+          }
+          candidate = `${first}/${PATH_COLLAPSE_TOKEN}/${last}`;
+      }
+
+      if (candidate.length > maxLength) {
+          const firstBudget = Math.max(3, maxLength - (PATH_COLLAPSE_TOKEN.length + last.length + 5));
+          if (first.length > firstBudget) {
+              first = `${first.slice(0, Math.max(1, firstBudget - 3))}...`;
+          }
+          candidate = `${first}/${PATH_COLLAPSE_TOKEN}/${last}`;
+      }
+
+      if (candidate.length <= maxLength) return candidate;
+      return `...${normalized.slice(-Math.max(1, maxLength - 3))}`;
+  }
+
+  function formatPathLabel(path: string): string {
+      const normalized = path.replaceAll("\\", "/").trim();
+      const renameParts = normalized.split(" -> ").map((part) => part.trim()).filter(Boolean);
+
+      if (renameParts.length === 2) {
+          const leftBudget = Math.max(16, Math.floor((PATH_LABEL_MAX_LENGTH - 4) / 2));
+          const rightBudget = Math.max(16, PATH_LABEL_MAX_LENGTH - 4 - leftBudget);
+          const left = collapseSinglePath(renameParts[0], leftBudget);
+          const right = collapseSinglePath(renameParts[1], rightBudget);
+          return `${left} -> ${right}`;
+      }
+
+      return collapseSinglePath(normalized, PATH_LABEL_MAX_LENGTH);
+  }
+
+  function buildChangedFilesTree(items: CommitChangedFile[]): ChangedFilesTreeDirectory {
+      const root: ChangedFilesTreeDirectory = {
+          name: "",
+          path: "",
+          children: new Map(),
+          files: []
+      };
+
+      for (const file of items) {
+          const treePath = getTreePath(file.path);
+          const parts = treePath.split("/").filter(Boolean);
+
+          if (parts.length <= 1) {
+              root.files.push(file);
+              continue;
+          }
+
+          parts.pop();
+          let current = root;
+          for (const part of parts) {
+              let child = current.children.get(part);
+              if (!child) {
+                  const childPath = current.path ? `${current.path}/${part}` : part;
+                  child = {
+                      name: part,
+                      path: childPath,
+                      children: new Map(),
+                      files: []
+                  };
+                  current.children.set(part, child);
+              }
+              current = child;
+          }
+          current.files.push(file);
+      }
+
+      return root;
+  }
+
+  function countChangedFiles(directory: ChangedFilesTreeDirectory): number {
+      let count = directory.files.length;
+      for (const child of directory.children.values()) {
+          count += countChangedFiles(child);
+      }
+      return count;
+  }
+
+  function flattenChangedFilesTree(directory: ChangedFilesTreeDirectory, depth: number): ChangedFilesRow[] {
+      const rows: ChangedFilesRow[] = [];
+
+      const directories = [...directory.children.values()].sort((a, b) => a.name.localeCompare(b.name));
+      for (const child of directories) {
+          const collapsed = changedFilesCollapsedDirs.has(child.path);
+          rows.push({
+              kind: "directory",
+              key: `dir:${child.path}`,
+              depth,
+              path: child.path,
+              name: child.name,
+              fileCount: countChangedFiles(child),
+              collapsed
+          });
+
+          if (!collapsed) {
+              rows.push(...flattenChangedFilesTree(child, depth + 1));
+          }
+      }
+
+      const directoryFiles = [...directory.files].sort((a, b) => {
+          const byName = getBaseName(a.path).localeCompare(getBaseName(b.path));
+          if (byName !== 0) return byName;
+          return getTreePath(a.path).localeCompare(getTreePath(b.path));
+      });
+
+      for (const file of directoryFiles) {
+          rows.push({
+              kind: "file",
+              key: `file:${file.path}`,
+              depth,
+              file,
+              label: getBaseName(file.path),
+              title: file.path
+          });
+      }
+
+      return rows;
+  }
+
+  let changedFileRows = $derived.by<ChangedFilesRow[]>(() => {
+      if (changedFilesViewMode === "path") {
+          return [...changedFiles]
+              .sort((a, b) => a.path.localeCompare(b.path))
+              .map((file) => ({
+                  kind: "file" as const,
+                  key: `file:${file.path}`,
+                  depth: 0,
+                  file,
+                  label: formatPathLabel(file.path),
+                  title: file.path
+              }));
+      }
+
+      const tree = buildChangedFilesTree(changedFiles);
+      return flattenChangedFilesTree(tree, 0);
+  });
+
+  function toggleChangedFilesDirectory(path: string): void {
+      const next = new Set(changedFilesCollapsedDirs);
+      if (next.has(path)) {
+          next.delete(path);
+      } else {
+          next.add(path);
+      }
+      changedFilesCollapsedDirs = next;
+  }
+
+  function handleChangedFileKeydown(event: KeyboardEvent, filePath: string): void {
+      if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          void openDiff(filePath);
+      }
   }
 
   type RefBadgeType = "branch" | "remote" | "tag";
@@ -1092,6 +1321,7 @@
                                             stroke-width={STROKE_WIDTH + 4}
                                             stroke-linecap="round"
                                             stroke-linejoin="round"
+                                            stroke-dasharray={conn.lineStyle === "dashed" ? "6 4" : undefined}
                                             opacity="0.15"
                                         />
                                     {/if}
@@ -1103,6 +1333,7 @@
                                         stroke-width={STROKE_WIDTH}
                                         stroke-linecap="round"
                                         stroke-linejoin="round"
+                                        stroke-dasharray={conn.lineStyle === "dashed" ? "6 4" : undefined}
                                         opacity={hoveredBranchColor && conn.color !== hoveredBranchColor ? 0.26 : 0.92}
                                     />
                                 {/each}
@@ -1329,10 +1560,30 @@
                   <!-- Changes -->
                   <div class="mt-4">
                       <div class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-2 flex justify-between items-center">
-                          <span>Changed Files</span>
-                          {#if changedFiles.length > 0}
-                              <span class="text-[10px] font-normal bg-[#1e293b] text-[#c9d1d9] px-1.5 rounded-full">{changedFiles.length}</span>
-                          {/if}
+                          <div class="flex items-center gap-2">
+                              <span>Changed Files</span>
+                              {#if changedFiles.length > 0}
+                                  <span class="text-[10px] font-normal bg-[#1e293b] text-[#c9d1d9] px-1.5 rounded-full">{changedFiles.length}</span>
+                              {/if}
+                          </div>
+                          <div class="inline-flex rounded border border-[#1e293b] overflow-hidden normal-case tracking-normal">
+                              <button
+                                  type="button"
+                                  class="px-2 py-0.5 text-[10px] font-medium transition-colors {changedFilesViewMode === 'tree' ? 'bg-[#1e293b] text-white' : 'bg-[#0f172a] text-[#8b949e] hover:text-[#c9d1d9]'}"
+                                  onclick={() => changedFilesViewMode = "tree"}
+                                  title="View changed files as directory tree"
+                              >
+                                  Tree
+                              </button>
+                              <button
+                                  type="button"
+                                  class="px-2 py-0.5 text-[10px] font-medium border-l border-[#1e293b] transition-colors {changedFilesViewMode === 'path' ? 'bg-[#1e293b] text-white' : 'bg-[#0f172a] text-[#8b949e] hover:text-[#c9d1d9]'}"
+                                  onclick={() => changedFilesViewMode = "path"}
+                                  title="View changed files by path"
+                              >
+                                  Path
+                              </button>
+                          </div>
                       </div>
                       
                       {#if isLoadingFiles}
@@ -1342,20 +1593,40 @@
                           </div>
                       {:else if changedFiles.length > 0}
                           <div class="space-y-0.5">
-                              {#each changedFiles as file}
-                                  <div 
-                                      class="flex items-start gap-2 py-1 px-1 hover:bg-[#111827] rounded text-xs group cursor-pointer {selectedDiffFile === file.path ? 'bg-[#1e293b] text-white' : ''}" 
-                                      title={file.path}
-                                      onclick={() => openDiff(file.path)}
-                                      role="button"
-                                      tabindex="0"
-                                      onkeydown={(e) => e.key === 'Enter' && openDiff(file.path)}
-                                  >
-                                      <FileChangeStatusBadge status={file.status} compact={true} showCode={true} className="shrink-0 mt-[1px]" />
-                                      <span class="truncate text-[#c9d1d9] leading-tight break-all">
-                                          {file.path}
-                                      </span>
-                                  </div>
+                              {#each changedFileRows as row (row.key)}
+                                  {#if row.kind === "directory"}
+                                      <button
+                                          type="button"
+                                          class="w-full flex items-center gap-1.5 px-1 py-1 text-xs rounded text-[#8b949e] hover:bg-[#111827] transition-colors"
+                                          style={`padding-left: ${4 + row.depth * 12}px;`}
+                                          onclick={() => toggleChangedFilesDirectory(row.path)}
+                                          title={row.path}
+                                      >
+                                          <svg class={`w-3 h-3 shrink-0 transition-transform ${row.collapsed ? '' : 'rotate-90'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                              <polyline points="9 6 15 12 9 18"></polyline>
+                                          </svg>
+                                          <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                              <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"></path>
+                                          </svg>
+                                          <span class="truncate text-left">{row.name}</span>
+                                          <span class="ml-auto text-[10px] text-[#6e7681]">{row.fileCount}</span>
+                                      </button>
+                                  {:else}
+                                      <div 
+                                          class="flex items-start gap-2 py-1 px-1 hover:bg-[#111827] rounded text-xs group cursor-pointer {selectedDiffFile === row.file.path ? 'bg-[#1e293b] text-white' : ''}" 
+                                          style={`padding-left: ${4 + row.depth * 12}px;`}
+                                          title={row.title}
+                                          onclick={() => openDiff(row.file.path)}
+                                          role="button"
+                                          tabindex="0"
+                                          onkeydown={(e) => handleChangedFileKeydown(e, row.file.path)}
+                                      >
+                                          <FileChangeStatusBadge status={row.file.status} compact={true} showCode={true} className="shrink-0 mt-[1px]" />
+                                          <span class="truncate text-[#c9d1d9] leading-tight">
+                                              {row.label}
+                                          </span>
+                                      </div>
+                                  {/if}
                               {/each}
                           </div>
                       {:else}

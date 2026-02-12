@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -102,6 +102,16 @@ fn is_excluded(path: &str, exclusions: &[String]) -> bool {
         }
     }
     false
+}
+
+fn split_rename_path(path: &str) -> Option<(String, String)> {
+    let mut parts = path.splitn(2, " -> ");
+    let old_path = parts.next()?.trim();
+    let new_path = parts.next()?.trim();
+    if old_path.is_empty() || new_path.is_empty() {
+        return None;
+    }
+    Some((old_path.to_string(), new_path.to_string()))
 }
 
 // ---------------------------------------------------------------------------
@@ -881,6 +891,72 @@ pub async fn cmd_git_unstage(
         .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
         .await
         .map_err(|e| e.to_string())?;
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_git_discard_changes(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    files: Vec<FileStatus>,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let exclusions = {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.excluded_files.clone()
+    };
+
+    let mut tracked_paths = HashSet::<String>::new();
+    let mut untracked_paths = HashSet::<String>::new();
+
+    for file in files {
+        let path = file.path.trim().to_string();
+        if path.is_empty() || is_excluded(&path, &exclusions) {
+            continue;
+        }
+
+        if file.status.trim() == "??" {
+            untracked_paths.insert(path);
+            continue;
+        }
+
+        if let Some((old_path, new_path)) = split_rename_path(&path) {
+            tracked_paths.insert(old_path);
+            tracked_paths.insert(new_path);
+        } else {
+            tracked_paths.insert(path);
+        }
+    }
+
+    if !tracked_paths.is_empty() {
+        let mut args: Vec<String> = vec![
+            "restore".into(),
+            "--source=HEAD".into(),
+            "--staged".into(),
+            "--worktree".into(),
+            "--".into(),
+        ];
+        args.extend(tracked_paths.into_iter());
+        state
+            .git
+            .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    if !untracked_paths.is_empty() {
+        let mut args: Vec<String> = vec!["clean".into(), "-fd".into(), "--".into()];
+        args.extend(untracked_paths.into_iter());
+        state
+            .git
+            .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
     Ok(())

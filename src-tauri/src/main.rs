@@ -70,6 +70,7 @@ fn main() {
             commands::cmd_get_file_modified_content,
             commands::cmd_git_add,
             commands::cmd_git_unstage,
+            commands::cmd_git_discard_changes,
             commands::cmd_git_add_all,
             commands::cmd_git_unstage_all,
             commands::cmd_get_file_history,
