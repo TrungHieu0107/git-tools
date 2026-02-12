@@ -1067,14 +1067,20 @@ pub async fn cmd_get_diff_file(
 pub async fn cmd_get_file_base_content(
     state: State<'_, AppState>,
     file_path: String,
+    staged: bool,
     encoding: Option<String>,
     repo_path: Option<String>,
 ) -> Result<String, String> {
     let path = resolve_repo_path(&state, repo_path)?;
-    let show_arg = format!("HEAD:{}", file_path);
+    let show_arg = if staged {
+        format!("HEAD:{}", file_path)
+    } else {
+        format!(":{}", file_path)
+    };
     let args = vec!["show".to_string(), show_arg];
 
-    // New/untracked files won't exist at HEAD -- return empty content
+    // For staged diff base: HEAD, for unstaged diff base: index.
+    // New/untracked files won't exist in either source -> return empty.
     match state
         .git
         .run_with_output_bytes(Path::new(&path), &args, TIMEOUT_QUICK)

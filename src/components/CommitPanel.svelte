@@ -100,9 +100,10 @@
       baseContent = "";
       modifiedContent = "";
       try {
-          // Fetch base (HEAD) and modified content in parallel
+          // For staged entries: HEAD -> index.
+          // For unstaged entries: index -> working tree.
           const [base, modified] = await Promise.all([
-              GitService.getFileBaseContent(file.path, repoPath, selectedEncoding),
+              GitService.getFileBaseContent(file.path, file.staged, repoPath, selectedEncoding),
               GitService.getFileModifiedContent(file.path, file.staged, repoPath, selectedEncoding),
           ]);
           baseContent = base;
