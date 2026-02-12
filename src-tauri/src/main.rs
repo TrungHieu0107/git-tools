@@ -48,6 +48,8 @@ fn main() {
             commands::cmd_set_excluded_files,
             commands::cmd_set_repo_filter,
             commands::cmd_set_gemini_api_token,
+            commands::cmd_set_gemini_model,
+            commands::cmd_get_gemini_models,
             commands::cmd_git_pull,
             commands::cmd_git_push,
             commands::cmd_git_fetch,

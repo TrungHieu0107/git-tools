@@ -1319,7 +1319,7 @@
                 </button>
             </div>
 
-            <div class="absolute right-2 top-1/2 -translate-y-1/2">
+            <div class="absolute right-2 top-1/2 -translate-y-1/2 z-50">
                 <button  
                     onclick={() => showMenu = !showMenu}
                     class="text-xs text-[#8b949e] hover:text-[#c9d1d9] px-2 py-1 rounded hover:bg-[#1e293b] flex items-center gap-1 transition-colors"
@@ -1329,7 +1329,7 @@
                 </button>
 
                 {#if showMenu}
-                    <div class="absolute top-8 right-0 bg-[#111827] border border-[#1e293b] rounded-md shadow-xl z-50 p-2 w-40 animate-in fade-in zoom-in-95 duration-100">
+                    <div class="absolute top-8 right-0 bg-[#111827] border border-[#1e293b] rounded-md shadow-xl z-[70] p-2 w-40 animate-in fade-in zoom-in-95 duration-100">
                         {#each columns as col}
                             <label class="flex items-center gap-2 p-1.5 hover:bg-[#1e293b] rounded cursor-pointer text-xs text-[#c9d1d9]">
                                 <input type="checkbox" bind:checked={col.visible} class="rounded border-[#1e293b] bg-[#0f172a] text-[#238636] focus:ring-0">

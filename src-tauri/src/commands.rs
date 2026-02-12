@@ -120,9 +120,44 @@ fn split_rename_path(path: &str) -> Option<(String, String)> {
     Some((old_path.to_string(), new_path.to_string()))
 }
 
-const GEMINI_MODEL: &str = "gemini-2.5-flash";
+const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-flash";
 const GEMINI_MAX_DIFF_CHARS: usize = 40_000;
 const GEMINI_MAX_FILE_SUMMARY_CHARS: usize = 4_000;
+const GEMINI_LIST_MODELS_URL: &str = "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_MODELS_PAGE_SIZE: &str = "1000";
+
+#[derive(Debug, Deserialize)]
+struct GeminiModelsListResponse {
+    #[serde(default)]
+    models: Vec<GeminiModelEntry>,
+    #[serde(rename = "nextPageToken")]
+    next_page_token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiModelEntry {
+    name: Option<String>,
+    #[serde(default, rename = "supportedGenerationMethods")]
+    supported_generation_methods: Vec<String>,
+}
+
+fn normalize_gemini_model_name(raw_name: &str) -> Option<String> {
+    let trimmed = raw_name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let without_prefix = trimmed.strip_prefix("models/").unwrap_or(trimmed);
+    if without_prefix.is_empty() {
+        return None;
+    }
+
+    if !without_prefix.starts_with("gemini") {
+        return None;
+    }
+
+    Some(without_prefix.to_string())
+}
 
 fn truncate_for_prompt(input: &str, max_chars: usize) -> (String, bool) {
     let mut out = String::new();
@@ -753,6 +788,123 @@ pub fn cmd_set_gemini_api_token(
     Ok(settings.clone())
 }
 
+#[tauri::command]
+pub fn cmd_set_gemini_model(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    model: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    let trimmed = model.trim().to_string();
+    settings.gemini_model = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    };
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}
+
+#[tauri::command]
+pub async fn cmd_get_gemini_models(
+    state: State<'_, AppState>,
+    token: Option<String>,
+) -> Result<Vec<String>, String> {
+    let provided_token = token
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty());
+
+    let api_token = if let Some(t) = provided_token {
+        t
+    } else {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings
+            .gemini_api_token
+            .clone()
+            .ok_or("Gemini API token is missing. Set it in Settings first.")?
+    };
+
+    if api_token.trim().is_empty() {
+        return Err("Gemini API token is missing. Set it in Settings first.".to_string());
+    }
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(TIMEOUT_NETWORK))
+        .build()
+        .map_err(|e| format!("Failed to initialize Gemini client: {}", e))?;
+
+    let mut next_page_token: Option<String> = None;
+    let mut models = HashSet::new();
+
+    loop {
+        let mut request = client
+            .get(GEMINI_LIST_MODELS_URL)
+            .header("x-goog-api-key", &api_token)
+            .query(&[("pageSize", GEMINI_MODELS_PAGE_SIZE)]);
+
+        if let Some(page_token) = next_page_token.as_deref() {
+            request = request.query(&[("pageToken", page_token)]);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| format!("Failed to call Gemini API: {}", e))?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|e| format!("Failed to read Gemini response: {}", e))?;
+
+        if !status.is_success() {
+            return Err(format!(
+                "Gemini API error while listing models ({}): {}",
+                status, body
+            ));
+        }
+
+        let parsed: GeminiModelsListResponse = serde_json::from_str(&body)
+            .map_err(|e| format!("Invalid Gemini model list response: {}", e))?;
+
+        for model in parsed.models {
+            let Some(raw_name) = model.name else {
+                continue;
+            };
+
+            if !model.supported_generation_methods.is_empty()
+                && !model
+                    .supported_generation_methods
+                    .iter()
+                    .any(|method| method == "generateContent")
+            {
+                continue;
+            }
+
+            if let Some(normalized_name) = normalize_gemini_model_name(&raw_name) {
+                models.insert(normalized_name);
+            }
+        }
+
+        next_page_token = parsed
+            .next_page_token
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+
+        if next_page_token.is_none() {
+            break;
+        }
+    }
+
+    if models.is_empty() {
+        return Err("No Gemini models found for this API key.".to_string());
+    }
+
+    let mut sorted_models: Vec<String> = models.into_iter().collect();
+    sorted_models.sort_unstable();
+    Ok(sorted_models)
+}
+
 // ---------------------------------------------------------------------------
 // Generic async git command
 // ---------------------------------------------------------------------------
@@ -941,11 +1093,22 @@ pub async fn cmd_generate_commit_message(
 ) -> Result<String, String> {
     let path = resolve_repo_path(&state, repo_path)?;
 
-    let token = {
+    let (token, model) = {
         let settings = state.settings.lock().map_err(|e| e.to_string())?;
-        settings.gemini_api_token.clone()
-    }
-    .ok_or("Gemini API token is missing. Set it in Settings first.")?;
+        let token = settings.gemini_api_token.clone();
+        let model = settings
+            .gemini_model
+            .clone()
+            .unwrap_or_else(|| DEFAULT_GEMINI_MODEL.to_string());
+        (token, model)
+    };
+
+    let token = token.ok_or("Gemini API token is missing. Set it in Settings first.")?;
+    let model = if model.trim().is_empty() {
+        DEFAULT_GEMINI_MODEL.to_string()
+    } else {
+        model.trim().to_string()
+    };
 
     let staged_files_args: Vec<String> =
         vec!["diff".into(), "--cached".into(), "--name-status".into()];
@@ -986,7 +1149,7 @@ pub async fn cmd_generate_commit_message(
 
     let api_url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-        GEMINI_MODEL
+        model
     );
 
     let payload = json!({

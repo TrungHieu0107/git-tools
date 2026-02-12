@@ -10,8 +10,24 @@
   let settings = $state<AppSettings | null>(null);
   let newExclusion = $state("");
   let geminiToken = $state("");
+  let geminiModel = $state("gemini-2.5-flash");
+  let geminiModelOptions = $state<string[]>([]);
   let savingGeminiToken = $state(false);
+  let savingGeminiModel = $state(false);
+  let loadingGeminiModels = $state(false);
   let geminiSaveError = $state("");
+  let geminiModelsError = $state("");
+
+  const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+
+  function normalizeGeminiModel(model?: string | null): string {
+    const trimmed = (model || "").trim();
+    return trimmed || DEFAULT_GEMINI_MODEL;
+  }
+
+  function formatGeminiModelLabel(model: string): string {
+    return model;
+  }
 
   function applyLoadedSettings(loaded: AppSettings) {
     settings = loaded;
@@ -19,11 +35,44 @@
       settings.excluded_files = [];
     }
     geminiToken = settings.gemini_api_token || "";
+    geminiModel = normalizeGeminiModel(settings.gemini_model);
+  }
+
+  async function loadGeminiModels(tokenOverride?: string) {
+    const token = (tokenOverride || settings?.gemini_api_token || "").trim();
+    if (!token) {
+      geminiModelOptions = [];
+      geminiModelsError = "";
+      return;
+    }
+
+    loadingGeminiModels = true;
+    geminiModelsError = "";
+    try {
+      const models = await GitService.getGeminiModels(token);
+      geminiModelOptions = models;
+
+      if (models.length > 0 && !models.includes(geminiModel) && settings?.gemini_api_token) {
+        const fallbackModel = models[0];
+        geminiModel = fallbackModel;
+        applyLoadedSettings(await GitService.setGeminiModel(fallbackModel));
+      }
+    } catch (e) {
+      geminiModelOptions = [];
+      geminiModelsError = String(e);
+      console.error("Failed to load Gemini models", e);
+    } finally {
+      loadingGeminiModels = false;
+    }
   }
 
   onMount(async () => {
     try {
-        applyLoadedSettings(await GitService.getSettings());
+        const loaded = await GitService.getSettings();
+        applyLoadedSettings(loaded);
+        if (loaded.gemini_api_token) {
+          await loadGeminiModels(loaded.gemini_api_token);
+        }
     } catch (e) {
         console.error("Failed to load settings", e);
     }
@@ -61,7 +110,9 @@
     savingGeminiToken = true;
     geminiSaveError = "";
     try {
-      applyLoadedSettings(await GitService.setGeminiApiToken(geminiToken.trim()));
+      const trimmedToken = geminiToken.trim();
+      applyLoadedSettings(await GitService.setGeminiApiToken(trimmedToken));
+      await loadGeminiModels(trimmedToken);
     } catch (e) {
       geminiSaveError = String(e);
       console.error("Failed to save Gemini token", e);
@@ -73,6 +124,20 @@
   async function clearGeminiToken() {
     geminiToken = "";
     await saveGeminiToken();
+  }
+
+  async function saveGeminiModel() {
+    if (!settings?.gemini_api_token || !geminiModelOptions.includes(geminiModel)) return;
+    savingGeminiModel = true;
+    geminiSaveError = "";
+    try {
+      applyLoadedSettings(await GitService.setGeminiModel(geminiModel));
+    } catch (e) {
+      geminiSaveError = String(e);
+      console.error("Failed to save Gemini model", e);
+    } finally {
+      savingGeminiModel = false;
+    }
   }
 </script>
 
@@ -129,6 +194,39 @@
         <p class="text-[11px] text-[#8b949e] mt-2">Gemini token is configured.</p>
       {:else}
         <p class="text-[11px] text-[#8b949e] mt-2">No Gemini token configured.</p>
+      {/if}
+
+      {#if settings?.gemini_api_token}
+        <div class="mt-4">
+          <label for="gemini-model" class="text-xs text-[#8b949e] block mb-1.5">Gemini model</label>
+          <div class="flex items-center gap-2">
+            <select
+              id="gemini-model"
+              bind:value={geminiModel}
+              onchange={saveGeminiModel}
+              disabled={savingGeminiModel || savingGeminiToken || loadingGeminiModels || geminiModelOptions.length === 0}
+              class="bg-[#0d1117] border border-[#30363d] px-3 py-2 rounded-md text-xs outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] transition-all min-w-[220px]"
+            >
+              {#if geminiModelOptions.length === 0}
+                <option value="" disabled>
+                  {loadingGeminiModels ? "Loading models..." : "No models available"}
+                </option>
+              {:else}
+                {#each geminiModelOptions as model}
+                  <option value={model}>{formatGeminiModelLabel(model)}</option>
+                {/each}
+              {/if}
+            </select>
+            {#if loadingGeminiModels}
+              <span class="text-[11px] text-[#8b949e]">Loading models...</span>
+            {:else if savingGeminiModel}
+              <span class="text-[11px] text-[#8b949e]">Saving model...</span>
+            {/if}
+          </div>
+          {#if geminiModelsError}
+            <p class="text-[11px] text-[#f85149] mt-2 break-all">{geminiModelsError}</p>
+          {/if}
+        </div>
       {/if}
 
       {#if geminiSaveError}

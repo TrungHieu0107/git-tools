@@ -35,6 +35,7 @@ export interface AppSettings {
   repo_filters: Record<string, string>;
   file_encodings?: Record<string, string>;
   gemini_api_token?: string | null;
+  gemini_model?: string | null;
 }
 
 export class GitService {
@@ -54,6 +55,15 @@ export class GitService {
 
   static async setGeminiApiToken(token: string): Promise<AppSettings> {
     return invoke("cmd_set_gemini_api_token", { token });
+  }
+
+  static async setGeminiModel(model: string): Promise<AppSettings> {
+    return invoke("cmd_set_gemini_model", { model });
+  }
+
+  static async getGeminiModels(token?: string): Promise<string[]> {
+    const trimmed = token?.trim();
+    return invoke("cmd_get_gemini_models", { token: trimmed ? trimmed : null });
   }
 
   static async addRepo(name: string, path: string): Promise<AppSettings> {
