@@ -33,11 +33,13 @@
   const TOOLTIP_MAX_HEIGHT = 88;
   const AVATAR_SIZE = 18;
   const AVATAR_RADIUS = AVATAR_SIZE / 2;
+  const STASH_AVATAR_CORNER_RADIUS = 2;
   const STASH_AVATAR_IMAGE_OPACITY = 0.58;
   const STASH_AVATAR_BASE_OPACITY = 0.45;
   const STASH_AVATAR_DASH = "3 2";
   const SVG_INSTANCE_ID = `graph-${Math.random().toString(36).slice(2, 9)}`;
   const AVATAR_CLIP_ID = `${SVG_INSTANCE_ID}-avatar-clip`;
+  const AVATAR_STASH_CLIP_ID = `${SVG_INSTANCE_ID}-avatar-stash-clip`;
   const AVATAR_SHADOW_ID = `${SVG_INSTANCE_ID}-avatar-shadow`;
   const CHANGED_FILES_VIEW_MODE_KEY = "commit_graph_changed_files_view_mode";
   const PATH_LABEL_MAX_LENGTH = 42;
@@ -906,6 +908,11 @@
       originalIndex: number;
   };
 
+  function isStashRefBadge(ref: string): boolean {
+      const normalized = ref.trim();
+      return normalized === "refs/stash" || /^stash@\{\d+\}$/.test(normalized);
+  }
+
   // Parse refs and rank: current branch first, then local branches, remotes, tags.
   function getRankedRefBadges(refs: string[]): RefBadge[] {
       const parsed: RefBadge[] = [];
@@ -923,6 +930,7 @@
       refs.forEach((rawRef, index) => {
           const ref = rawRef.trim();
           if (!ref) return;
+          if (isStashRefBadge(ref)) return;
 
           if (ref.includes("HEAD ->")) {
               const currentBranch = ref.split("HEAD ->")[1]?.trim() ?? "";
@@ -1380,6 +1388,15 @@
                             <clipPath id={AVATAR_CLIP_ID} clipPathUnits="userSpaceOnUse">
                                 <circle cx="0" cy="0" r={AVATAR_RADIUS} />
                             </clipPath>
+                            <clipPath id={AVATAR_STASH_CLIP_ID} clipPathUnits="userSpaceOnUse">
+                                <rect
+                                    x={-AVATAR_RADIUS}
+                                    y={-AVATAR_RADIUS}
+                                    width={AVATAR_SIZE}
+                                    height={AVATAR_SIZE}
+                                    rx={STASH_AVATAR_CORNER_RADIUS}
+                                />
+                            </clipPath>
                             <filter id={AVATAR_SHADOW_ID} x="-20%" y="-20%" width="140%" height="140%">
                                 <feDropShadow dx="0" dy="0" stdDeviation="1.5" flood-color="#000" flood-opacity="0.45" />
                             </filter>
@@ -1454,66 +1471,113 @@
                                     >
                                         <g transform={`scale(${isHovered ? 1.1 : 1})`} filter={`url(#${AVATAR_SHADOW_ID})`}>
                                             <title>{`${node.hash} - ${node.subject}`}</title>
-                                            <!-- Color fallback circle (shows if avatar fails to load) -->
-                                            <circle
-                                                cx="0"
-                                                cy="0"
-                                                r={AVATAR_RADIUS}
-                                                fill={node.color}
-                                                opacity={isStashNode ? STASH_AVATAR_BASE_OPACITY : 1}
-                                            />
                                             {#if isStashNode}
+                                                <!-- Color fallback square (shows if avatar fails to load) -->
+                                                <rect
+                                                    x={-AVATAR_RADIUS}
+                                                    y={-AVATAR_RADIUS}
+                                                    width={AVATAR_SIZE}
+                                                    height={AVATAR_SIZE}
+                                                    rx={STASH_AVATAR_CORNER_RADIUS}
+                                                    fill={node.color}
+                                                    opacity={STASH_AVATAR_BASE_OPACITY}
+                                                />
+                                                <rect
+                                                    x={-AVATAR_RADIUS}
+                                                    y={-AVATAR_RADIUS}
+                                                    width={AVATAR_SIZE}
+                                                    height={AVATAR_SIZE}
+                                                    rx={STASH_AVATAR_CORNER_RADIUS}
+                                                    fill="rgba(255,255,255,0.22)"
+                                                />
+                                                <rect
+                                                    x={-AVATAR_RADIUS - 2}
+                                                    y={-AVATAR_RADIUS - 2}
+                                                    width={AVATAR_SIZE + 4}
+                                                    height={AVATAR_SIZE + 4}
+                                                    rx={STASH_AVATAR_CORNER_RADIUS + 2}
+                                                    fill="none"
+                                                    stroke={isSelected ? "#f0f6fc" : "rgba(255,255,255,0.9)"}
+                                                    stroke-width="2"
+                                                    stroke-dasharray={STASH_AVATAR_DASH}
+                                                    opacity="0.85"
+                                                />
+                                            {:else}
+                                                <!-- Color fallback circle (shows if avatar fails to load) -->
                                                 <circle
                                                     cx="0"
                                                     cy="0"
                                                     r={AVATAR_RADIUS}
-                                                    fill="rgba(255,255,255,0.22)"
+                                                    fill={node.color}
+                                                />
+                                                <!-- White border circle -->
+                                                <circle
+                                                    cx="0"
+                                                    cy="0"
+                                                    r={AVATAR_RADIUS + 2}
+                                                    fill="none"
+                                                    stroke={isSelected ? "#f0f6fc" : "rgba(255,255,255,0.9)"}
+                                                    stroke-width="2"
                                                 />
                                             {/if}
-                                            <!-- White border circle -->
-                                            <circle
-                                                cx="0"
-                                                cy="0"
-                                                r={AVATAR_RADIUS + 2}
-                                                fill="none"
-                                                stroke={isSelected ? "#f0f6fc" : "rgba(255,255,255,0.9)"}
-                                                stroke-width="2"
-                                                stroke-dasharray={isStashNode ? STASH_AVATAR_DASH : undefined}
-                                                opacity={isStashNode ? 0.85 : 1}
-                                            />
-                                            <!-- Avatar image, clipped to circle -->
+                                            <!-- Avatar image -->
                                             <image
                                                 href={avatarUrl}
                                                 x={-AVATAR_RADIUS}
                                                 y={-AVATAR_RADIUS}
                                                 width={AVATAR_SIZE}
                                                 height={AVATAR_SIZE}
-                                                clip-path={`url(#${AVATAR_CLIP_ID})`}
+                                                clip-path={`url(#${isStashNode ? AVATAR_STASH_CLIP_ID : AVATAR_CLIP_ID})`}
                                                 preserveAspectRatio="xMidYMid slice"
                                                 opacity={isStashNode ? STASH_AVATAR_IMAGE_OPACITY : 1}
                                             />
                                             <!-- Selection ring + glow -->
                                             {#if isSelected}
-                                                <circle
-                                                    cx="0"
-                                                    cy="0"
-                                                r={AVATAR_RADIUS + 4}
-                                                fill="none"
-                                                stroke={node.color}
-                                                stroke-width="1"
-                                                stroke-dasharray={isStashNode ? STASH_AVATAR_DASH : undefined}
-                                                opacity="0.3"
-                                            />
-                                            <circle
-                                                cx="0"
-                                                cy="0"
-                                                r={AVATAR_RADIUS + 2.5}
-                                                fill="none"
-                                                stroke={node.color}
-                                                stroke-width="2"
-                                                stroke-dasharray={isStashNode ? STASH_AVATAR_DASH : undefined}
-                                                opacity="0.8"
-                                                />
+                                                {#if isStashNode}
+                                                    <rect
+                                                        x={-AVATAR_RADIUS - 4}
+                                                        y={-AVATAR_RADIUS - 4}
+                                                        width={AVATAR_SIZE + 8}
+                                                        height={AVATAR_SIZE + 8}
+                                                        rx={STASH_AVATAR_CORNER_RADIUS + 4}
+                                                        fill="none"
+                                                        stroke={node.color}
+                                                        stroke-width="1"
+                                                        stroke-dasharray={STASH_AVATAR_DASH}
+                                                        opacity="0.3"
+                                                    />
+                                                    <rect
+                                                        x={-AVATAR_RADIUS - 3}
+                                                        y={-AVATAR_RADIUS - 3}
+                                                        width={AVATAR_SIZE + 6}
+                                                        height={AVATAR_SIZE + 6}
+                                                        rx={STASH_AVATAR_CORNER_RADIUS + 3}
+                                                        fill="none"
+                                                        stroke={node.color}
+                                                        stroke-width="2"
+                                                        stroke-dasharray={STASH_AVATAR_DASH}
+                                                        opacity="0.8"
+                                                    />
+                                                {:else}
+                                                    <circle
+                                                        cx="0"
+                                                        cy="0"
+                                                        r={AVATAR_RADIUS + 4}
+                                                        fill="none"
+                                                        stroke={node.color}
+                                                        stroke-width="1"
+                                                        opacity="0.3"
+                                                    />
+                                                    <circle
+                                                        cx="0"
+                                                        cy="0"
+                                                        r={AVATAR_RADIUS + 2.5}
+                                                        fill="none"
+                                                        stroke={node.color}
+                                                        stroke-width="2"
+                                                        opacity="0.8"
+                                                    />
+                                                {/if}
                                             {/if}
                                         </g>
                                     </g>

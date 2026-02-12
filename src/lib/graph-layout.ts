@@ -107,6 +107,23 @@ function isStashRef(ref: string): boolean {
   return normalized === "refs/stash" || /^stash@\{\d+\}$/.test(normalized);
 }
 
+function normalizeStashSubject(subject: string): string {
+  const normalized = subject.trim();
+  if (!normalized) return "stash";
+
+  const withBranchPrefix = normalized.match(/^(?:WIP on|On)\s+[^:]+:\s*(.*)$/i);
+  if (withBranchPrefix) {
+    const message = withBranchPrefix[1].trim();
+    return message || "stash";
+  }
+
+  if (/^(?:WIP on|On)\s+/i.test(normalized)) {
+    return "stash";
+  }
+
+  return normalized;
+}
+
 export function parseGitLog(output: string): Commit[] {
   if (!output.trim()) return [];
 
@@ -133,14 +150,16 @@ export function parseGitLog(output: string): Commit[] {
           .map((r) => r.trim());
       }
 
+      const isStash = refs.some(isStashRef);
+
       return {
         hash,
         parents: parentsStr ? parentsStr.split(" ") : [],
         refs,
-        subject,
+        subject: isStash ? normalizeStashSubject(subject) : subject,
         author,
         date,
-        isStash: refs.some(isStashRef),
+        isStash,
       };
     });
 
