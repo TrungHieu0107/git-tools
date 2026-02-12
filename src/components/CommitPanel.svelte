@@ -10,6 +10,7 @@
   import CommitActions from "./commit/CommitActions.svelte";
   import ResizableSection from "./resize/ResizableSection.svelte";
   import DiffView from "./diff/DiffView.svelte";
+  import FileChangeStatusBadge from "./common/FileChangeStatusBadge.svelte";
 
   interface Props {
       repoPath?: string;
@@ -272,6 +273,7 @@
                 {#snippet header(toolbarProps)}
                     <!-- File header bar -->
                     <div class="h-8 px-3 flex items-center gap-2 border-b border-[#30363d] bg-[#161b22] shrink-0">
+                        <FileChangeStatusBadge status={selectedFile.status} compact={true} showCode={true} className="shrink-0" />
                         <span class="text-xs font-mono text-[#8b949e]">{selectedFile.path}</span>
                         <span class="text-[10px] px-1.5 py-0.5 rounded border border-[#30363d] text-[#8b949e]">
                             {selectedFile.staged ? 'STAGED' : 'UNSTAGED'}

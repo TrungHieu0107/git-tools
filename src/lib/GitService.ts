@@ -21,6 +21,11 @@ export interface FileStatus {
   staged: boolean;
 }
 
+export interface CommitChangedFile {
+  path: string;
+  status: string;
+}
+
 export interface AppSettings {
   repos: RepoEntry[];
   active_repo_id: string | null;
@@ -344,9 +349,9 @@ export class GitService {
     return invoke("cmd_search_repo_files", { pattern, repoPath });
   }
 
-  static async getCommitChangedFiles(commitHash: string, repoPath?: string): Promise<string[]> {
+  static async getCommitChangedFiles(commitHash: string, repoPath?: string): Promise<CommitChangedFile[]> {
     try {
-      return await invoke<string[]>("cmd_get_commit_changed_files", { commitHash, repoPath });
+      return await invoke<CommitChangedFile[]>("cmd_get_commit_changed_files", { commitHash, repoPath });
     } catch (e: any) {
       console.error("Failed to get changed files for commit", e);
       throw e;

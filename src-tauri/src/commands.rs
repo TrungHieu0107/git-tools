@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, State};
@@ -646,6 +646,13 @@ pub struct FileStatus {
     pub path: String,
     pub status: String,
     pub staged: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitChangedFile {
+    pub path: String,
+    pub status: String,
 }
 
 #[tauri::command]
@@ -1503,18 +1510,18 @@ pub async fn cmd_get_commit_changed_files(
     state: State<'_, AppState>,
     commit_hash: String,
     repo_path: Option<String>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<CommitChangedFile>, String> {
     let path = resolve_repo_path(&state, repo_path)?;
 
     // Include:
     // - merge commits (-m): list files changed against each parent
     // - root commit (--root): list files introduced by the initial commit
-    // Then deduplicate to return a clean file list for the UI.
-    // git diff-tree --no-commit-id --name-only -r -m --root <commit_hash>
+    // Then deduplicate to return a clean file list + normalized status for the UI.
+    // git diff-tree --no-commit-id --name-status -r -m --root <commit_hash>
     let args = vec![
         "diff-tree".to_string(),
         "--no-commit-id".to_string(),
-        "--name-only".to_string(),
+        "--name-status".to_string(),
         "-r".to_string(),
         "-m".to_string(),
         "--root".to_string(),
@@ -1532,21 +1539,92 @@ pub async fn cmd_get_commit_changed_files(
         return Err(format!("git diff-tree failed: {}", stderr));
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    
-    // Split by newlines and dedupe while keeping original order.
-    let mut seen = HashSet::new();
-    let mut files = Vec::new();
-    for line in stdout.lines() {
-        let file = line.trim();
-        if file.is_empty() {
-            continue;
+    fn normalize_diff_tree_status(raw: &str) -> String {
+        let s = raw.trim();
+        if s == "??" {
+            return "??".to_string();
         }
-        if seen.insert(file.to_string()) {
-            files.push(file.to_string());
+        match s.chars().next() {
+            Some('A') => "A".to_string(),
+            Some('M') => "M".to_string(),
+            Some('D') => "D".to_string(),
+            Some('R') => "R".to_string(), // rename (R100, R090...)
+            Some('C') => "C".to_string(), // copy (C100...)
+            Some('T') => "T".to_string(), // type change
+            Some('U') => "U".to_string(), // unmerged
+            _ => "M".to_string(),
         }
     }
-    
+
+    fn status_priority(status: &str) -> u8 {
+        match status {
+            "U" => 70,
+            "D" => 60,
+            "A" => 50,
+            "R" => 40,
+            "C" => 35,
+            "M" => 30,
+            "T" => 20,
+            "??" => 10,
+            _ => 0,
+        }
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Keep insertion order stable while allowing us to merge duplicate rows from merge commits.
+    let mut ordered_paths: Vec<String> = Vec::new();
+    let mut by_path_status: HashMap<String, String> = HashMap::new();
+
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        // --name-status output:
+        // M\tpath
+        // A\tpath
+        // D\tpath
+        // R100\told\tnew
+        // C100\told\tnew
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() < 2 {
+            continue;
+        }
+
+        let normalized_status = normalize_diff_tree_status(parts[0]);
+        let file_path = if parts.len() >= 3 {
+            parts[2].trim()
+        } else {
+            parts[1].trim()
+        };
+
+        if file_path.is_empty() {
+            continue;
+        }
+
+        let file_path = file_path.to_string();
+        if let Some(existing_status) = by_path_status.get(&file_path) {
+            if status_priority(&normalized_status) > status_priority(existing_status) {
+                by_path_status.insert(file_path, normalized_status);
+            }
+        } else {
+            ordered_paths.push(file_path.clone());
+            by_path_status.insert(file_path, normalized_status);
+        }
+    }
+
+    let files = ordered_paths
+        .into_iter()
+        .map(|path| CommitChangedFile {
+            status: by_path_status
+                .remove(&path)
+                .unwrap_or_else(|| "M".to_string()),
+            path,
+        })
+        .collect();
+
     Ok(files)
 }
 

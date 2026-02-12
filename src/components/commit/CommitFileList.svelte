@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { FileStatus } from "../../lib/GitService";
+  import FileChangeStatusBadge from "../common/FileChangeStatusBadge.svelte";
 
   interface Props {
       title: string;
@@ -13,17 +14,6 @@
       actionAllLabel?: string;
   }
   let { title, files, selectedFile, onSelect, onAction, actionLabel, onActionAll, actionAllLabel }: Props = $props();
-
-  function getStatusColor(code: string) {
-      switch (code) {
-          case 'M': return 'text-yellow-400';
-          case 'A': return 'text-green-400';
-          case 'D': return 'text-red-400';
-          case 'R': return 'text-blue-400';
-          case '??': return 'text-gray-400';
-          default: return 'text-gray-400';
-      }
-  }
 </script>
 
 <div class="flex flex-col flex-1 overflow-hidden min-h-0 border-b border-[#30363d] last:border-b-0">
@@ -54,7 +44,7 @@
                            {selectedFile === file ? 'bg-[#30363d] text-white' : 'hover:bg-[#21262d] text-[#c9d1d9]'}"
                     onclick={() => onSelect(file)}
                 >
-                    <span class="{getStatusColor(file.status)} font-mono w-4 shrink-0 text-center">{file.status}</span>
+                    <FileChangeStatusBadge status={file.status} compact={true} showCode={true} className="shrink-0" />
                     <span class="truncate flex-1" title={file.path}>{file.path}</span>
                     
                     <!-- Action Button (appears on hover) -->

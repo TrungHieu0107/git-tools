@@ -1,13 +1,14 @@
 <script lang="ts">
   import { getAvatarUrl, type GraphNode, type LanePath, type ConnectionPath } from "../lib/graph-layout";
   import { onMount } from "svelte";
-  import { GitService } from "../lib/GitService";
+  import { GitService, type CommitChangedFile } from "../lib/GitService";
   import { confirm } from "../lib/confirmation.svelte";
   import ResizablePanel from "./resize/ResizablePanel.svelte";
   import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
   import DiffView from "./diff/DiffView.svelte";
   import DiffToolbar from "./diff/DiffToolbar.svelte";
   import BranchContextMenu, { type BranchContextMenuState } from "./common/BranchContextMenu.svelte";
+  import FileChangeStatusBadge from "./common/FileChangeStatusBadge.svelte";
 
   interface Props {
     nodes?: GraphNode[];
@@ -78,7 +79,7 @@
 
   // Selection & Details
   let selectedCommit = $state<GraphNode | null>(null);
-  let changedFiles = $state<string[]>([]);
+  let changedFiles = $state<CommitChangedFile[]>([]);
   let isLoadingFiles = $state(false);
 
   // Diff View State
@@ -1343,16 +1344,16 @@
                           <div class="space-y-0.5">
                               {#each changedFiles as file}
                                   <div 
-                                      class="flex items-start gap-2 py-1 px-1 hover:bg-[#111827] rounded text-xs group cursor-pointer {selectedDiffFile === file ? 'bg-[#1e293b] text-white' : ''}" 
-                                      title={file}
-                                      onclick={() => openDiff(file)}
+                                      class="flex items-start gap-2 py-1 px-1 hover:bg-[#111827] rounded text-xs group cursor-pointer {selectedDiffFile === file.path ? 'bg-[#1e293b] text-white' : ''}" 
+                                      title={file.path}
+                                      onclick={() => openDiff(file.path)}
                                       role="button"
                                       tabindex="0"
-                                      onkeydown={(e) => e.key === 'Enter' && openDiff(file)}
+                                      onkeydown={(e) => e.key === 'Enter' && openDiff(file.path)}
                                   >
-                                      <svg class="shrink-0 text-[#8b949e] w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                                      <FileChangeStatusBadge status={file.status} compact={true} showCode={true} className="shrink-0 mt-[1px]" />
                                       <span class="truncate text-[#c9d1d9] leading-tight break-all">
-                                          {file}
+                                          {file.path}
                                       </span>
                                   </div>
                               {/each}
