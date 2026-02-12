@@ -64,6 +64,14 @@
   let summaryTooLong = $derived(summary.length > 72);
   let canGenerate = $derived(stagedCount > 0 && !busy && !generating);
   let canCommit = $derived(stagedCount > 0 && !!summary.trim() && !busy && !generating);
+  let commitButtonLabel = $derived(
+    stagedCount === 0
+      ? "Stage Changes to Commit"
+      : `Commit Changes to ${stagedCount} File${stagedCount === 1 ? "" : "s"}`
+  );
+
+  const commitButtonClass =
+    "w-full bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md shadow-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-[rgba(240,246,252,0.1)] text-xs focus:outline-none";
 
   async function handleCommit() {
     if (!canCommit) return;
@@ -79,40 +87,63 @@
   }
 </script>
 
-<div class="border-t border-[#30363d] bg-[linear-gradient(180deg,#1a202d,#151a23)] px-3 pt-2.5 pb-3 flex flex-col gap-2.5">
-  <div class="flex items-center gap-2 text-[13px] text-[#dce7f8] font-semibold">
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <circle cx="12" cy="12" r="3"></circle>
-      <line x1="2" y1="12" x2="7" y2="12"></line>
-      <line x1="17" y1="12" x2="22" y2="12"></line>
-    </svg>
-    <span>Commit</span>
+<div class="border-t border-[#30363d] bg-[#1c2128] px-1.5 pt-2 pb-2 flex flex-col gap-2">
+  <div class="flex items-center justify-between px-1 text-[13px] text-[#d0d7de] font-semibold">
+    <span class="inline-flex items-center gap-1.5">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M3.5 12h4.5M16 12h4.5"></path>
+      </svg>
+      Commit
+    </span>
+    <span class="inline-flex items-center gap-2 text-[#8b949e]">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v12"></path>
+        <path d="m7 10 5 5 5-5"></path>
+        <rect x="4" y="18" width="16" height="3" rx="1"></rect>
+      </svg>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 7a5 5 0 0 1 9.7-1.8A4 4 0 1 1 17 19H7a4 4 0 1 1 0-8"></path>
+        <path d="m12 12 0 8"></path>
+        <path d="m9 16 3-4 3 4"></path>
+      </svg>
+    </span>
   </div>
 
-  <div class="rounded-md border border-[#2d3e57] bg-[#101722] p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-    <div class="flex items-center gap-2">
+  <label class="inline-flex items-center gap-2 px-1 text-[12px] text-[#c9d1d9] select-none cursor-not-allowed">
+    <input
+      type="checkbox"
+      bind:checked={amendPrevious}
+      disabled={true}
+      class="h-3.5 w-3.5 rounded-[2px] border border-[#484f58] bg-[#161b22] text-[#58a6ff] focus:ring-0 focus:ring-offset-0 cursor-not-allowed"
+    />
+    <span>Amend previous commit</span>
+  </label>
+
+  <div class="rounded border border-[#30363d] bg-[#161b22] overflow-hidden">
+    <div class="flex items-center gap-2 px-2.5 py-2">
       <input
         value={summary}
         oninput={handleSummaryInput}
         placeholder="Commit summary"
-        class="flex-1 bg-transparent text-[13px] text-[#d7e3f3] placeholder-[#7f93ac] outline-none"
+        class="flex-1 bg-transparent text-[13px] leading-none text-[#c9d1d9] placeholder-[#8b949e] outline-none"
         disabled={busy || generating}
       />
-      <span class="text-xs {summaryTooLong ? 'text-[#f85149]' : 'text-[#8f79d9]'}">{summary.length}</span>
+      <span class="text-[13px] leading-none {summaryTooLong ? 'text-[#f85149]' : 'text-[#8b949e]'}">{summary.length}</span>
       <button
         type="button"
-        class="h-7 w-7 rounded-md border border-[#6340c1] bg-[linear-gradient(135deg,#301f4d,#233a5c)] text-[#d8c9ff] hover:text-white hover:bg-[linear-gradient(135deg,#442971,#2f4d79)] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors"
+        class="h-10 w-10 rounded-sm border border-[#5b2ea4] bg-[#261444] text-[#c9b3ff] hover:bg-[#2f1755] hover:text-[#e6ddff] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors focus:outline-none"
         disabled={!canGenerate}
         onclick={handleGenerate}
         title="Generate commit message"
         aria-label="Generate commit message"
       >
         {#if generating}
-          <svg class="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
           </svg>
         {:else}
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3z"></path>
             <path d="M19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14z"></path>
           </svg>
@@ -123,26 +154,26 @@
     <textarea
       value={description}
       oninput={handleDescriptionInput}
-      class="mt-2 w-full bg-transparent text-[12px] leading-relaxed text-[#c7d6ea] placeholder-[#788ca7] outline-none resize-none h-10"
+      class="h-12 w-full px-2.5 py-2 bg-transparent text-[12px] leading-relaxed text-[#c9d1d9] placeholder-[#8b949e] outline-none resize-none"
       placeholder="Description"
       disabled={busy || generating}
     ></textarea>
   </div>
 
-  <div class="flex items-center justify-between gap-2">
+  <div class="flex items-center gap-2">
     <button
       type="button"
-      class="inline-flex items-center gap-1.5 text-xs text-[#96abc7] hover:text-[#d1e1f6] transition-colors"
+      class="inline-flex items-center gap-1.5 h-7 px-1 text-[12px] text-[#8b949e] hover:text-[#c9d1d9] transition-colors focus:outline-none"
       onclick={() => (showOptions = !showOptions)}
       aria-expanded={showOptions}
     >
       <svg
-        width="11"
-        height="11"
+        width="14"
+        height="14"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
-        stroke-width="2"
+        stroke-width="1.8"
         class="transition-transform {showOptions ? 'rotate-90' : ''}"
       >
         <path d="M9 6l6 6-6 6"></path>
@@ -152,65 +183,50 @@
 
     <button
       type="button"
-      class="h-7 px-2.5 rounded border border-[#6e41db] bg-[linear-gradient(135deg,#3d1f7b,#4f30aa)] text-[#ede4ff] text-[11px] font-semibold hover:bg-[linear-gradient(135deg,#4b2394,#613ec5)] disabled:opacity-45 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1.5"
+      class="ml-auto h-7 px-3 rounded-sm border border-[#5b2ea4] bg-[#261444] text-[#d0c0ff] text-[12px] font-semibold hover:bg-[#2f1755] disabled:opacity-45 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1.5 focus:outline-none"
       disabled={!canGenerate}
       onclick={handleGenerate}
     >
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3z"></path>
       </svg>
-      Compose with AI
+      Compose commits with AI
     </button>
   </div>
 
   {#if showOptions}
-    <div class="rounded-md border border-[#2a3f5f] bg-[#111b2a] p-2 flex flex-col gap-1.5">
-      <label class="inline-flex items-center gap-2 text-xs text-[#a8c2e2] cursor-pointer select-none">
+    <div class="rounded border border-[#30363d] bg-[#161b22] px-2 py-1.5">
+      <label class="inline-flex items-center gap-2 text-xs text-[#c9d1d9] cursor-pointer select-none">
         <input
           type="checkbox"
           bind:checked={pushAfterCommit}
           disabled={busy || generating}
-          class="rounded border-[#30363d] bg-[#0d1117] text-[#238636] focus:ring-0 focus:ring-offset-0"
+          class="h-3.5 w-3.5 rounded-[2px] border border-[#484f58] bg-[#0d1117] text-[#58a6ff] focus:ring-0 focus:ring-offset-0"
         />
         <span>Commit & Push</span>
-      </label>
-      <label class="inline-flex items-center gap-2 text-xs text-[#6f81a0] cursor-not-allowed select-none">
-        <input
-          type="checkbox"
-          bind:checked={amendPrevious}
-          disabled={true}
-          class="rounded border-[#30363d] bg-[#0d1117] text-[#238636] focus:ring-0 focus:ring-offset-0"
-        />
-        <span>Amend previous commit (soon)</span>
       </label>
     </div>
   {/if}
 
-  <div class="pt-1 px-1 pb-1">
-    <button
-      class="w-full h-8 rounded-sm bg-[linear-gradient(135deg,#1f754d,#229b61)] text-[#e8fff3] text-xs font-semibold hover:bg-[linear-gradient(135deg,#24865a,#2abd76)] disabled:opacity-45 disabled:cursor-not-allowed transition-colors border border-[#38b774] shadow-sm flex items-center justify-center gap-2"
-      disabled={!canCommit}
-      onclick={handleCommit}
-    >
-      {#if busy}
-        <span class="flex items-center gap-1.5">
-          <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-          </svg>
-          Working...
-        </span>
-      {:else}
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"></circle>
-          <line x1="2" y1="12" x2="7" y2="12"></line>
-          <line x1="17" y1="12" x2="22" y2="12"></line>
+  <button
+    class={commitButtonClass}
+    disabled={!canCommit}
+    onclick={handleCommit}
+  >
+    {#if busy}
+      <span class="flex items-center gap-1.5">
+        <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
         </svg>
-        {#if stagedCount === 0}
-          Stage Changes to Commit
-        {:else}
-          Commit Changes
-        {/if}
-      {/if}
-    </button>
-  </div>
+        Working...
+      </span>
+    {:else}
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <circle cx="12" cy="12" r="3"></circle>
+        <line x1="2" y1="12" x2="7" y2="12"></line>
+        <line x1="17" y1="12" x2="22" y2="12"></line>
+      </svg>
+      {commitButtonLabel}
+    {/if}
+  </button>
 </div>
