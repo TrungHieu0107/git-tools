@@ -1169,8 +1169,9 @@
                                                     <button
                                                         type="button"
                                                         class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/80 cursor-pointer hover:brightness-110 {getRefBadgeClass(badge)}"
-                                                        title={`${badge.text} (click to checkout)`}
-                                                        onclick={(e) => handleBranchBadgeClick(e, badge)}
+                                                        title={`${badge.text} (double-click to checkout)`}
+                                                        onclick={(e) => e.stopPropagation()}
+                                                        ondblclick={(e) => handleBranchBadgeClick(e, badge)}
                                                     >
                                                         {badge.text}
                                                     </button>
@@ -1352,7 +1353,7 @@
   .branch-dropdown {
     position: absolute;
     left: 0;
-    top: calc(100% + 4px);
+    top: 100%;
     z-index: 40;
     min-width: 160px;
     max-width: 260px;
@@ -1363,14 +1364,12 @@
     box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
     opacity: 0;
     pointer-events: none;
-    transform: translateY(-4px);
-    transition: opacity 120ms ease, transform 120ms ease;
+    transition: opacity 120ms ease;
   }
 
   .branch-cell:hover .branch-dropdown {
     opacity: 1;
     pointer-events: auto;
-    transform: translateY(0);
   }
 
   .branch-dropdown-item + .branch-dropdown-item {
