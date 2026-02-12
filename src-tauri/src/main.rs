@@ -69,6 +69,7 @@ fn main() {
             commands::cmd_get_file_base_content,
             commands::cmd_get_file_modified_content,
             commands::cmd_git_add,
+            commands::cmd_git_stage_line,
             commands::cmd_git_unstage,
             commands::cmd_git_discard_changes,
             commands::cmd_git_stash_file,

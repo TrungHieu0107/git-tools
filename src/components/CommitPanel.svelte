@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { GitService, type FileStatus } from "../lib/GitService";
   import { toast } from "../lib/toast.svelte";
-  import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
+  import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk, type DiffStageLineTarget } from "../lib/diff";
   import { confirm } from "../lib/confirmation.svelte";
 
   import CommitFileList from "./commit/CommitFileList.svelte";
@@ -137,6 +137,14 @@
       try {
           await GitService.stageFile(file.path, repoPath);
           await loadStatus();
+      } catch (e) { /* toast handled in service */ }
+  }
+
+  async function handleStageLine(line: DiffStageLineTarget) {
+      if (!repoPath || !selectedFile || selectedFile.staged) return;
+      try {
+          await GitService.stageLine(selectedFile.path, line, repoPath);
+          await loadStatus(true);
       } catch (e) { /* toast handled in service */ }
   }
 
@@ -390,6 +398,13 @@
       // Force refresh of diff as well
       loadStatus(true);
   }
+
+  let canStageSelectedLine = $derived(
+      !!selectedFile &&
+      !selectedFile.staged &&
+      selectedFile.status !== "??" &&
+      !selectedFile.path.includes(" -> ")
+  );
 </script>
 
 <div class="flex h-full w-full bg-[#0d1117] overflow-hidden text-[#c9d1d9]">
@@ -507,6 +522,8 @@
                  {isTooLarge}
                  {selectedEncoding}
                  onEncodingChange={handleEncodingChange}
+                 canStageLine={canStageSelectedLine}
+                 onStageLine={handleStageLine}
              >
                 {#snippet header(toolbarProps)}
                     <!-- File header bar -->

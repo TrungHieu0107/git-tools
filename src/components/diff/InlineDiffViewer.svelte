@@ -4,21 +4,43 @@
     type DiffResult,
     type DiffHunk,
     type InlineDiffLine,
+    type DiffStageLineTarget,
     mapBackendHunksToInline,
     escapeHtml,
   } from "../../lib/diff";
   import type { DiffHunk as BackendDiffHunk } from "../../lib/types";
+  import { toast } from "../../lib/toast.svelte";
+
+  type LineContextMenuState = {
+    visible: boolean;
+    x: number;
+    y: number;
+    copyText: string;
+    stageTarget: DiffStageLineTarget | null;
+  };
+
+  const CONTEXT_MENU_WIDTH = 190;
+  const CONTEXT_MENU_ITEM_HEIGHT = 32;
+  const CONTEXT_MENU_PADDING_Y = 4;
 
   interface Props {
     diffResult?: DiffResult | null;
     hunks?: DiffHunk[];
     commitHunks?: BackendDiffHunk[];
+    canStageLine?: boolean;
+    onStageLine?: (line: DiffStageLineTarget) => void | Promise<void>;
   }
-  let { diffResult, hunks = [], commitHunks = [] }: Props = $props();
+  let {
+    diffResult,
+    hunks = [],
+    commitHunks = [],
+    canStageLine = false,
+    onStageLine,
+  }: Props = $props();
 
   let inlineLines = $derived.by<InlineDiffLine[]>(() => {
     if (commitHunks.length > 0) {
-        return mapBackendHunksToInline(commitHunks); // Use mapper from diff.ts
+      return mapBackendHunksToInline(commitHunks);
     }
     if (diffResult) {
       return toInlineView(diffResult);
@@ -26,31 +48,31 @@
     return [];
   });
 
-  // Build a set of inline-line indices that are the first line of each hunk,
-  // so we can place data-hunk-id attributes for scrollIntoView targeting.
-  // We map from DiffResult sourceIndex ranges (hunk.startIndex..endIndex)
-  // to the first inline line whose sourceIndex falls in that range.
+  let lineContextMenu = $state<LineContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    copyText: "",
+    stageTarget: null,
+  });
+
   let hunkFirstLineMap = $derived.by<Map<string | number, string>>(() => {
-    const map = new Map<string | number, string>(); // inline line index → hunk id
-    
-    // Logic for backend hunks (simpler, just count lines)
+    const map = new Map<string | number, string>();
+
     if (commitHunks.length > 0) {
-        let currentLineIdx = 0;
-        for (const hunk of commitHunks) {
-            map.set(currentLineIdx, hunk.id);
-            // header line + lines
-            currentLineIdx += 1 + hunk.lines.length;
-        }
-        return map;
+      let currentLineIdx = 0;
+      for (const hunk of commitHunks) {
+        map.set(currentLineIdx, hunk.id);
+        currentLineIdx += 1 + hunk.lines.length;
+      }
+      return map;
     }
 
-    // Logic for old client-side hunks
     if (hunks.length === 0) return map;
 
     let hunkIdx = 0;
     for (let i = 0; i < inlineLines.length && hunkIdx < hunks.length; i++) {
       const hunk = hunks[hunkIdx];
-      // Check if this line belongs to the hunk
       if (
         inlineLines[i].sourceIndex >= hunk.startIndex &&
         inlineLines[i].sourceIndex < hunk.endIndex
@@ -63,21 +85,21 @@
   });
 
   export function scrollToHunk(index: number) {
-     if (commitHunks.length > 0) {
-         if (commitHunks[index]) {
-             scrollToId(commitHunks[index].id);
-         }
-         return;
-     }
-     
-     if (hunks && hunks[index]) {
-         scrollToId(hunks[index].id);
-     }
+    if (commitHunks.length > 0) {
+      if (commitHunks[index]) {
+        scrollToId(commitHunks[index].id);
+      }
+      return;
+    }
+
+    if (hunks && hunks[index]) {
+      scrollToId(hunks[index].id);
+    }
   }
 
   function scrollToId(id: string) {
-      const el = document.querySelector(`[data-hunk-id="${id}"]`);
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const el = document.querySelector(`[data-hunk-id="${id}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function getRowClass(line: InlineDiffLine): string {
@@ -104,7 +126,122 @@
     }
   }
 
+  function closeLineContextMenu(): void {
+    lineContextMenu = {
+      visible: false,
+      x: 0,
+      y: 0,
+      copyText: "",
+      stageTarget: null,
+    };
+  }
+
+  function getContextMenuHeight(): number {
+    const actionCount = canStageLine ? 2 : 1;
+    return actionCount * CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_PADDING_Y * 2;
+  }
+
+  function getContextMenuPosition(clientX: number, clientY: number): { x: number; y: number } {
+    const menuHeight = getContextMenuHeight();
+    const maxX = Math.max(8, window.innerWidth - CONTEXT_MENU_WIDTH - 8);
+    const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
+    return {
+      x: Math.min(Math.max(8, clientX), maxX),
+      y: Math.min(Math.max(8, clientY), maxY),
+    };
+  }
+
+  function buildStageTarget(line: InlineDiffLine): DiffStageLineTarget | null {
+    if (line.type !== "added" && line.type !== "removed") return null;
+
+    if (diffResult) {
+      const left = diffResult.left[line.sourceIndex];
+      const right = diffResult.right[line.sourceIndex];
+      if (
+        left?.type === "modified" &&
+        right?.type === "modified" &&
+        left.lineNumber !== null &&
+        right.lineNumber !== null
+      ) {
+        return {
+          oldLineNumber: left.lineNumber,
+          newLineNumber: right.lineNumber,
+        };
+      }
+    }
+
+    if (line.type === "removed" && line.oldLineNumber !== null) {
+      return {
+        oldLineNumber: line.oldLineNumber,
+        newLineNumber: null,
+      };
+    }
+
+    if (line.type === "added" && line.newLineNumber !== null) {
+      return {
+        oldLineNumber: null,
+        newLineNumber: line.newLineNumber,
+      };
+    }
+
+    return null;
+  }
+
+  function handleLineContextMenu(event: MouseEvent, line: InlineDiffLine): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const pos = getContextMenuPosition(event.clientX, event.clientY);
+    lineContextMenu = {
+      visible: true,
+      x: pos.x,
+      y: pos.y,
+      copyText: line.content,
+      stageTarget: buildStageTarget(line),
+    };
+  }
+
+  function handleWindowMouseDown(event: MouseEvent): void {
+    if (!lineContextMenu.visible) return;
+    const target = event.target as Element | null;
+    if (target?.closest(".diff-line-context-menu")) return;
+    closeLineContextMenu();
+  }
+
+  function handleWindowKeydown(event: KeyboardEvent): void {
+    if (!lineContextMenu.visible) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeLineContextMenu();
+    }
+  }
+
+  async function handleCopyLine(): Promise<void> {
+    const text = lineContextMenu.copyText;
+    closeLineContextMenu();
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied line");
+    } catch (e) {
+      console.error("Copy line failed", e);
+      toast.error("Copy line failed");
+    }
+  }
+
+  async function handleStageThisLine(): Promise<void> {
+    if (!canStageLine || !onStageLine || !lineContextMenu.stageTarget) return;
+    const target = lineContextMenu.stageTarget;
+    closeLineContextMenu();
+
+    try {
+      await onStageLine(target);
+    } catch (e) {
+      console.error("Stage line failed", e);
+    }
+  }
 </script>
+
+<svelte:window onmousedown={handleWindowMouseDown} onkeydown={handleWindowKeydown} />
 
 <div class="flex-1 overflow-hidden bg-[#0d1117] h-full relative flex flex-col">
   <div
@@ -113,7 +250,6 @@
     <div class="px-3 py-1 bg-[#161b22]">Unified Diff</div>
   </div>
 
-  <!-- Inline diff content -->
   <div class="flex-1 overflow-auto custom-scrollbar">
     <table class="w-full text-xs font-mono border-collapse">
       <tbody>
@@ -121,20 +257,18 @@
           <tr
             class={getRowClass(line)}
             data-hunk-id={hunkFirstLineMap.get(i) ?? undefined}
+            oncontextmenu={(event) => handleLineContextMenu(event, line)}
           >
-            <!-- Old line number -->
             <td
               class="w-10 text-right pr-1 select-none text-[#484f58] border-r border-[#30363d]/50 align-top"
             >
               {line.oldLineNumber ?? ""}
             </td>
-            <!-- New line number -->
             <td
               class="w-10 text-right pr-1 select-none text-[#484f58] border-r border-[#30363d]/50 align-top"
             >
               {line.newLineNumber ?? ""}
             </td>
-            <!-- +/- prefix gutter -->
             <td
               class="w-4 text-center select-none align-top {line.type ===
               'removed'
@@ -145,7 +279,6 @@
             >
               {getGutterPrefix(line)}
             </td>
-            <!-- Content -->
             <td class="pl-2 whitespace-pre align-top"
               >{@html escapeHtml(line.content)}</td
             >
@@ -155,6 +288,34 @@
     </table>
   </div>
 </div>
+
+{#if lineContextMenu.visible}
+  <div
+    class="diff-line-context-menu fixed z-[130] min-w-[180px] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl overflow-hidden"
+    style={`left: ${lineContextMenu.x}px; top: ${lineContextMenu.y}px;`}
+    role="menu"
+  >
+    <button
+      type="button"
+      class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+      onclick={() => void handleCopyLine()}
+      role="menuitem"
+    >
+      Copy this line
+    </button>
+    {#if canStageLine}
+      <button
+        type="button"
+        class="w-full text-left px-3 py-2 text-xs transition-colors disabled:cursor-not-allowed disabled:text-[#6e7681] disabled:bg-[#161b22] {lineContextMenu.stageTarget ? 'text-[#58a6ff] hover:bg-[#1f2f45] hover:text-[#79c0ff]' : ''}"
+        onclick={() => void handleStageThisLine()}
+        disabled={!lineContextMenu.stageTarget}
+        role="menuitem"
+      >
+        Stage this line
+      </button>
+    {/if}
+  </div>
+{/if}
 
 <style>
   .custom-scrollbar::-webkit-scrollbar {

@@ -31,6 +31,11 @@ export interface InlineDiffLine {
   sourceIndex: number; // index into DiffResult arrays — maps to hunk ranges
 }
 
+export interface DiffStageLineTarget {
+  oldLineNumber: number | null;
+  newLineNumber: number | null;
+}
+
 export function escapeHtml(unsafe: string): string {
   return unsafe
     .replace(/&/g, "&amp;")
@@ -475,13 +480,6 @@ export function parseGitDiff(diffOutput: string): ParsedDiff {
                 id: `hunk-${hunks.length}`,
                 startIndex: hunkStartIndex,
                 endIndex: 0, // Will set when hunk closes or finishes
-                lines: [], // Populated as we go? Or derived later? 
-                           // We can populate 'lines' (paired) as we parse, but 'parseGitDiff'
-                           // fills 'left' and 'right' separately. 
-                           // For Hunk view, we want 'lines' which are {left, right} pairs.
-                           // Let's populate it implicitly or just reference indices. 
-                           // Actually, DiffHunk interface has `lines: { left: DiffLine; right: DiffLine }[]`.
-                           // We should fill this to avoid re-parsing for Hunk View.
                 lines: []
             };
             continue;

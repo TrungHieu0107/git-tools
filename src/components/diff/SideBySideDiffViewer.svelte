@@ -1,39 +1,77 @@
 <script lang="ts">
-  import { type DiffLine, type DiffResult, type DiffHunk, mapBackendHunksToSideBySide, escapeHtml } from "../../lib/diff";
+  import {
+    type DiffLine,
+    type DiffResult,
+    type DiffHunk,
+    type DiffStageLineTarget,
+    mapBackendHunksToSideBySide,
+    escapeHtml,
+  } from "../../lib/diff";
   import type { DiffHunk as BackendDiffHunk } from "../../lib/types";
+  import { toast } from "../../lib/toast.svelte";
   import ResizablePanes from "../resize/ResizablePanes.svelte";
+
+  type LineContextMenuState = {
+    visible: boolean;
+    x: number;
+    y: number;
+    copyText: string;
+    stageTarget: DiffStageLineTarget | null;
+  };
+
+  const CONTEXT_MENU_WIDTH = 190;
+  const CONTEXT_MENU_ITEM_HEIGHT = 32;
+  const CONTEXT_MENU_PADDING_Y = 4;
 
   interface Props {
     diffResult: DiffResult | null;
     isTooLarge?: boolean;
-    hunks?: DiffHunk[] | null; // When non-null, render hunk view instead of full diff
-    commitHunks?: BackendDiffHunk[]; // New backend hunks
-    autoHeight?: boolean; // New prop for global viewer
-    navigationHunks?: DiffHunk[]; // Optional hunks for placing data-hunk-id markers in full side-by-side view
+    hunks?: DiffHunk[] | null;
+    commitHunks?: BackendDiffHunk[];
+    autoHeight?: boolean;
+    navigationHunks?: DiffHunk[];
+    canStageLine?: boolean;
+    onStageLine?: (line: DiffStageLineTarget) => void | Promise<void>;
   }
-  let { diffResult, isTooLarge = false, hunks = null, commitHunks = [], autoHeight = false, navigationHunks }: Props = $props();
+
+  let {
+    diffResult,
+    isTooLarge = false,
+    hunks = null,
+    commitHunks = [],
+    autoHeight = false,
+    navigationHunks,
+    canStageLine = false,
+    onStageLine,
+  }: Props = $props();
 
   let effectiveHunks = $derived.by<DiffHunk[] | null>(() => {
-      if (commitHunks.length > 0) {
-          return mapBackendHunksToSideBySide(commitHunks);
-      }
-      return hunks;
+    if (commitHunks.length > 0) {
+      return mapBackendHunksToSideBySide(commitHunks);
+    }
+    return hunks;
   });
 
-  // Lookup map: diffResult line index → hunk ID for placing data-hunk-id in full side-by-side view
   let hunkStartMap = $derived.by<Map<number, string>>(() => {
-      const map = new Map<number, string>();
-      if (!navigationHunks) return map;
-      for (const hunk of navigationHunks) {
-          map.set(hunk.startIndex, hunk.id);
-      }
-      return map;
+    const map = new Map<number, string>();
+    if (!navigationHunks) return map;
+    for (const hunk of navigationHunks) {
+      map.set(hunk.startIndex, hunk.id);
+    }
+    return map;
   });
 
-  // ── Synchronized scrolling ──────────────────────────────────────
   let leftPanel: HTMLDivElement | undefined = $state();
   let rightPanel: HTMLDivElement | undefined = $state();
   let syncing = false;
+
+  let lineContextMenu = $state<LineContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    copyText: "",
+    stageTarget: null,
+  });
 
   function handleScroll(source: "left" | "right") {
     if (syncing) return;
@@ -49,29 +87,130 @@
     });
   }
 
-  // ── Row styling by line type and panel side ─────────────────────
   function getRowClass(line: DiffLine, side: "left" | "right"): string {
     switch (line.type) {
       case "equal":
         return "text-[#c9d1d9]";
       case "removed":
-        return side === "left"
-          ? "bg-[#da3633]/15 text-[#f85149]"
-          : "bg-[#161b22]";
+        return side === "left" ? "bg-[#da3633]/15 text-[#f85149]" : "bg-[#161b22]";
       case "added":
-        return side === "right"
-          ? "bg-[#2ea043]/15 text-[#3fb950]"
-          : "bg-[#161b22]";
+        return side === "right" ? "bg-[#2ea043]/15 text-[#3fb950]" : "bg-[#161b22]";
       case "modified":
-        return side === "left"
-          ? "bg-[#da3633]/10 text-[#f0883e]"
-          : "bg-[#2ea043]/10 text-[#79c0ff]";
+        return side === "left" ? "bg-[#da3633]/10 text-[#f0883e]" : "bg-[#2ea043]/10 text-[#79c0ff]";
       default:
         return "text-[#c9d1d9]";
     }
   }
 
+  function closeLineContextMenu(): void {
+    lineContextMenu = {
+      visible: false,
+      x: 0,
+      y: 0,
+      copyText: "",
+      stageTarget: null,
+    };
+  }
+
+  function getContextMenuHeight(): number {
+    const actionCount = canStageLine ? 2 : 1;
+    return actionCount * CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_PADDING_Y * 2;
+  }
+
+  function getContextMenuPosition(clientX: number, clientY: number): { x: number; y: number } {
+    const menuHeight = getContextMenuHeight();
+    const maxX = Math.max(8, window.innerWidth - CONTEXT_MENU_WIDTH - 8);
+    const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
+    return {
+      x: Math.min(Math.max(8, clientX), maxX),
+      y: Math.min(Math.max(8, clientY), maxY),
+    };
+  }
+
+  function buildStageTarget(
+    line: DiffLine,
+    counterpart: DiffLine | null,
+    side: "left" | "right"
+  ): DiffStageLineTarget | null {
+    if (line.type === "modified" && counterpart?.type === "modified") {
+      if (line.lineNumber === null || counterpart.lineNumber === null) return null;
+      if (side === "left") {
+        return { oldLineNumber: line.lineNumber, newLineNumber: counterpart.lineNumber };
+      }
+      return { oldLineNumber: counterpart.lineNumber, newLineNumber: line.lineNumber };
+    }
+
+    if (side === "left" && line.type === "removed" && line.lineNumber !== null) {
+      return { oldLineNumber: line.lineNumber, newLineNumber: null };
+    }
+
+    if (side === "right" && line.type === "added" && line.lineNumber !== null) {
+      return { oldLineNumber: null, newLineNumber: line.lineNumber };
+    }
+
+    return null;
+  }
+
+  function handleLineContextMenu(
+    event: MouseEvent,
+    line: DiffLine,
+    counterpart: DiffLine | null,
+    side: "left" | "right"
+  ): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const pos = getContextMenuPosition(event.clientX, event.clientY);
+    lineContextMenu = {
+      visible: true,
+      x: pos.x,
+      y: pos.y,
+      copyText: line.content,
+      stageTarget: buildStageTarget(line, counterpart, side),
+    };
+  }
+
+  function handleWindowMouseDown(event: MouseEvent): void {
+    if (!lineContextMenu.visible) return;
+    const target = event.target as Element | null;
+    if (target?.closest(".diff-line-context-menu")) return;
+    closeLineContextMenu();
+  }
+
+  function handleWindowKeydown(event: KeyboardEvent): void {
+    if (!lineContextMenu.visible) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeLineContextMenu();
+    }
+  }
+
+  async function handleCopyLine(): Promise<void> {
+    const text = lineContextMenu.copyText;
+    closeLineContextMenu();
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied line");
+    } catch (e) {
+      console.error("Copy line failed", e);
+      toast.error("Copy line failed");
+    }
+  }
+
+  async function handleStageThisLine(): Promise<void> {
+    if (!canStageLine || !onStageLine || !lineContextMenu.stageTarget) return;
+    const target = lineContextMenu.stageTarget;
+    closeLineContextMenu();
+
+    try {
+      await onStageLine(target);
+    } catch (e) {
+      console.error("Stage line failed", e);
+    }
+  }
 </script>
+
+<svelte:window onmousedown={handleWindowMouseDown} onkeydown={handleWindowKeydown} />
 
 <div class="flex-1 overflow-hidden bg-[#0d1117] relative flex flex-col" class:h-full={!autoHeight} class:h-auto={autoHeight} class:overflow-visible={autoHeight}>
   {#if (!diffResult && !effectiveHunks && !isTooLarge) || (effectiveHunks && effectiveHunks.length === 0 && !diffResult)}
@@ -87,7 +226,6 @@
       File too large for side-by-side diff view
     </div>
   {:else if diffResult || effectiveHunks}
-    <!-- Panel headers -->
     <div class="flex shrink-0 border-b border-[#30363d] text-[10px] uppercase tracking-wider text-[#8b949e] font-semibold">
       <div class="flex-1 px-3 py-1 bg-[#161b22] border-r border-[#30363d]">
         Base (HEAD)
@@ -95,10 +233,8 @@
       <div class="flex-1 px-3 py-1 bg-[#161b22]">Modified</div>
     </div>
     {#if effectiveHunks && effectiveHunks.length > 0}
-      <!-- ── HUNK VIEW ─────────────────────────────────────────── -->
       <ResizablePanes initialLeftPercent={50} minLeftPercent={25} maxLeftPercent={75}>
         {#snippet leftContent()}
-          <!-- Left panel (base) -->
           <div
             class="h-full overflow-auto custom-scrollbar border-r border-[#30363d]"
             bind:this={leftPanel}
@@ -123,6 +259,7 @@
                     <tr
                       class={getRowClass(pair.left, "left")}
                       data-hunk-id={lineIdx === 0 ? hunk.id : undefined}
+                      oncontextmenu={(event) => handleLineContextMenu(event, pair.left, pair.right, "left")}
                     >
                       <td class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top">
                         {pair.left.lineNumber ?? ""}
@@ -137,7 +274,6 @@
         {/snippet}
 
         {#snippet rightContent()}
-          <!-- Right panel (modified) -->
           <div
             class="h-full overflow-auto custom-scrollbar"
             bind:this={rightPanel}
@@ -162,6 +298,7 @@
                     <tr
                       class={getRowClass(pair.right, "right")}
                       data-hunk-id={lineIdx === 0 ? hunk.id : undefined}
+                      oncontextmenu={(event) => handleLineContextMenu(event, pair.right, pair.left, "right")}
                     >
                       <td class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top">
                         {pair.right.lineNumber ?? ""}
@@ -176,10 +313,8 @@
         {/snippet}
       </ResizablePanes>
     {:else if diffResult}
-      <!-- ── FULL SIDE-BY-SIDE VIEW ────────────────────────────── -->
       <ResizablePanes initialLeftPercent={50} minLeftPercent={25} maxLeftPercent={75}>
         {#snippet leftContent()}
-          <!-- Left panel (base version) -->
           <div
             class="h-full overflow-auto custom-scrollbar border-r border-[#30363d]"
             bind:this={leftPanel}
@@ -188,7 +323,11 @@
             <table class="w-full text-xs font-mono border-collapse">
               <tbody>
                 {#each diffResult.left as line, i}
-                  <tr class={getRowClass(line, "left")} data-hunk-id={hunkStartMap.get(i) ?? undefined}>
+                  <tr
+                    class={getRowClass(line, "left")}
+                    data-hunk-id={hunkStartMap.get(i) ?? undefined}
+                    oncontextmenu={(event) => handleLineContextMenu(event, line, diffResult.right[i] ?? null, "left")}
+                  >
                     <td
                       class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top"
                     >
@@ -205,7 +344,6 @@
         {/snippet}
 
         {#snippet rightContent()}
-          <!-- Right panel (modified version) -->
           <div
             class="h-full overflow-auto custom-scrollbar"
             bind:this={rightPanel}
@@ -214,7 +352,11 @@
             <table class="w-full text-xs font-mono border-collapse">
               <tbody>
                 {#each diffResult.right as line, i}
-                  <tr class={getRowClass(line, "right")} data-hunk-id={hunkStartMap.get(i) ?? undefined}>
+                  <tr
+                    class={getRowClass(line, "right")}
+                    data-hunk-id={hunkStartMap.get(i) ?? undefined}
+                    oncontextmenu={(event) => handleLineContextMenu(event, line, diffResult.left[i] ?? null, "right")}
+                  >
                     <td
                       class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top"
                     >
@@ -233,6 +375,34 @@
     {/if}
   {/if}
 </div>
+
+{#if lineContextMenu.visible}
+  <div
+    class="diff-line-context-menu fixed z-[130] min-w-[180px] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl overflow-hidden"
+    style={`left: ${lineContextMenu.x}px; top: ${lineContextMenu.y}px;`}
+    role="menu"
+  >
+    <button
+      type="button"
+      class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+      onclick={() => void handleCopyLine()}
+      role="menuitem"
+    >
+      Copy this line
+    </button>
+    {#if canStageLine}
+      <button
+        type="button"
+        class="w-full text-left px-3 py-2 text-xs transition-colors disabled:cursor-not-allowed disabled:text-[#6e7681] disabled:bg-[#161b22] {lineContextMenu.stageTarget ? 'text-[#58a6ff] hover:bg-[#1f2f45] hover:text-[#79c0ff]' : ''}"
+        onclick={() => void handleStageThisLine()}
+        disabled={!lineContextMenu.stageTarget}
+        role="menuitem"
+      >
+        Stage this line
+      </button>
+    {/if}
+  </div>
+{/if}
 
 <style>
   .custom-scrollbar::-webkit-scrollbar {

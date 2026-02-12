@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import type { DiffResult, DiffHunk } from "../../lib/diff";
+  import type { DiffResult, DiffHunk, DiffStageLineTarget } from "../../lib/diff";
   import InlineDiffViewer from "./InlineDiffViewer.svelte";
   import SideBySideDiffViewer from "./SideBySideDiffViewer.svelte";
   import DiffToolbar, { type ViewMode } from "./DiffToolbar.svelte";
@@ -15,6 +15,8 @@
     header?: import("svelte").Snippet<[any]>;
     selectedEncoding?: string;
     onEncodingChange?: (encoding: string) => void;
+    canStageLine?: boolean;
+    onStageLine?: (line: DiffStageLineTarget) => void | Promise<void>;
   }
 
   let {
@@ -25,6 +27,8 @@
     header,
     selectedEncoding,
     onEncodingChange,
+    canStageLine = false,
+    onStageLine,
   }: Props = $props();
 
   // -- State --
@@ -114,6 +118,8 @@
             <InlineDiffViewer
                 {diffResult}
                 {hunks}
+                {canStageLine}
+                {onStageLine}
             />
         {:else}
             <!-- Side-By-Side & Hunk View -->
@@ -122,6 +128,8 @@
                 isTooLarge={isTooLarge}
                 hunks={viewMode === 'hunk' ? hunks : null}
                 navigationHunks={hunks}
+                {canStageLine}
+                {onStageLine}
             />
         {/if}
     {:else if isTooLarge}

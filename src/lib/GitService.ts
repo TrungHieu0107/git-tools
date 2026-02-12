@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "./toast.svelte";
 import type { GitCommandResult } from "./types";
 import { triggerGraphReload } from "./stores/git-events";
+import type { DiffStageLineTarget } from "./diff";
 
 export interface ConflictFile {
   base: string;
@@ -176,6 +177,16 @@ export class GitService {
           toast.success("Unstaged all files");
       } catch (e: any) {
           toast.error(`Unstage all failed: ${e}`);
+          throw e;
+      }
+  }
+
+  static async stageLine(path: string, line: DiffStageLineTarget, repoPath?: string): Promise<void> {
+      try {
+          await invoke("cmd_git_stage_line", { path, line, repoPath });
+          toast.success("Staged selected line");
+      } catch (e: any) {
+          toast.error(`Stage line failed: ${e}`);
           throw e;
       }
   }
