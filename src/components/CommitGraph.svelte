@@ -400,6 +400,101 @@
 
   let currentHeadNode = $derived(nodes.find((node) => isHeadCommit(node)) ?? null);
 
+  function getCurrentBranchFromRefs(refs: string[]): string | null {
+      for (const rawRef of refs) {
+          const ref = rawRef.trim();
+          const match = ref.match(/^HEAD\s*->\s*(.+)$/);
+          if (match?.[1]) return match[1].trim();
+          if (ref === "HEAD") return "HEAD (detached)";
+      }
+      return null;
+  }
+
+  let currentBranchLabel = $derived.by(() => {
+      if (!repoPath) return "No repository";
+      if (currentHeadNode) {
+          const branch = getCurrentBranchFromRefs(currentHeadNode.refs);
+          if (branch) return branch;
+      }
+      if (nodes.length === 0) return "No commits";
+      return "HEAD";
+  });
+
+  let currentBranchName = $derived.by(() => {
+      if (!currentHeadNode) return "";
+      const branch = getCurrentBranchFromRefs(currentHeadNode.refs);
+      if (!branch || branch === "HEAD (detached)") return "";
+      return branch;
+  });
+
+  let toolbarLocalBranches = $state<string[]>([]);
+  let isToolbarBranchesLoading = $state(false);
+  let isToolbarBranchSwitching = $state(false);
+
+  async function loadToolbarBranches() {
+      if (!repoPath) {
+          toolbarLocalBranches = [];
+          return;
+      }
+      isToolbarBranchesLoading = true;
+      try {
+          const localBranches = await GitService.getBranches(false, repoPath);
+          toolbarLocalBranches = [...new Set(localBranches.map((b) => b.trim()).filter(Boolean))];
+      } catch (e) {
+          console.error("Failed to load local branches for toolbar", e);
+          toolbarLocalBranches = [];
+      } finally {
+          isToolbarBranchesLoading = false;
+      }
+  }
+
+  $effect(() => {
+      if (!repoPath) {
+          toolbarLocalBranches = [];
+          return;
+      }
+      currentBranchLabel;
+      void loadToolbarBranches();
+  });
+
+  async function handleToolbarBranchChange(event: Event) {
+      const selectEl = event.currentTarget as HTMLSelectElement | null;
+      const targetBranch = selectEl?.value?.trim() ?? "";
+      if (!repoPath || !targetBranch || isToolbarBranchSwitching || targetBranch === currentBranchName) return;
+
+      const confirmed = await confirm({
+          title: "Confirm Checkout",
+          message: `Switch to branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${targetBranch}</span>?`,
+          isHtmlMessage: true,
+          confirmLabel: "Checkout",
+          cancelLabel: "Cancel"
+      });
+      if (!confirmed) {
+          if (selectEl) {
+              selectEl.value = currentBranchName || "";
+          }
+          return;
+      }
+
+      let switched = false;
+      isToolbarBranchSwitching = true;
+      try {
+          const res = await GitService.switchBranch(targetBranch, repoPath);
+          switched = res.success;
+          if (res.success) {
+              await onGraphReload?.();
+              await loadToolbarBranches();
+          }
+      } catch (e) {
+          console.error("Failed to switch branch from toolbar select", e);
+      } finally {
+          if (!switched && selectEl) {
+              selectEl.value = currentBranchName || "";
+          }
+          isToolbarBranchSwitching = false;
+      }
+  }
+
   function handleCommitRowKeydown(event: KeyboardEvent, node: GraphNode) {
       if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -409,8 +504,6 @@
 
   function getRowCellHighlightClass(nodeHash: string, columnId: string): string {
       if (columnId === "graph") return "";
-      if (selectedCommit?.hash === nodeHash) return "row-info-cell-selected";
-      if (hoveredCommitHash === nodeHash) return "row-info-cell-hovered";
       return "";
   }
 
@@ -530,7 +623,21 @@
           return 50;
       };
 
-      return parsed.sort((a, b) => {
+      // Hide remote tracking refs like origin/main when local main exists on the same commit.
+      const localBranchNames = new Set(
+          parsed
+              .filter((badge) => badge.type === "branch")
+              .map((badge) => badge.text.toLowerCase())
+      );
+
+      const withoutDuplicatedRemotes = parsed.filter((badge) => {
+          if (badge.type !== "remote") return true;
+          const trackingName = badge.text.split("/").slice(1).join("/").trim().toLowerCase();
+          if (!trackingName) return true;
+          return !localBranchNames.has(trackingName);
+      });
+
+      return withoutDuplicatedRemotes.sort((a, b) => {
           const byPriority = priority(b) - priority(a);
           if (byPriority !== 0) return byPriority;
           return a.originalIndex - b.originalIndex;
@@ -548,6 +655,85 @@
           return "bg-purple-900/40 text-purple-300 border-purple-700/50";
       }
       return "bg-yellow-900/40 text-yellow-300 border-yellow-700/50";
+  }
+
+  let isBranchCheckoutLoading = $state(false);
+
+  function canCheckoutFromBadge(badge: RefBadge): boolean {
+      return !badge.isCurrent && (badge.type === "branch" || badge.type === "remote");
+  }
+
+  function getTrackingBranchName(remoteRef: string): string {
+      return remoteRef.split("/").slice(1).join("/").trim();
+  }
+
+  async function handleBranchBadgeClick(event: MouseEvent, badge: RefBadge) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (!repoPath || isBranchCheckoutLoading || !canCheckoutFromBadge(badge)) return;
+
+      isBranchCheckoutLoading = true;
+      try {
+          if (badge.type === "branch") {
+              const confirmed = await confirm({
+                  title: "Confirm Checkout",
+                  message: `Switch to branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${badge.text}</span>?`,
+                  isHtmlMessage: true,
+                  confirmLabel: "Checkout",
+                  cancelLabel: "Cancel"
+              });
+              if (!confirmed) return;
+
+              const res = await GitService.switchBranch(badge.text, repoPath);
+              if (res.success) {
+                  await onGraphReload?.();
+                  await loadToolbarBranches();
+              }
+              return;
+          }
+
+          const localBranch = getTrackingBranchName(badge.text);
+          if (!localBranch) return;
+
+          const localBranches = await GitService.getBranches(false, repoPath);
+          if (localBranches.includes(localBranch)) {
+              const confirmed = await confirm({
+                  title: "Confirm Checkout",
+                  message: `A local branch named <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${localBranch}</span> exists.<br/><br/>Switch to this local branch?`,
+                  isHtmlMessage: true,
+                  confirmLabel: "Checkout",
+                  cancelLabel: "Cancel"
+              });
+              if (!confirmed) return;
+
+              const res = await GitService.switchBranch(localBranch, repoPath);
+              if (res.success) {
+                  await onGraphReload?.();
+                  await loadToolbarBranches();
+              }
+              return;
+          }
+
+          const confirmed = await confirm({
+              title: "Confirm Checkout",
+              message: `Checkout remote branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${badge.text}</span>?<br/><span class="text-xs text-gray-500">A new local tracking branch <span class="font-mono">${localBranch}</span> will be created.</span>`,
+              isHtmlMessage: true,
+              confirmLabel: "Checkout",
+              cancelLabel: "Cancel"
+          });
+          if (!confirmed) return;
+
+          const res = await GitService.checkoutNew(localBranch, badge.text, repoPath);
+          if (res.success) {
+              await onGraphReload?.();
+              await loadToolbarBranches();
+          }
+      } catch (e) {
+          console.error("Failed to checkout from graph branch badge", e);
+      } finally {
+          isBranchCheckoutLoading = false;
+      }
   }
   // -- Git Actions --
   let isFetching = $state(false);
@@ -646,17 +832,41 @@
         {/if}
 
         <!-- Toolbar / Menu -->
-        <div class="{HEADER_BASE} px-2 relative">
-            <button  
-                onclick={() => showMenu = !showMenu}
-                class="text-xs text-[#8b949e] hover:text-[#c9d1d9] px-2 py-1 rounded hover:bg-[#1e293b] flex items-center gap-1 transition-colors"
-            >
-                <span>Columns ▾</span> 
-            </button>
-
-            <!-- Divider -->
-            <div class="w-px h-4 bg-[#1e293b] mx-2"></div>
-
+        <div class="{HEADER_BASE} px-2 relative justify-center">
+            <div class="absolute left-2 top-1/2 -translate-y-1/2 min-w-0 max-w-[44%]">
+                <div class="inline-flex items-center gap-1.5 max-w-full px-2 py-1 rounded border border-[#1e293b] bg-[#0f172a]/80">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <line x1="6" y1="3" x2="6" y2="15"></line>
+                        <circle cx="18" cy="6" r="3"></circle>
+                        <circle cx="6" cy="18" r="3"></circle>
+                        <path d="M18 9a9 9 0 0 1-9 9"></path>
+                    </svg>
+                    <span class="text-[10px] uppercase tracking-wider text-[#8b949e] shrink-0">Current</span>
+                    <div class="relative min-w-[126px] max-w-[240px]">
+                        <select
+                            class="branch-switch-select w-full rounded bg-[#0d1526] border border-[#1e293b] text-xs font-mono text-[#c9d1d9] pl-2 pr-6 py-0.5 focus:outline-none focus:ring-1 focus:ring-[#4a90d9] disabled:opacity-60"
+                            value={currentBranchName}
+                            onchange={handleToolbarBranchChange}
+                            disabled={!repoPath || isToolbarBranchesLoading || isToolbarBranchSwitching || (toolbarLocalBranches.length === 0 && !currentBranchName)}
+                            title={currentBranchLabel}
+                        >
+                            {#if !currentBranchName}
+                                <option value="" disabled>{currentBranchLabel}</option>
+                            {/if}
+                            {#if toolbarLocalBranches.length === 0}
+                                <option value="" disabled>{isToolbarBranchesLoading ? "Loading branches..." : "No branches"}</option>
+                            {:else}
+                                {#each toolbarLocalBranches as branch}
+                                    <option value={branch}>{branch}</option>
+                                {/each}
+                            {/if}
+                        </select>
+                        <svg class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[#8b949e]" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="m6 9 6 6 6-6"></path>
+                        </svg>
+                    </div>
+                </div>
+            </div>
             <!-- Actions -->
             <div class="flex items-center gap-1">
                 <button 
@@ -703,15 +913,28 @@
                 </button>
             </div>
 
+            <div class="absolute right-2 top-1/2 -translate-y-1/2">
+                <button  
+                    onclick={() => showMenu = !showMenu}
+                    class="text-xs text-[#8b949e] hover:text-[#c9d1d9] px-2 py-1 rounded hover:bg-[#1e293b] flex items-center gap-1 transition-colors"
+                >
+                    <span>Columns</span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                </button>
+
+                {#if showMenu}
+                    <div class="absolute top-8 right-0 bg-[#111827] border border-[#1e293b] rounded-md shadow-xl z-50 p-2 w-40 animate-in fade-in zoom-in-95 duration-100">
+                        {#each columns as col}
+                            <label class="flex items-center gap-2 p-1.5 hover:bg-[#1e293b] rounded cursor-pointer text-xs text-[#c9d1d9]">
+                                <input type="checkbox" bind:checked={col.visible} class="rounded border-[#1e293b] bg-[#0f172a] text-[#238636] focus:ring-0">
+                                {col.label}
+                            </label>
+                        {/each}
+                    </div>
+                {/if}
+            </div>
+
             {#if showMenu}
-                <div class="absolute top-8 left-2 bg-[#111827] border border-[#1e293b] rounded-md shadow-xl z-50 p-2 w-40 animate-in fade-in zoom-in-95 duration-100">
-                    {#each columns as col}
-                        <label class="flex items-center gap-2 p-1.5 hover:bg-[#1e293b] rounded cursor-pointer text-xs text-[#c9d1d9]">
-                            <input type="checkbox" bind:checked={col.visible} class="rounded border-[#1e293b] bg-[#0f172a] text-[#238636] focus:ring-0">
-                            {col.label}
-                        </label>
-                    {/each}
-                </div>
                 <!-- Backdrop to close -->
                 <div class="fixed inset-0 z-40" onclick={() => showMenu = false} role="none"></div>
             {/if}
@@ -890,10 +1113,12 @@
                 <div class="absolute top-0 left-0 w-full pt-[8px] z-10">
                 {#each nodes as node (node.hash)}
                     {@const isCurrentHead = currentHeadNode?.hash === node.hash}
+                    {@const isHoveredRow = hoveredCommitHash === node.hash}
+                    {@const isSelectedRow = selectedCommit?.hash === node.hash}
                     <div 
                         class="border-b border-[#1e293b]/20 transition-colors text-xs items-center group cursor-pointer
                                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4a90d9]/70 focus-visible:ring-inset
-                               {isCurrentHead ? 'row-head' : ''}"
+                               {isHoveredRow ? 'row-hover' : ''} {isCurrentHead ? 'row-head' : ''} {isSelectedRow ? 'row-selected' : ''}"
                         style="display: grid; grid-template-columns: {gridTemplate}; height: {ROW_HEIGHT}px;"
                         onclick={() => selectCommit(node)}
                         onmouseenter={(e) => handleRowMouseEnter(e, node)}
@@ -915,12 +1140,23 @@
                             {@const secondaryBadges = branchBadges.slice(1)}
                             <div class="pl-3 pr-2 flex items-center gap-1.5 relative branch-cell graph-row-info-cell {getRowCellHighlightClass(node.hash, col.id)}">
                                 {#if primaryBadge}
-                                    <span
-                                        class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 truncate max-w-[118px] {getRefBadgeClass(primaryBadge)}"
-                                        title={primaryBadge.text}
-                                    >
-                                        {primaryBadge.text}
-                                    </span>
+                                    {#if canCheckoutFromBadge(primaryBadge)}
+                                        <button
+                                            type="button"
+                                            class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 truncate max-w-[118px] bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/80 cursor-pointer hover:brightness-110 {getRefBadgeClass(primaryBadge)}"
+                                            title={`${primaryBadge.text} (click to checkout)`}
+                                            onclick={(e) => handleBranchBadgeClick(e, primaryBadge)}
+                                        >
+                                            {primaryBadge.text}
+                                        </button>
+                                    {:else}
+                                        <span
+                                            class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 truncate max-w-[118px] {getRefBadgeClass(primaryBadge)}"
+                                            title={primaryBadge.text}
+                                        >
+                                            {primaryBadge.text}
+                                        </span>
+                                    {/if}
                                 {/if}
                                 {#if secondaryBadges.length > 0}
                                     <span class="px-1 py-0.5 rounded text-[10px] font-medium border shrink-0 bg-slate-800/70 text-slate-300 border-slate-600/50" title={`${secondaryBadges.length} refs hidden`}>
@@ -929,9 +1165,23 @@
                                     <div class="branch-dropdown">
                                         {#each secondaryBadges as badge}
                                             <div class="branch-dropdown-item">
-                                                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 {getRefBadgeClass(badge)}">
-                                                    {badge.text}
-                                                </span>
+                                                {#if canCheckoutFromBadge(badge)}
+                                                    <button
+                                                        type="button"
+                                                        class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/80 cursor-pointer hover:brightness-110 {getRefBadgeClass(badge)}"
+                                                        title={`${badge.text} (click to checkout)`}
+                                                        onclick={(e) => handleBranchBadgeClick(e, badge)}
+                                                    >
+                                                        {badge.text}
+                                                    </button>
+                                                {:else}
+                                                    <span
+                                                        class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 {getRefBadgeClass(badge)}"
+                                                        title={badge.text}
+                                                    >
+                                                        {badge.text}
+                                                    </span>
+                                                {/if}
                                             </div>
                                         {/each}
                                     </div>
@@ -1061,17 +1311,38 @@
     transition: background-color 120ms ease;
   }
 
-  .row-info-cell-hovered {
-    background: rgba(26, 35, 52, 0.5);
-  }
-
-  .row-info-cell-selected {
-    background: rgba(31, 111, 235, 0.14);
-    box-shadow: inset 2px 0 0 0 #1f6feb;
+  .row-hover {
+    background: rgba(56, 139, 253, 0.1);
   }
 
   .row-head {
-    background: rgba(255, 143, 74, 0.3);
+    background: rgba(255, 143, 74, 0.2);
+  }
+
+  .row-head.row-hover {
+    background: rgba(255, 143, 74, 0.36);
+  }
+
+  .row-selected {
+    background: rgba(31, 111, 235, 0.2);
+  }
+
+  .row-selected.row-hover {
+    background: rgba(31, 111, 235, 0.26);
+  }
+
+  .row-head.row-selected {
+    background: rgba(31, 111, 235, 0.22);
+  }
+
+  .row-head.row-selected.row-hover {
+    background: rgba(31, 111, 235, 0.28);
+  }
+
+  .branch-switch-select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
   }
 
   .branch-cell {
