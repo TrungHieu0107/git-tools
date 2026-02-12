@@ -4,6 +4,7 @@
   import { buildBranchTree, filterBranchTree, getAllFolderPaths, type BranchNode } from "../lib/branch-utils";
   import { confirm } from "../lib/confirmation.svelte";
   import { openCreateBranchDialog } from "../lib/create-branch-dialog.svelte";
+  import BranchContextMenu, { type BranchContextMenuState } from "./common/BranchContextMenu.svelte";
 
   let { repoPath = undefined, isActive = false }: { repoPath?: string; isActive?: boolean } = $props();
 
@@ -48,7 +49,7 @@
 
   // Action State
   let isCheckoutLoading = $state(false);
-  let contextMenu = $state<{ x: number, y: number, node: BranchNode } | null>(null);
+  let contextMenu = $state<BranchContextMenuState | null>(null);
 
   // Close context menu on global click
   function onGlobalClick() {
@@ -161,14 +162,15 @@
 
   function handleContextMenu(e: MouseEvent, node: BranchNode) {
       e.preventDefault();
-      contextMenu = { x: e.clientX, y: e.clientY, node };
+      contextMenu = {
+          x: e.clientX,
+          y: e.clientY,
+          payload: node,
+          disableMerge: node.fullPath === currentBranch
+      };
   }
 
-  async function handleMerge() {
-      if (!contextMenu) return;
-      const { node } = contextMenu;
-      contextMenu = null; // Close menu
-
+  async function handleMerge(node: BranchNode) {
       // Block if same branch
       if (node.fullPath === currentBranch) {
           // Should be disabled in UI, but safe check
@@ -208,6 +210,16 @@
       } finally {
           isCheckoutLoading = false;
       }
+  }
+
+  async function handleContextCheckout(payload: unknown) {
+      const node = payload as BranchNode;
+      await handleBranchClick(node);
+  }
+
+  async function handleContextMerge(payload: unknown) {
+      const node = payload as BranchNode;
+      await handleMerge(node);
   }
 
   async function handleBranchClick(node: BranchNode) {
@@ -322,40 +334,6 @@
                <div class="text-amber-500/80">
                    {@html node.name === 'Remote' ? Icons.Remote : Icons.Folder}
                
-    <!-- Context Menu -->
-    {#if contextMenu}
-      <div 
-          class="fixed inset-0 z-50 bg-transparent" 
-          onclick={onGlobalClick} 
-          oncontextmenu={(e) => { e.preventDefault(); onGlobalClick(); }}
-          role="presentation"
-      ></div>
-
-      <div 
-          class="fixed z-50 bg-[#1f2428] border border-[#30363d] rounded-md shadow-xl py-1 min-w-[160px]"
-          style="top: {contextMenu.y}px; left: {contextMenu.x}px;"
-          role="menu"
-      >
-           <button 
-              class="w-full text-left px-4 py-2 text-xs text-[#c9d1d9] hover:bg-[#1f6feb] hover:text-white flex items-center gap-2"
-              onclick={() => {
-                  if (contextMenu) handleBranchClick(contextMenu.node);
-                  contextMenu = null;
-              }}
-          >
-              <span>Checkout</span>
-          </button>
-
-          <button 
-              class="w-full text-left px-4 py-2 text-xs text-[#c9d1d9] hover:bg-[#1f6feb] hover:text-white flex items-center gap-2
-                     {contextMenu.node.fullPath === currentBranch ? 'opacity-50 cursor-not-allowed' : ''}"
-              disabled={contextMenu.node.fullPath === currentBranch}
-              onclick={handleMerge}
-          >
-              <span>Merge into current</span>
-          </button>
-      </div>
-    {/if}
 </div>
                <span class="font-medium truncate">{node.name}</span>
            </div>
@@ -424,3 +402,10 @@
 
 
 </div>
+
+<BranchContextMenu
+  menu={contextMenu}
+  onClose={onGlobalClick}
+  onCheckout={handleContextCheckout}
+  onMerge={handleContextMerge}
+/>

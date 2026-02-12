@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, State};
@@ -1505,12 +1506,18 @@ pub async fn cmd_get_commit_changed_files(
 ) -> Result<Vec<String>, String> {
     let path = resolve_repo_path(&state, repo_path)?;
 
-    // git diff-tree --no-commit-id --name-only -r <commit_hash>
+    // Include:
+    // - merge commits (-m): list files changed against each parent
+    // - root commit (--root): list files introduced by the initial commit
+    // Then deduplicate to return a clean file list for the UI.
+    // git diff-tree --no-commit-id --name-only -r -m --root <commit_hash>
     let args = vec![
         "diff-tree".to_string(),
         "--no-commit-id".to_string(),
         "--name-only".to_string(),
         "-r".to_string(),
+        "-m".to_string(),
+        "--root".to_string(),
         commit_hash,
     ];
 
@@ -1527,8 +1534,18 @@ pub async fn cmd_get_commit_changed_files(
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     
-    // Split by newlines
-    let files: Vec<String> = stdout.lines().map(|s| s.to_string()).collect();
+    // Split by newlines and dedupe while keeping original order.
+    let mut seen = HashSet::new();
+    let mut files = Vec::new();
+    for line in stdout.lines() {
+        let file = line.trim();
+        if file.is_empty() {
+            continue;
+        }
+        if seen.insert(file.to_string()) {
+            files.push(file.to_string());
+        }
+    }
     
     Ok(files)
 }

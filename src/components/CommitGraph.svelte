@@ -7,6 +7,7 @@
   import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
   import DiffView from "./diff/DiffView.svelte";
   import DiffToolbar from "./diff/DiffToolbar.svelte";
+  import BranchContextMenu, { type BranchContextMenuState } from "./common/BranchContextMenu.svelte";
 
   interface Props {
     nodes?: GraphNode[];
@@ -266,6 +267,7 @@
   let hoveredBranchColor = $state<string | null>(null);
   let hoveredCommitHash = $state<string | null>(null);
   let graphViewportEl = $state<HTMLDivElement | null>(null);
+  let branchContextMenu = $state<BranchContextMenuState | null>(null);
 
   type GraphTooltip = {
       visible: boolean;
@@ -667,10 +669,33 @@
       return remoteRef.split("/").slice(1).join("/").trim();
   }
 
-  async function handleBranchBadgeClick(event: MouseEvent, badge: RefBadge) {
+  function isCurrentBranchBadge(badge: RefBadge): boolean {
+      if (badge.isCurrent) return true;
+      if (badge.type === "branch") return badge.text === currentBranchName;
+      if (badge.type === "remote") {
+          const localBranch = getTrackingBranchName(badge.text);
+          return !!localBranch && localBranch === currentBranchName;
+      }
+      return false;
+  }
+
+  function closeBranchContextMenu() {
+      branchContextMenu = null;
+  }
+
+  function handleBranchBadgeContextMenu(event: MouseEvent, badge: RefBadge) {
       event.preventDefault();
       event.stopPropagation();
+      if (!canCheckoutFromBadge(badge)) return;
+      branchContextMenu = {
+          x: event.clientX,
+          y: event.clientY,
+          payload: badge,
+          disableMerge: isCurrentBranchBadge(badge)
+      };
+  }
 
+  async function checkoutFromBadge(badge: RefBadge) {
       if (!repoPath || isBranchCheckoutLoading || !canCheckoutFromBadge(badge)) return;
 
       isBranchCheckoutLoading = true;
@@ -734,6 +759,51 @@
       } finally {
           isBranchCheckoutLoading = false;
       }
+  }
+
+  async function handleBranchBadgeClick(event: MouseEvent, badge: RefBadge) {
+      event.preventDefault();
+      event.stopPropagation();
+      await checkoutFromBadge(badge);
+  }
+
+  async function mergeFromBadge(badge: RefBadge) {
+      if (!repoPath || isBranchCheckoutLoading || !canCheckoutFromBadge(badge)) return;
+
+      const branchRef = badge.text.trim();
+      if (!branchRef) return;
+
+      if (isCurrentBranchBadge(badge)) return;
+
+      const confirmed = await confirm({
+          title: "Merge Branch",
+          message: `Merge branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${branchRef}</span> into <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${currentBranchName || currentBranchLabel}</span>?`,
+          isHtmlMessage: true,
+          confirmLabel: "Merge",
+          cancelLabel: "Cancel"
+      });
+      if (!confirmed) return;
+
+      isBranchCheckoutLoading = true;
+      try {
+          const res = await GitService.merge(branchRef, repoPath);
+          if (res.success) {
+              await onGraphReload?.();
+              await loadToolbarBranches();
+          }
+      } catch (e) {
+          console.error("Failed to merge from graph branch badge", e);
+      } finally {
+          isBranchCheckoutLoading = false;
+      }
+  }
+
+  async function handleBranchContextCheckout(payload: unknown) {
+      await checkoutFromBadge(payload as RefBadge);
+  }
+
+  async function handleBranchContextMerge(payload: unknown) {
+      await mergeFromBadge(payload as RefBadge);
   }
   // -- Git Actions --
   let isFetching = $state(false);
@@ -1146,6 +1216,7 @@
                                             class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 truncate max-w-[118px] bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/80 cursor-pointer hover:brightness-110 {getRefBadgeClass(primaryBadge)}"
                                             title={`${primaryBadge.text} (click to checkout)`}
                                             onclick={(e) => handleBranchBadgeClick(e, primaryBadge)}
+                                            oncontextmenu={(e) => handleBranchBadgeContextMenu(e, primaryBadge)}
                                         >
                                             {primaryBadge.text}
                                         </button>
@@ -1172,6 +1243,7 @@
                                                         title={`${badge.text} (double-click to checkout)`}
                                                         onclick={(e) => e.stopPropagation()}
                                                         ondblclick={(e) => handleBranchBadgeClick(e, badge)}
+                                                        oncontextmenu={(e) => handleBranchBadgeContextMenu(e, badge)}
                                                     >
                                                         {badge.text}
                                                     </button>
@@ -1297,6 +1369,13 @@
       </ResizablePanel>
   {/if}
 </div>
+
+<BranchContextMenu
+  menu={branchContextMenu}
+  onClose={closeBranchContextMenu}
+  onCheckout={handleBranchContextCheckout}
+  onMerge={handleBranchContextMerge}
+/>
 
 <style>
   .graph-edge {
