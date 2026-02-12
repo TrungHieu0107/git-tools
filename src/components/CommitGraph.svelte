@@ -138,8 +138,17 @@
       closeDiff();
   }
 
+  function chooseBaseContent(parentContents: string[], modified: string): string {
+      if (parentContents.length === 0) return "";
+      const firstDifferent = parentContents.find((content) => content !== modified);
+      return firstDifferent ?? parentContents[0];
+  }
+
   async function openDiff(file: string) {
       if (!selectedCommit || !repoPath) return;
+
+      const targetCommitHash = selectedCommit.hash;
+      const parentHashes = [...selectedCommit.parents];
 
       selectedDiffFile = file;
       leftPanelMode = 'diff';
@@ -148,34 +157,22 @@
       modifiedContent = "";
 
       try {
-          // Step 1: Get commit diff to find parent hash
-          const diff = await GitService.getCommitDiff(selectedCommit.hash, repoPath, file, selectedEncoding);
+          const [mod, parentContents] = await Promise.all([
+              GitService.getFileAtCommit(targetCommitHash, file, repoPath, selectedEncoding)
+                  .catch(() => ""), // Deleted file at selected commit
+              Promise.all(
+                  parentHashes.map((parentHash) =>
+                      GitService.getFileAtCommit(parentHash, file, repoPath, selectedEncoding)
+                          .catch(() => "") // Missing file at that parent
+                  )
+              )
+          ]);
 
-          if (selectedDiffFile !== file) return; // Race check
-
-          // Step 2: Fetch full file contents in parallel for side-by-side view
-          const promises: Promise<string>[] = [];
-          // Modified content (file at selected commit)
-          promises.push(
-              GitService.getFileAtCommit(selectedCommit.hash, file, repoPath, selectedEncoding)
-                  .catch(() => "") // File might not exist (deleted)
-          );
-          // Base content (file at parent commit)
-          if (diff.parentHash) {
-              promises.push(
-                  GitService.getFileAtCommit(diff.parentHash, file, repoPath, selectedEncoding)
-                      .catch(() => "") // File might not exist at parent (newly added)
-              );
-          } else {
-              promises.push(Promise.resolve("")); // Root commit — no parent
-          }
-
-          const [mod, base] = await Promise.all(promises);
-
-          if (selectedDiffFile !== file) return; // Race check
+          if (selectedDiffFile !== file || selectedCommit?.hash !== targetCommitHash) return; // Race check
 
           modifiedContent = mod;
-          baseContent = base;
+          // For merge commits, prefer the first parent that actually differs for this file.
+          baseContent = chooseBaseContent(parentContents, mod);
       } catch (e) {
           console.error("Failed to load diff", e);
       } finally {
