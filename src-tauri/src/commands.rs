@@ -149,10 +149,15 @@ fn build_commit_message_prompt(
 Task: Generate a single commit message from the staged changes.\n\
 Rules:\n\
 - Return plain text only (no markdown, no code fences).\n\
+- Output format must be exactly:\n\
+  <subject line>\n\
+\n\
+  <description/body>\n\
 - Keep the subject line under 72 characters.\n\
 - Use imperative voice.\n\
 - Prefer Conventional Commit prefixes when clear (feat, fix, refactor, docs, test, chore).\n\
-- Include a short body only when it adds important context.\n\n",
+- Always include a short body (1-3 concise lines) explaining what changed and why.\n\
+- Do not include labels like \"Subject:\" or \"Description:\".\n\n",
     );
 
     prompt.push_str("Staged files (name-status):\n");
@@ -189,7 +194,70 @@ fn sanitize_commit_message(raw: &str) -> String {
         text = rest.trim().to_string();
     }
 
+    // Normalize optional labels if the model returns "Subject:" / "Description:".
+    let mut normalized_lines: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        let lower = trimmed.to_ascii_lowercase();
+
+        if lower.starts_with("subject:") {
+            let rest = trimmed[8..].trim();
+            if !rest.is_empty() {
+                normalized_lines.push(rest.to_string());
+            }
+            continue;
+        }
+
+        if lower.starts_with("description:") {
+            if !normalized_lines.is_empty()
+                && normalized_lines
+                    .last()
+                    .is_some_and(|last| !last.trim().is_empty())
+            {
+                normalized_lines.push(String::new());
+            }
+            let rest = trimmed[12..].trim();
+            if !rest.is_empty() {
+                normalized_lines.push(rest.to_string());
+            }
+            continue;
+        }
+
+        normalized_lines.push(line.trim_end().to_string());
+    }
+
+    if !normalized_lines.is_empty() {
+        text = normalized_lines.join("\n").trim().to_string();
+    }
+
     text
+}
+
+fn ensure_commit_message_has_body(message: &str, staged_files: &str) -> String {
+    let normalized = message.replace("\r\n", "\n");
+    let mut lines = normalized.lines();
+    let subject = lines.next().unwrap_or("").trim().to_string();
+
+    if subject.is_empty() {
+        return normalized.trim().to_string();
+    }
+
+    let has_body = lines.any(|line| !line.trim().is_empty());
+    if has_body {
+        return normalized.trim().to_string();
+    }
+
+    let file_count = staged_files
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
+    let fallback_body = if file_count <= 1 {
+        "Update staged changes in 1 file.".to_string()
+    } else {
+        format!("Update staged changes in {} files.", file_count)
+    };
+
+    format!("{}\n\n{}", subject, fallback_body)
 }
 
 fn extract_gemini_text(response_json: &serde_json::Value) -> Option<String> {
@@ -932,7 +1000,7 @@ pub async fn cmd_generate_commit_message(
         "generationConfig": {
             "temperature": 0.2,
             "topP": 0.9,
-            "maxOutputTokens": 220
+            "maxOutputTokens": 320
         }
     });
 
@@ -974,7 +1042,8 @@ pub async fn cmd_generate_commit_message(
         return Err("Gemini did not return any commit message text.".to_string());
     };
 
-    let message = sanitize_commit_message(&generated);
+    let sanitized = sanitize_commit_message(&generated);
+    let message = ensure_commit_message_has_body(&sanitized, &staged_files);
     if message.trim().is_empty() {
         return Err("Gemini returned an empty commit message.".to_string());
     }
