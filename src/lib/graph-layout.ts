@@ -85,6 +85,7 @@ export interface ConnectionPath {
   toColumn: number; // Target column
   toRow: number; // Target row
   color: string; // Connection color
+  parentIndex: number; // 0 = first parent, >0 = merge parent
 }
 
 const PALETTE = [
@@ -269,6 +270,7 @@ export function calculateGraphLayout(commits: Commit[]): {
         toColumn: parentNode.x,
         toRow: parentNode.y,
         color: parentIndex === 0 ? node.color : parentNode.color,
+        parentIndex,
       });
 
       // Anchor destination lane at parent row to avoid visual gaps.

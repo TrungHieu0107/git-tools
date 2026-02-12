@@ -30,6 +30,7 @@
   const TOOLTIP_MAX_HEIGHT = 88;
   const AVATAR_SIZE = 18;
   const AVATAR_RADIUS = AVATAR_SIZE / 2;
+  const ROUTE_TURN_GAP = 10;
   const SVG_INSTANCE_ID = `graph-${Math.random().toString(36).slice(2, 9)}`;
   const AVATAR_CLIP_ID = `${SVG_INSTANCE_ID}-avatar-clip`;
   const AVATAR_SHADOW_ID = `${SVG_INSTANCE_ID}-avatar-shadow`;
@@ -310,7 +311,13 @@
       return node.refs.some((ref) => /^HEAD(\s*->|$)/.test(ref.trim()));
   }
 
-  function buildCurvedConnectionPath(x1: number, y1: number, x2: number, y2: number): string {
+  function buildCurvedConnectionPath(
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+      turnAtStart: boolean
+  ): string {
       if (x1 === x2) {
           return `M ${x1} ${y1} V ${y2}`;
       }
@@ -323,24 +330,25 @@
       const dy = y2 > y1 ? 1 : -1;
       const horizontalGap = Math.abs(x2 - x1);
       const verticalGap = Math.abs(y2 - y1);
-      const radius = Math.min(8, horizontalGap / 2, verticalGap / 2);
+      const clampedTurnGap = Math.max(4, Math.min(ROUTE_TURN_GAP, verticalGap / 2));
+      const turnY = turnAtStart ? y1 + dy * clampedTurnGap : y2 - dy * clampedTurnGap;
+      const radius = Math.min(8, horizontalGap / 2, clampedTurnGap);
 
       if (radius < 0.5) {
-          return `M ${x1} ${y1} V ${y2} H ${x2}`;
+          return `M ${x1} ${y1} V ${turnY} H ${x2} V ${y2}`;
       }
 
-      const midY = y1 + (y2 - y1) / 2;
-      const yBeforeFirstTurn = midY - dy * radius;
+      const yBeforeFirstTurn = turnY - dy * radius;
       const xAfterFirstTurn = x1 + dx * radius;
       const xBeforeSecondTurn = x2 - dx * radius;
-      const yAfterSecondTurn = midY + dy * radius;
+      const yAfterSecondTurn = turnY + dy * radius;
 
       return [
           `M ${x1} ${y1}`,
           `V ${yBeforeFirstTurn}`,
-          `Q ${x1} ${midY} ${xAfterFirstTurn} ${midY}`,
+          `Q ${x1} ${turnY} ${xAfterFirstTurn} ${turnY}`,
           `H ${xBeforeSecondTurn}`,
-          `Q ${x2} ${midY} ${x2} ${yAfterSecondTurn}`,
+          `Q ${x2} ${turnY} ${x2} ${yAfterSecondTurn}`,
           `V ${y2}`,
       ].join(" ");
   }
@@ -361,8 +369,8 @@
           const y1 = rowToY(conn.fromRow);
           const x2 = columnToX(conn.toColumn);
           const y2 = rowToY(conn.toRow);
-
-          const path = buildCurvedConnectionPath(x1, y1, x2, y2);
+          const turnAtStart = conn.parentIndex > 0;
+          const path = buildCurvedConnectionPath(x1, y1, x2, y2, turnAtStart);
 
           return {
               key: `conn-${conn.fromColumn}-${conn.fromRow}-${conn.toColumn}-${conn.toRow}-${idx}`,
@@ -700,11 +708,11 @@
                     <div class="absolute top-0 left-0 h-full pointer-events-none z-[5] overflow-hidden" style="width: {graphColumn?.width}px">
                         <svg class="w-full h-full">
                         <defs>
-                            <clipPath id={AVATAR_CLIP_ID}>
+                            <clipPath id={AVATAR_CLIP_ID} clipPathUnits="userSpaceOnUse">
                                 <circle cx="0" cy="0" r={AVATAR_RADIUS} />
                             </clipPath>
                             <filter id={AVATAR_SHADOW_ID} x="-20%" y="-20%" width="140%" height="140%">
-                                <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000" flood-opacity="0.5" />
+                                <feDropShadow dx="0" dy="0" stdDeviation="1.5" flood-color="#000" flood-opacity="0.45" />
                             </filter>
                         </defs>
                         <g transform="translate({PADDING_LEFT}, {PADDING_TOP})">
