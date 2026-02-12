@@ -132,7 +132,7 @@
       <span class="text-[13px] leading-none {summaryTooLong ? 'text-[#f85149]' : 'text-[#8b949e]'}">{summary.length}</span>
       <button
         type="button"
-        class="h-10 w-10 rounded-sm border border-[#5b2ea4] bg-[#261444] text-[#c9b3ff] hover:bg-[#2f1755] hover:text-[#e6ddff] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center justify-center transition-colors focus:outline-none"
+        class="h-10 w-10 rounded-md border border-[#3f4b63] bg-[linear-gradient(145deg,#2a2f3d_0%,#1f2735_100%)] text-[#c6d6f7] hover:border-[#5c6f96] hover:bg-[linear-gradient(145deg,#323b52_0%,#263247_100%)] hover:text-[#e5eeff] hover:shadow-[0_6px_14px_rgba(18,32,64,0.45)] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center justify-center transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#79c0ff]"
         disabled={!canGenerate}
         onclick={handleGenerate}
         title="Generate commit message"
