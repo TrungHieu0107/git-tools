@@ -533,7 +533,7 @@
         <div class="shrink-0 border-t border-[#30363d]">
             <CommitActions
                 stagedCount={stagedFiles.length}
-                loading={committing || loadingStatus || generatingCommitMessage}
+                busy={committing || loadingStatus}
                 generating={generatingCommitMessage}
                 bind:message={commitMessage}
                 onCommit={handleCommit}
