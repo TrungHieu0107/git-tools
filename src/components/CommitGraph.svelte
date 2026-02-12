@@ -30,7 +30,6 @@
   const TOOLTIP_MAX_HEIGHT = 88;
   const AVATAR_SIZE = 18;
   const AVATAR_RADIUS = AVATAR_SIZE / 2;
-  const ROUTE_TURN_GAP = 10;
   const SVG_INSTANCE_ID = `graph-${Math.random().toString(36).slice(2, 9)}`;
   const AVATAR_CLIP_ID = `${SVG_INSTANCE_ID}-avatar-clip`;
   const AVATAR_SHADOW_ID = `${SVG_INSTANCE_ID}-avatar-shadow`;
@@ -47,6 +46,7 @@
   }
 
   let columns = $state<Column[]>([
+      { id: "branch", label: "Branch / Tag", width: 170, visible: true, minWidth: 120 },
       { id: "graph", label: "Graph", width: 300, visible: true, minWidth: 100 },
       { id: "message", label: "Message", width: 400, visible: true, minWidth: 200 }, // Using numeric width to serve as flex basis concept if we were using flex, but for grid we can treat it as pixels or '1fr' logic if we get fancy. For now, pixel based resizing is robust.
       { id: "hash", label: "Hash", width: 80, visible: true, minWidth: 60 },
@@ -290,6 +290,14 @@
   };
 
   let graphColumn = $derived(columns.find(c => c.id === "graph"));
+  let graphColumnOffset = $derived.by(() => {
+      let offset = 0;
+      for (const column of visibleColumns) {
+          if (column.id === "graph") break;
+          offset += column.width;
+      }
+      return offset;
+  });
 
   function columnToX(columnIndex: number) {
       return columnIndex * COL_WIDTH;
@@ -330,26 +338,36 @@
       const dy = y2 > y1 ? 1 : -1;
       const horizontalGap = Math.abs(x2 - x1);
       const verticalGap = Math.abs(y2 - y1);
-      const clampedTurnGap = Math.max(4, Math.min(ROUTE_TURN_GAP, verticalGap / 2));
-      const turnY = turnAtStart ? y1 + dy * clampedTurnGap : y2 - dy * clampedTurnGap;
-      const radius = Math.min(8, horizontalGap / 2, clampedTurnGap);
+      const radius = Math.min(8, horizontalGap / 2, verticalGap);
 
       if (radius < 0.5) {
-          return `M ${x1} ${y1} V ${turnY} H ${x2} V ${y2}`;
+          return turnAtStart
+              ? `M ${x1} ${y1} H ${x2} V ${y2}`
+              : `M ${x1} ${y1} V ${y2} H ${x2}`;
       }
 
-      const yBeforeFirstTurn = turnY - dy * radius;
-      const xAfterFirstTurn = x1 + dx * radius;
-      const xBeforeSecondTurn = x2 - dx * radius;
-      const yAfterSecondTurn = turnY + dy * radius;
+      if (turnAtStart) {
+          // Merge path: horizontal leaves source node at its center (y1),
+          // then turns into vertical lane toward target.
+          const xBeforeCorner = x2 - dx * radius;
+          const yAfterCorner = y1 + dy * radius;
+          return [
+              `M ${x1} ${y1}`,
+              `H ${xBeforeCorner}`,
+              `Q ${x2} ${y1} ${x2} ${yAfterCorner}`,
+              `V ${y2}`,
+          ].join(" ");
+      }
 
+      // First-parent/branch path: horizontal enters target node at its center (y2),
+      // after dropping vertically in source lane.
+      const yBeforeCorner = y2 - dy * radius;
+      const xAfterCorner = x1 + dx * radius;
       return [
           `M ${x1} ${y1}`,
-          `V ${yBeforeFirstTurn}`,
-          `Q ${x1} ${turnY} ${xAfterFirstTurn} ${turnY}`,
-          `H ${xBeforeSecondTurn}`,
-          `Q ${x2} ${turnY} ${x2} ${yAfterSecondTurn}`,
-          `V ${y2}`,
+          `V ${yBeforeCorner}`,
+          `Q ${x1} ${y2} ${xAfterCorner} ${y2}`,
+          `H ${x2}`,
       ].join(" ");
   }
 
@@ -380,29 +398,7 @@
       })
   );
 
-  type HeadPointerGeometry = {
-      path: string;
-      endX: number;
-      y: number;
-      color: string;
-  };
-
   let currentHeadNode = $derived(nodes.find((node) => isHeadCommit(node)) ?? null);
-
-  let currentHeadPointer = $derived.by<HeadPointerGeometry | null>(() => {
-      if (!graphColumn?.visible || !currentHeadNode) return null;
-
-      const y = nodeRenderY(currentHeadNode);
-      const startX = nodeRenderX(currentHeadNode) + AVATAR_RADIUS + 3;
-      const endX = Math.max(startX + 12, graphColumn.width - PADDING_LEFT);
-
-      return {
-          path: `M ${startX} ${y} H ${endX}`,
-          endX,
-          y,
-          color: "#ff8f4a"
-      };
-  });
 
   function handleCommitRowKeydown(event: KeyboardEvent, node: GraphNode) {
       if (event.key === "Enter" || event.key === " ") {
@@ -414,7 +410,6 @@
   function getRowCellHighlightClass(nodeHash: string, columnId: string): string {
       if (columnId === "graph") return "";
       if (selectedCommit?.hash === nodeHash) return "row-info-cell-selected";
-      if (currentHeadNode?.hash === nodeHash) return "row-info-cell-head";
       if (hoveredCommitHash === nodeHash) return "row-info-cell-hovered";
       return "";
   }
@@ -483,23 +478,76 @@
       hideCommitTooltip();
   }
 
-  // Helper to parse refs for badges
-  function getBadges(refs: string[]) {
-      const badges = [];
-      for (const ref of refs) {
-          if (ref.includes("HEAD ->")) {
-              badges.push({ text: "HEAD", type: "head" });
-              const branch = ref.split("HEAD ->")[1].trim();
-              if (branch) badges.push({ text: branch, type: "branch" });
-          } else if (ref.startsWith("tag:")) {
-               badges.push({ text: ref.replace("tag:", "").trim(), type: "tag" });
-          } else if (ref.includes("/")) {
-               badges.push({ text: ref.trim(), type: "remote" });
-          } else {
-               badges.push({ text: ref.trim(), type: "branch" });
-          }
+  type RefBadgeType = "branch" | "remote" | "tag";
+  type RefBadge = {
+      text: string;
+      type: RefBadgeType;
+      isCurrent: boolean;
+      originalIndex: number;
+  };
+
+  // Parse refs and rank: current branch first, then local branches, remotes, tags.
+  function getRankedRefBadges(refs: string[]): RefBadge[] {
+      const parsed: RefBadge[] = [];
+      const seen = new Set<string>();
+
+      function pushBadge(text: string, type: RefBadgeType, isCurrent: boolean, index: number) {
+          const normalized = text.trim();
+          if (!normalized) return;
+          const dedupeKey = `${type}:${normalized.toLowerCase()}`;
+          if (seen.has(dedupeKey)) return;
+          seen.add(dedupeKey);
+          parsed.push({ text: normalized, type, isCurrent, originalIndex: index });
       }
-      return badges;
+
+      refs.forEach((rawRef, index) => {
+          const ref = rawRef.trim();
+          if (!ref) return;
+
+          if (ref.includes("HEAD ->")) {
+              const currentBranch = ref.split("HEAD ->")[1]?.trim() ?? "";
+              pushBadge(currentBranch, "branch", true, index);
+              return;
+          }
+
+          if (ref.startsWith("tag:")) {
+              pushBadge(ref.replace("tag:", "").trim(), "tag", false, index);
+              return;
+          }
+
+          if (ref.includes("/")) {
+              pushBadge(ref, "remote", false, index);
+              return;
+          }
+
+          pushBadge(ref, "branch", false, index);
+      });
+
+      const priority = (badge: RefBadge) => {
+          if (badge.isCurrent) return 300;
+          if (badge.type === "branch") return 200;
+          if (badge.type === "remote") return 100;
+          return 50;
+      };
+
+      return parsed.sort((a, b) => {
+          const byPriority = priority(b) - priority(a);
+          if (byPriority !== 0) return byPriority;
+          return a.originalIndex - b.originalIndex;
+      });
+  }
+
+  function getRefBadgeClass(badge: RefBadge) {
+      if (badge.isCurrent) {
+          return "bg-sky-900/45 text-sky-300 border-sky-700/60";
+      }
+      if (badge.type === "branch") {
+          return "bg-emerald-900/40 text-emerald-300 border-emerald-700/50";
+      }
+      if (badge.type === "remote") {
+          return "bg-purple-900/40 text-purple-300 border-purple-700/50";
+      }
+      return "bg-yellow-900/40 text-yellow-300 border-yellow-700/50";
   }
   // -- Git Actions --
   let isFetching = $state(false);
@@ -705,7 +753,7 @@
                 <!-- Graph SVG Layer -->
                 <!-- Locked to the width of the 'graph' column if visible -->
                 {#if graphColumn?.visible}
-                    <div class="absolute top-0 left-0 h-full pointer-events-none z-[5] overflow-hidden" style="width: {graphColumn?.width}px">
+                    <div class="absolute top-0 h-full pointer-events-none z-[5] overflow-hidden" style="left: {graphColumnOffset}px; width: {graphColumn?.width}px">
                         <svg class="w-full h-full">
                         <defs>
                             <clipPath id={AVATAR_CLIP_ID} clipPathUnits="userSpaceOnUse">
@@ -768,25 +816,6 @@
                                     />
                                 {/each}
                             </g>
-                            {#if currentHeadPointer}
-                                <g class="head-pointer">
-                                    <path
-                                        d={currentHeadPointer.path}
-                                        fill="none"
-                                        stroke={currentHeadPointer.color}
-                                        stroke-width="2.2"
-                                        stroke-linecap="round"
-                                        opacity="0.95"
-                                    />
-                                    <circle
-                                        cx={currentHeadPointer.endX}
-                                        cy={currentHeadPointer.y}
-                                        r="3.5"
-                                        fill={currentHeadPointer.color}
-                                        opacity="0.95"
-                                    />
-                                </g>
-                            {/if}
                             <g class="nodes">
                                 {#each nodes as node (node.hash)}
                                     {@const cx = nodeRenderX(node)}
@@ -880,25 +909,38 @@
                         {#each visibleColumns as col}
                         {#if col.id === 'graph'}
                             <div class="pointer-events-none"><!-- Placeholder for SVG overlay --></div>
+                        {:else if col.id === 'branch'}
+                            {@const branchBadges = getRankedRefBadges(node.refs)}
+                            {@const primaryBadge = branchBadges[0]}
+                            {@const secondaryBadges = branchBadges.slice(1)}
+                            <div class="pl-3 pr-2 flex items-center gap-1.5 relative branch-cell graph-row-info-cell {getRowCellHighlightClass(node.hash, col.id)}">
+                                {#if primaryBadge}
+                                    <span
+                                        class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 truncate max-w-[118px] {getRefBadgeClass(primaryBadge)}"
+                                        title={primaryBadge.text}
+                                    >
+                                        {primaryBadge.text}
+                                    </span>
+                                {/if}
+                                {#if secondaryBadges.length > 0}
+                                    <span class="px-1 py-0.5 rounded text-[10px] font-medium border shrink-0 bg-slate-800/70 text-slate-300 border-slate-600/50" title={`${secondaryBadges.length} refs hidden`}>
+                                        +{secondaryBadges.length}
+                                    </span>
+                                    <div class="branch-dropdown">
+                                        {#each secondaryBadges as badge}
+                                            <div class="branch-dropdown-item">
+                                                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 {getRefBadgeClass(badge)}">
+                                                    {badge.text}
+                                                </span>
+                                            </div>
+                                        {/each}
+                                    </div>
+                                {/if}
+                            </div>
                         {:else if col.id === 'hash'}
                             <div class="pl-4 font-mono text-[#8b949e] opacity-70 truncate graph-row-info-cell {getRowCellHighlightClass(node.hash, col.id)}">{node.hash}</div>
                         {:else if col.id === 'message'}
                             <div class="pl-4 flex items-center min-w-0 pr-4 overflow-hidden relative graph-row-info-cell {getRowCellHighlightClass(node.hash, col.id)}">
-                                {#if isCurrentHead}
-                                    <span class="head-message-line" aria-hidden="true"></span>
-                                {/if}
-                                <!-- Badges inside Message column -->
-                                {#each getBadges(node.refs) as badge}
-                                    <span 
-                                    class="px-1.5 py-0.5 rounded text-[10px] font-medium mr-2 border shrink-0
-                                        {badge.type === 'head' ? 'bg-sky-900/40 text-sky-300 border-sky-700/50' : 
-                                        badge.type === 'tag' ? 'bg-yellow-900/40 text-yellow-300 border-yellow-700/50' : 
-                                        badge.type === 'remote' ? 'bg-purple-900/40 text-purple-300 border-purple-700/50' :
-                                        'bg-emerald-900/40 text-emerald-300 border-emerald-700/50'}"
-                                    >
-                                    {badge.text}
-                                    </span>
-                                {/each}
                                 <span class="truncate text-[#c9d1d9] group-hover:text-white font-medium">{node.subject}</span>
                             </div>
                         {:else if col.id === 'author'}
@@ -1029,24 +1071,39 @@
   }
 
   .row-head {
-    background: rgba(255, 143, 74, 0.06);
+    background: rgba(255, 143, 74, 0.3);
   }
 
-  .row-info-cell-head {
-    background: rgba(255, 143, 74, 0.1);
-    box-shadow: inset 2px 0 0 0 #ff8f4a;
+  .branch-cell {
+    overflow: visible;
   }
 
-  .head-message-line {
+  .branch-dropdown {
     position: absolute;
     left: 0;
-    top: 50%;
-    width: 16px;
-    height: 2px;
-    border-radius: 999px;
-    background: #ff8f4a;
-    transform: translateY(-50%);
-    opacity: 0.9;
+    top: calc(100% + 4px);
+    z-index: 40;
+    min-width: 160px;
+    max-width: 260px;
+    padding: 6px;
+    border-radius: 8px;
+    border: 1px solid rgba(30, 41, 59, 0.95);
+    background: rgba(15, 23, 42, 0.96);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-4px);
+    transition: opacity 120ms ease, transform 120ms ease;
+  }
+
+  .branch-cell:hover .branch-dropdown {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .branch-dropdown-item + .branch-dropdown-item {
+    margin-top: 4px;
   }
 
   .graph-tooltip {
