@@ -32,6 +32,8 @@
     navigationHunks?: DiffHunk[];
     canStageLine?: boolean;
     onStageLine?: (line: DiffStageLineTarget) => void | Promise<void>;
+    canUnstageLine?: boolean;
+    onUnstageLine?: (line: DiffStageLineTarget) => void | Promise<void>;
   }
 
   let {
@@ -43,6 +45,8 @@
     navigationHunks,
     canStageLine = false,
     onStageLine,
+    canUnstageLine = false,
+    onUnstageLine,
   }: Props = $props();
 
   let effectiveHunks = $derived.by<DiffHunk[] | null>(() => {
@@ -113,7 +117,7 @@
   }
 
   function getContextMenuHeight(): number {
-    const actionCount = canStageLine ? 2 : 1;
+    const actionCount = 1 + (canStageLine ? 1 : 0) + (canUnstageLine ? 1 : 0);
     return actionCount * CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_PADDING_Y * 2;
   }
 
@@ -208,6 +212,42 @@
       console.error("Stage line failed", e);
     }
   }
+
+  async function handleUnstageThisLine(): Promise<void> {
+    if (!canUnstageLine || !onUnstageLine || !lineContextMenu.stageTarget) return;
+    const target = lineContextMenu.stageTarget;
+    closeLineContextMenu();
+
+    try {
+      await onUnstageLine(target);
+    } catch (e) {
+      console.error("Unstage line failed", e);
+    }
+  }
+
+  function isLineActionable(
+    line: DiffLine,
+    counterpart: DiffLine | null,
+    side: "left" | "right"
+  ): boolean {
+    return buildStageTarget(line, counterpart, side) !== null;
+  }
+
+  async function handleLineClick(
+    line: DiffLine,
+    counterpart: DiffLine | null,
+    side: "left" | "right"
+  ): Promise<void> {
+    if (!canUnstageLine || !onUnstageLine) return;
+    const target = buildStageTarget(line, counterpart, side);
+    if (!target) return;
+
+    try {
+      await onUnstageLine(target);
+    } catch (e) {
+      console.error("Unstage line failed", e);
+    }
+  }
 </script>
 
 <svelte:window onmousedown={handleWindowMouseDown} onkeydown={handleWindowKeydown} />
@@ -257,8 +297,9 @@
                   {/if}
                   {#each hunk.lines as pair, lineIdx}
                     <tr
-                      class={getRowClass(pair.left, "left")}
+                      class={`${getRowClass(pair.left, "left")} ${canUnstageLine && isLineActionable(pair.left, pair.right, "left") ? "cursor-pointer" : ""}`}
                       data-hunk-id={lineIdx === 0 ? hunk.id : undefined}
+                      onclick={() => void handleLineClick(pair.left, pair.right, "left")}
                       oncontextmenu={(event) => handleLineContextMenu(event, pair.left, pair.right, "left")}
                     >
                       <td class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top">
@@ -296,8 +337,9 @@
                   {/if}
                   {#each hunk.lines as pair, lineIdx}
                     <tr
-                      class={getRowClass(pair.right, "right")}
+                      class={`${getRowClass(pair.right, "right")} ${canUnstageLine && isLineActionable(pair.right, pair.left, "right") ? "cursor-pointer" : ""}`}
                       data-hunk-id={lineIdx === 0 ? hunk.id : undefined}
+                      onclick={() => void handleLineClick(pair.right, pair.left, "right")}
                       oncontextmenu={(event) => handleLineContextMenu(event, pair.right, pair.left, "right")}
                     >
                       <td class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top">
@@ -324,8 +366,9 @@
               <tbody>
                 {#each diffResult.left as line, i}
                   <tr
-                    class={getRowClass(line, "left")}
+                    class={`${getRowClass(line, "left")} ${canUnstageLine && isLineActionable(line, diffResult.right[i] ?? null, "left") ? "cursor-pointer" : ""}`}
                     data-hunk-id={hunkStartMap.get(i) ?? undefined}
+                    onclick={() => void handleLineClick(line, diffResult.right[i] ?? null, "left")}
                     oncontextmenu={(event) => handleLineContextMenu(event, line, diffResult.right[i] ?? null, "left")}
                   >
                     <td
@@ -353,8 +396,9 @@
               <tbody>
                 {#each diffResult.right as line, i}
                   <tr
-                    class={getRowClass(line, "right")}
+                    class={`${getRowClass(line, "right")} ${canUnstageLine && isLineActionable(line, diffResult.left[i] ?? null, "right") ? "cursor-pointer" : ""}`}
                     data-hunk-id={hunkStartMap.get(i) ?? undefined}
+                    onclick={() => void handleLineClick(line, diffResult.left[i] ?? null, "right")}
                     oncontextmenu={(event) => handleLineContextMenu(event, line, diffResult.left[i] ?? null, "right")}
                   >
                     <td
@@ -399,6 +443,17 @@
         role="menuitem"
       >
         Stage this line
+      </button>
+    {/if}
+    {#if canUnstageLine}
+      <button
+        type="button"
+        class="w-full text-left px-3 py-2 text-xs transition-colors disabled:cursor-not-allowed disabled:text-[#6e7681] disabled:bg-[#161b22] {lineContextMenu.stageTarget ? 'text-[#f0883e] hover:bg-[#3b2b1f] hover:text-[#ffab70]' : ''}"
+        onclick={() => void handleUnstageThisLine()}
+        disabled={!lineContextMenu.stageTarget}
+        role="menuitem"
+      >
+        Unstage this line
       </button>
     {/if}
   </div>

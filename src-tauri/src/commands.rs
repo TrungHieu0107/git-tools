@@ -1235,6 +1235,81 @@ pub async fn cmd_git_stage_line(
 }
 
 #[tauri::command]
+pub async fn cmd_git_unstage_line(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+    line: StageLineSelection,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+
+    let exclusions = {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.excluded_files.clone()
+    };
+
+    if is_excluded(&path, &exclusions) {
+        return Err(format!("File {} is excluded from git operations", path));
+    }
+
+    if path.contains(" -> ") {
+        return Err("Unstage-line is not supported for rename paths".to_string());
+    }
+
+    let diff_args: Vec<String> = vec![
+        "diff".into(),
+        "--cached".into(),
+        "--no-color".into(),
+        "--no-ext-diff".into(),
+        "--unified=0".into(),
+        "--".into(),
+        path.clone(),
+    ];
+    let diff_resp = state
+        .git
+        .run(Path::new(&r_path), &diff_args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if diff_resp.stdout.trim().is_empty() {
+        return Err("No staged diff available for selected file".to_string());
+    }
+
+    let parsed = parse_unstaged_zero_context_diff(&diff_resp.stdout)?;
+    let patch = build_stage_line_patch(&parsed, &line)?;
+
+    let temp_patch_path = std::env::temp_dir().join(format!(
+        "git-tools-unstage-line-{}.patch",
+        Uuid::new_v4()
+    ));
+    std::fs::write(&temp_patch_path, patch.as_bytes())
+        .map_err(|e| format!("Failed to write temporary patch file: {}", e))?;
+
+    let apply_args: Vec<String> = vec![
+        "apply".into(),
+        "--cached".into(),
+        "--reverse".into(),
+        "--unidiff-zero".into(),
+        "--whitespace=nowarn".into(),
+        temp_patch_path.to_string_lossy().to_string(),
+    ];
+
+    let apply_result = state
+        .git
+        .run(Path::new(&r_path), &apply_args, TIMEOUT_LOCAL)
+        .await;
+
+    let _ = std::fs::remove_file(&temp_patch_path);
+
+    apply_result.map_err(|e| e.to_string())?;
+
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn cmd_git_unstage(
     app: AppHandle,
     state: State<'_, AppState>,

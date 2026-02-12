@@ -29,6 +29,8 @@
     commitHunks?: BackendDiffHunk[];
     canStageLine?: boolean;
     onStageLine?: (line: DiffStageLineTarget) => void | Promise<void>;
+    canUnstageLine?: boolean;
+    onUnstageLine?: (line: DiffStageLineTarget) => void | Promise<void>;
   }
   let {
     diffResult,
@@ -36,6 +38,8 @@
     commitHunks = [],
     canStageLine = false,
     onStageLine,
+    canUnstageLine = false,
+    onUnstageLine,
   }: Props = $props();
 
   let inlineLines = $derived.by<InlineDiffLine[]>(() => {
@@ -137,7 +141,7 @@
   }
 
   function getContextMenuHeight(): number {
-    const actionCount = canStageLine ? 2 : 1;
+    const actionCount = 1 + (canStageLine ? 1 : 0) + (canUnstageLine ? 1 : 0);
     return actionCount * CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_PADDING_Y * 2;
   }
 
@@ -239,6 +243,34 @@
       console.error("Stage line failed", e);
     }
   }
+
+  async function handleUnstageThisLine(): Promise<void> {
+    if (!canUnstageLine || !onUnstageLine || !lineContextMenu.stageTarget) return;
+    const target = lineContextMenu.stageTarget;
+    closeLineContextMenu();
+
+    try {
+      await onUnstageLine(target);
+    } catch (e) {
+      console.error("Unstage line failed", e);
+    }
+  }
+
+  function isLineActionable(line: InlineDiffLine): boolean {
+    return buildStageTarget(line) !== null;
+  }
+
+  async function handleLineClick(line: InlineDiffLine): Promise<void> {
+    if (!canUnstageLine || !onUnstageLine) return;
+    const target = buildStageTarget(line);
+    if (!target) return;
+
+    try {
+      await onUnstageLine(target);
+    } catch (e) {
+      console.error("Unstage line failed", e);
+    }
+  }
 </script>
 
 <svelte:window onmousedown={handleWindowMouseDown} onkeydown={handleWindowKeydown} />
@@ -255,8 +287,9 @@
       <tbody>
         {#each inlineLines as line, i}
           <tr
-            class={getRowClass(line)}
+            class={`${getRowClass(line)} ${canUnstageLine && isLineActionable(line) ? "cursor-pointer" : ""}`}
             data-hunk-id={hunkFirstLineMap.get(i) ?? undefined}
+            onclick={() => void handleLineClick(line)}
             oncontextmenu={(event) => handleLineContextMenu(event, line)}
           >
             <td
@@ -312,6 +345,17 @@
         role="menuitem"
       >
         Stage this line
+      </button>
+    {/if}
+    {#if canUnstageLine}
+      <button
+        type="button"
+        class="w-full text-left px-3 py-2 text-xs transition-colors disabled:cursor-not-allowed disabled:text-[#6e7681] disabled:bg-[#161b22] {lineContextMenu.stageTarget ? 'text-[#f0883e] hover:bg-[#3b2b1f] hover:text-[#ffab70]' : ''}"
+        onclick={() => void handleUnstageThisLine()}
+        disabled={!lineContextMenu.stageTarget}
+        role="menuitem"
+      >
+        Unstage this line
       </button>
     {/if}
   </div>

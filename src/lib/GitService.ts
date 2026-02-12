@@ -191,6 +191,16 @@ export class GitService {
       }
   }
 
+  static async unstageLine(path: string, line: DiffStageLineTarget, repoPath?: string): Promise<void> {
+      try {
+          await invoke("cmd_git_unstage_line", { path, line, repoPath });
+          toast.success("Unstaged selected line");
+      } catch (e: any) {
+          toast.error(`Unstage line failed: ${e}`);
+          throw e;
+      }
+  }
+
   static async discardChanges(files: FileStatus[], repoPath?: string): Promise<void> {
       if (files.length === 0) return;
       try {

@@ -157,6 +157,14 @@
       } catch (e) { /* toast handled in service */ }
   }
 
+  async function handleUnstageLine(line: DiffStageLineTarget) {
+      if (!repoPath || !selectedFile || !selectedFile.staged) return;
+      try {
+          await GitService.unstageLine(selectedFile.path, line, repoPath);
+          await loadStatus(true);
+      } catch (e) { /* toast handled in service */ }
+  }
+
   async function handleCommit(message: string, push: boolean) {
       if (!repoPath) return;
       committing = true;
@@ -406,6 +414,12 @@
       selectedFile.status !== "??" &&
       !selectedFile.path.includes(" -> ")
   );
+
+  let canUnstageSelectedLine = $derived(
+      !!selectedFile &&
+      selectedFile.staged &&
+      !selectedFile.path.includes(" -> ")
+  );
 </script>
 
 <div class="flex h-full w-full bg-[#0d1117] overflow-hidden text-[#c9d1d9]">
@@ -525,6 +539,8 @@
                  onEncodingChange={handleEncodingChange}
                  canStageLine={canStageSelectedLine}
                  onStageLine={handleStageLine}
+                 canUnstageLine={canUnstageSelectedLine}
+                 onUnstageLine={handleUnstageLine}
              >
                 {#snippet header(toolbarProps)}
                     <!-- File header bar -->

@@ -17,6 +17,8 @@
     onEncodingChange?: (encoding: string) => void;
     canStageLine?: boolean;
     onStageLine?: (line: DiffStageLineTarget) => void | Promise<void>;
+    canUnstageLine?: boolean;
+    onUnstageLine?: (line: DiffStageLineTarget) => void | Promise<void>;
   }
 
   let {
@@ -29,6 +31,8 @@
     onEncodingChange,
     canStageLine = false,
     onStageLine,
+    canUnstageLine = false,
+    onUnstageLine,
   }: Props = $props();
 
   // -- State --
@@ -120,6 +124,8 @@
                 {hunks}
                 {canStageLine}
                 {onStageLine}
+                {canUnstageLine}
+                {onUnstageLine}
             />
         {:else}
             <!-- Side-By-Side & Hunk View -->
@@ -130,6 +136,8 @@
                 navigationHunks={hunks}
                 {canStageLine}
                 {onStageLine}
+                {canUnstageLine}
+                {onUnstageLine}
             />
         {/if}
     {:else if isTooLarge}
