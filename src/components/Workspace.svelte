@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { GitService, type RepoEntry, type FileStatus } from '../lib/GitService';
-  import { parseGitLog, calculateGraphLayout, type GraphNode, type GraphEdge } from "../lib/graph-layout";
+  import { parseGitLog, calculateGraphLayout, type GraphNode, type LanePath, type ConnectionPath } from "../lib/graph-layout";
   import { getAuthRequiredMessage } from "../lib/git-errors";
   
   import Conflicts from './Conflicts.svelte';
@@ -29,11 +29,12 @@
   
   // View Routing
   let currentView = $state<'repos' | 'conflicts'>('repos'); 
-  let activeTab = $state<"terminal" | "graph" | "commit" | "history" | "settings">("terminal");
+  let activeTab = $state<"terminal" | "graph" | "commit" | "history" | "settings">("graph");
   
   // Graph State
   let graphNodes = $state<GraphNode[]>([]);
-  let graphEdges = $state<GraphEdge[]>([]);
+  let graphLanes = $state<LanePath[]>([]);
+  let graphConnections = $state<ConnectionPath[]>([]);
   let commitCount = $state("50");
   let graphLoading = $state(false);
   
@@ -83,7 +84,8 @@
       const commits = parseGitLog(logOutput);
       const layout = calculateGraphLayout(commits);
       graphNodes = layout.nodes;
-      graphEdges = layout.edges;
+      graphLanes = layout.lanes;
+      graphConnections = layout.connections;
       
       if (switchToGraph !== false) {
           activeTab = "graph";
@@ -238,16 +240,16 @@
       <!-- Tabs Header -->
       <div class="h-12 border-b border-[#30363d] flex items-center px-2 bg-[#161b22] gap-1">
         <button 
-           onclick={() => activeTab = "terminal"}
-           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'terminal' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
-        >
-           {@html Icons.Terminal} Terminal
-        </button>
-        <button 
            onclick={() => activeTab = "graph"}
            class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'graph' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
         >
            {@html Icons.Network} Graph
+        </button>
+        <button 
+           onclick={() => activeTab = "terminal"}
+           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'terminal' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+        >
+           {@html Icons.Terminal} Terminal
         </button>
         <button 
            onclick={() => activeTab = "commit"}
@@ -288,7 +290,7 @@
                   <p class="text-sm">No graph loaded. Enter commit limit and click "Load Graph".</p>
                 </div>
             {:else}
-                <CommitGraph nodes={graphNodes} edges={graphEdges} repoPath={repoPath} pendingPushCount={pendingPushCount} onGraphReload={loadGraph} />
+                <CommitGraph nodes={graphNodes} lanes={graphLanes} connections={graphConnections} repoPath={repoPath} pendingPushCount={pendingPushCount} onGraphReload={loadGraph} />
             {/if}
          </div>
 
