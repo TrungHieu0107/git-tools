@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import { GitService, type CommitChangedFile } from "../lib/GitService";
   import { confirm } from "../lib/confirmation.svelte";
+  import { toast } from "../lib/toast.svelte";
   import ResizablePanel from "./resize/ResizablePanel.svelte";
   import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
   import DiffView from "./diff/DiffView.svelte";
@@ -41,6 +42,9 @@
   const CHANGED_FILES_VIEW_MODE_KEY = "commit_graph_changed_files_view_mode";
   const PATH_LABEL_MAX_LENGTH = 42;
   const PATH_COLLAPSE_TOKEN = "....";
+  const CHANGED_FILE_CONTEXT_MENU_WIDTH = 190;
+  const CHANGED_FILE_CONTEXT_MENU_ITEM_HEIGHT = 32;
+  const CHANGED_FILE_CONTEXT_MENU_PADDING_Y = 4;
 
   const HEADER_BASE = "h-8 flex items-center bg-[#111827] border-b border-[#1e293b] shrink-0";
   
@@ -121,6 +125,7 @@
       selectedCommit = node;
       changedFiles = [];
       changedFilesCollapsedDirs = new Set();
+      closeChangedFileContextMenu();
       // Reset diff view when switching commits (optional, or keep if same file exists?)
       closeDiff(); 
       
@@ -145,6 +150,7 @@
   function closeDetails() {
       selectedCommit = null;
       changedFiles = [];
+      closeChangedFileContextMenu();
       closeDiff();
   }
 
@@ -335,6 +341,19 @@
   };
 
   type ChangedFilesRow = ChangedFilesDirectoryRow | ChangedFilesFileRow;
+  type ChangedFileContextMenuState = {
+      visible: boolean;
+      x: number;
+      y: number;
+      file: CommitChangedFile | null;
+  };
+
+  let changedFileContextMenu = $state<ChangedFileContextMenuState>({
+      visible: false,
+      x: 0,
+      y: 0,
+      file: null
+  });
 
   let graphColumn = $derived(columns.find(c => c.id === "graph"));
   let graphColumnOffset = $derived.by(() => {
@@ -787,6 +806,7 @@
   });
 
   function toggleChangedFilesDirectory(path: string): void {
+      closeChangedFileContextMenu();
       const next = new Set(changedFilesCollapsedDirs);
       if (next.has(path)) {
           next.delete(path);
@@ -799,7 +819,82 @@
   function handleChangedFileKeydown(event: KeyboardEvent, filePath: string): void {
       if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
+          closeChangedFileContextMenu();
           void openDiff(filePath);
+      }
+  }
+
+  function closeChangedFileContextMenu(): void {
+      changedFileContextMenu = {
+          visible: false,
+          x: 0,
+          y: 0,
+          file: null
+      };
+  }
+
+  function getChangedFileContextMenuPosition(clientX: number, clientY: number): { x: number; y: number } {
+      const menuHeight = getChangedFileContextMenuHeight();
+      const maxX = Math.max(8, window.innerWidth - CHANGED_FILE_CONTEXT_MENU_WIDTH - 8);
+      const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
+      return {
+          x: Math.min(Math.max(8, clientX), maxX),
+          y: Math.min(Math.max(8, clientY), maxY)
+      };
+  }
+
+  function getChangedFileContextMenuHeight(): number {
+      let actionCount = 1; // Copy file path is always available.
+      if (repoPath) actionCount += 1;
+      return actionCount * CHANGED_FILE_CONTEXT_MENU_ITEM_HEIGHT + CHANGED_FILE_CONTEXT_MENU_PADDING_Y * 2;
+  }
+
+  function handleChangedFileContextMenu(event: MouseEvent, file: CommitChangedFile): void {
+      event.preventDefault();
+      event.stopPropagation();
+      const pos = getChangedFileContextMenuPosition(event.clientX, event.clientY);
+      changedFileContextMenu = {
+          visible: true,
+          x: pos.x,
+          y: pos.y,
+          file
+      };
+      branchContextMenu = null;
+  }
+
+  async function handleOpenChangedFile(): Promise<void> {
+      if (!repoPath || !changedFileContextMenu.file) return;
+      const targetPath = changedFileContextMenu.file.path;
+      closeChangedFileContextMenu();
+      await GitService.openRepoFile(targetPath, repoPath);
+  }
+
+  async function handleCopyChangedFilePath(): Promise<void> {
+      if (!changedFileContextMenu.file) return;
+      const targetPath = changedFileContextMenu.file.path;
+      closeChangedFileContextMenu();
+
+      try {
+          await navigator.clipboard.writeText(targetPath);
+          toast.success(`Copied path: ${targetPath}`);
+      } catch (e) {
+          console.error("Copy file path failed", e);
+          toast.error("Copy file path failed");
+      }
+  }
+
+  function handleWindowMouseDown(event: MouseEvent): void {
+      if (!changedFileContextMenu.visible) return;
+      const target = event.target as Element | null;
+      if (target?.closest(".changed-file-context-menu")) return;
+      closeChangedFileContextMenu();
+  }
+
+  function handleWindowKeydown(event: KeyboardEvent): void {
+      if (!changedFileContextMenu.visible) return;
+      if (event.key === "Escape") {
+          event.preventDefault();
+          closeChangedFileContextMenu();
       }
   }
 
@@ -917,6 +1012,7 @@
       event.preventDefault();
       event.stopPropagation();
       if (!canCheckoutFromBadge(badge)) return;
+      closeChangedFileContextMenu();
       branchContextMenu = {
           x: event.clientX,
           y: event.clientY,
@@ -1082,6 +1178,8 @@
       }
   }
 </script>
+
+<svelte:window onmousedown={handleWindowMouseDown} onkeydown={handleWindowKeydown} />
 
 <div class="w-full h-full overflow-hidden flex bg-[#0f172a] font-sans">
   
@@ -1634,7 +1732,8 @@
                                           class="flex items-start gap-2 py-1 px-1 hover:bg-[#111827] rounded text-xs group cursor-pointer {selectedDiffFile === row.file.path ? 'bg-[#1e293b] text-white' : ''}" 
                                           style={`padding-left: ${4 + row.depth * 12}px;`}
                                           title={row.title}
-                                          onclick={() => openDiff(row.file.path)}
+                                          onclick={() => { closeChangedFileContextMenu(); void openDiff(row.file.path); }}
+                                          oncontextmenu={(e) => handleChangedFileContextMenu(e, row.file)}
                                           role="button"
                                           tabindex="0"
                                           onkeydown={(e) => handleChangedFileKeydown(e, row.file.path)}
@@ -1656,6 +1755,34 @@
       </ResizablePanel>
   {/if}
 </div>
+
+{#if changedFileContextMenu.visible}
+  <div
+    class="fixed z-[70] bg-[#1f2428] border border-[#30363d] rounded-md shadow-xl py-1 min-w-[190px] changed-file-context-menu"
+    style="top: {changedFileContextMenu.y}px; left: {changedFileContextMenu.x}px;"
+    role="menu"
+    tabindex="-1"
+    oncontextmenu={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }}
+  >
+    <button
+      class="w-full text-left px-4 py-2 text-xs text-[#c9d1d9] hover:bg-[#1f6feb] hover:text-white flex items-center gap-2"
+      onclick={() => void handleCopyChangedFilePath()}
+    >
+      <span>Copy file path</span>
+    </button>
+    {#if repoPath}
+      <button
+      class="w-full text-left px-4 py-2 text-xs text-[#c9d1d9] hover:bg-[#1f6feb] hover:text-white flex items-center gap-2"
+      onclick={() => void handleOpenChangedFile()}
+    >
+      <span>Open file</span>
+    </button>
+    {/if}
+  </div>
+{/if}
 
 <BranchContextMenu
   menu={branchContextMenu}

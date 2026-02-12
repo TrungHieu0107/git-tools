@@ -195,6 +195,37 @@ export class GitService {
       }
   }
 
+  static async stashFile(file: FileStatus, repoPath?: string): Promise<void> {
+      try {
+          await invoke("cmd_git_stash_file", { file, repoPath });
+          toast.success(`Stashed ${file.path}`);
+          triggerGraphReload();
+      } catch (e: any) {
+          toast.error(`Stash failed: ${e}`);
+          throw e;
+      }
+  }
+
+  static async stashAll(repoPath?: string): Promise<void> {
+      try {
+          await invoke("cmd_git_stash_all", { repoPath });
+          toast.success("Stashed all changes");
+          triggerGraphReload();
+      } catch (e: any) {
+          toast.error(`Stash all failed: ${e}`);
+          throw e;
+      }
+  }
+
+  static async openRepoFile(filePath: string, repoPath?: string): Promise<void> {
+      try {
+          await invoke("cmd_open_repo_file", { filePath, repoPath });
+      } catch (e: any) {
+          toast.error(`Open file failed: ${e}`);
+          throw e;
+      }
+  }
+
   // --- Branch Management ---
 
   static async getBranches(includeRemote = false, repoPath?: string): Promise<string[]> {

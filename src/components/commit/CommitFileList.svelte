@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { FileStatus } from "../../lib/GitService";
+  import { toast } from "../../lib/toast.svelte";
   import FileChangeStatusBadge from "../common/FileChangeStatusBadge.svelte";
 
   type ViewMode = "tree" | "path";
@@ -31,8 +32,18 @@
   };
 
   type ListRow = DirectoryRow | FileRow;
+  type FileContextMenu = {
+      visible: boolean;
+      x: number;
+      y: number;
+      file: FileStatus | null;
+  };
+
   const PATH_LABEL_MAX_LENGTH = 42;
   const PATH_COLLAPSE_TOKEN = "....";
+  const CONTEXT_MENU_WIDTH = 190;
+  const CONTEXT_MENU_ITEM_HEIGHT = 32;
+  const CONTEXT_MENU_PADDING_Y = 4;
 
   interface Props {
       title: string;
@@ -44,15 +55,45 @@
       actionIcon?: string; // Optional custom icon?
       onActionAll?: () => void;
       actionAllLabel?: string;
+      onOpenFile?: (file: FileStatus) => void;
       onDiscard?: (file: FileStatus) => void;
+      onStash?: (file: FileStatus) => void;
+      onStashAll?: () => void;
+      stashAllLabel?: string;
+      showStashAll?: boolean;
       onDiscardAll?: () => void;
       discardAllLabel?: string;
       showDiscardAll?: boolean;
       viewMode?: ViewMode;
   }
-  let { title, files, selectedFile, onSelect, onAction, actionLabel, onActionAll, actionAllLabel, onDiscard, onDiscardAll, discardAllLabel, showDiscardAll, viewMode = "path" }: Props = $props();
+  let {
+      title,
+      files,
+      selectedFile,
+      onSelect,
+      onAction,
+      actionLabel,
+      onActionAll,
+      actionAllLabel,
+      onOpenFile,
+      onDiscard,
+      onStash,
+      onStashAll,
+      stashAllLabel,
+      showStashAll,
+      onDiscardAll,
+      discardAllLabel,
+      showDiscardAll,
+      viewMode = "path"
+  }: Props = $props();
 
   let collapsedDirectories = $state<Set<string>>(new Set());
+  let fileContextMenu = $state<FileContextMenu>({
+      visible: false,
+      x: 0,
+      y: 0,
+      file: null
+  });
 
   function getTreePath(filePath: string): string {
       const normalized = filePath.replaceAll("\\", "/");
@@ -227,6 +268,7 @@
   });
 
   function toggleDirectory(path: string): void {
+      closeFileContextMenu();
       const next = new Set(collapsedDirectories);
       if (next.has(path)) {
           next.delete(path);
@@ -239,22 +281,120 @@
   function handleFileKeydown(event: KeyboardEvent, file: FileStatus): void {
       if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
+          closeFileContextMenu();
           onSelect(file);
       }
   }
 
+  function closeFileContextMenu(): void {
+      fileContextMenu = {
+          visible: false,
+          x: 0,
+          y: 0,
+          file: null
+      };
+  }
+
+  function getContextMenuHeight(): number {
+      let actionCount = 1; // Copy file path is always available.
+      if (onOpenFile) actionCount += 1;
+      if (onStash) actionCount += 1;
+      if (onDiscard) actionCount += 1;
+      return actionCount * CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_PADDING_Y * 2;
+  }
+
+  function getContextMenuPosition(clientX: number, clientY: number): { x: number; y: number } {
+      const menuHeight = getContextMenuHeight();
+      const maxX = Math.max(8, window.innerWidth - CONTEXT_MENU_WIDTH - 8);
+      const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
+      return {
+          x: Math.min(Math.max(8, clientX), maxX),
+          y: Math.min(Math.max(8, clientY), maxY)
+      };
+  }
+
   function handleFileContextMenu(event: MouseEvent, file: FileStatus): void {
-      if (!onDiscard) return;
       event.preventDefault();
       event.stopPropagation();
-      onDiscard(file);
+      const pos = getContextMenuPosition(event.clientX, event.clientY);
+      fileContextMenu = {
+          visible: true,
+          x: pos.x,
+          y: pos.y,
+          file
+      };
+  }
+
+  function handleOpenThisFile(): void {
+      if (!onOpenFile || !fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onOpenFile(target);
+  }
+
+  async function handleCopyFilePath(): Promise<void> {
+      if (!fileContextMenu.file) return;
+      const targetPath = fileContextMenu.file.path;
+      closeFileContextMenu();
+
+      try {
+          await navigator.clipboard.writeText(targetPath);
+          toast.success(`Copied path: ${targetPath}`);
+      } catch (e) {
+          console.error("Copy file path failed", e);
+          toast.error("Copy file path failed");
+      }
+  }
+
+  function handleStashThisFile(): void {
+      if (!onStash || !fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onStash(target);
+  }
+
+  function handleDiscardThisFile(): void {
+      if (!onDiscard || !fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onDiscard(target);
+  }
+
+  function handleWindowMouseDown(event: MouseEvent): void {
+      if (!fileContextMenu.visible) return;
+      const target = event.target as Element | null;
+      if (target?.closest(".file-context-menu")) return;
+      closeFileContextMenu();
+  }
+
+  function handleWindowKeydown(event: KeyboardEvent): void {
+      if (!fileContextMenu.visible) return;
+      if (event.key === "Escape") {
+          event.preventDefault();
+          closeFileContextMenu();
+      }
   }
 </script>
+
+<svelte:window onmousedown={handleWindowMouseDown} onkeydown={handleWindowKeydown} />
 
 <div class="flex flex-col flex-1 overflow-hidden min-h-0 border-b border-[#30363d] last:border-b-0">
     <div class="h-8 px-3 flex items-center bg-[#21262d] font-semibold text-xs uppercase tracking-wider text-[#8b949e] shrink-0 justify-between group/header">
         <span>{title} ({files.length})</span>
         <div class="flex items-center gap-1.5">
+            {#if onStashAll && (showStashAll ?? files.length > 0)}
+                <button
+                    class="opacity-90 hover:opacity-100 transition-opacity px-2 py-1 rounded hover:bg-[#1f2f45] text-[#58a6ff] hover:text-[#79c0ff] text-xs font-medium flex items-center gap-1.5"
+                    onclick={(e) => { e.stopPropagation(); onStashAll(); }}
+                    title={stashAllLabel ?? "Stash All Changes"}
+                >
+                    <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 7 12 13 21 7"></polyline>
+                        <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7"></path>
+                    </svg>
+                    {stashAllLabel ?? "Stash All"}
+                </button>
+            {/if}
             {#if onDiscardAll && (showDiscardAll ?? files.length > 0)}
                 <button
                     class="opacity-90 hover:opacity-100 transition-opacity px-2 py-1 rounded hover:bg-[#3b1f2c] text-[#f85149] hover:text-[#ff7b72] text-xs font-medium flex items-center gap-1.5"
@@ -311,7 +451,7 @@
                         class="group flex items-center gap-2 px-2 py-1.5 text-xs rounded cursor-pointer transition-colors relative
                                {isSelected(row.file) ? 'bg-[#30363d] text-white' : 'hover:bg-[#21262d] text-[#c9d1d9]'}"
                         style={`padding-left: ${8 + row.depth * 14}px;`}
-                        onclick={() => onSelect(row.file)}
+                        onclick={() => { closeFileContextMenu(); onSelect(row.file); }}
                         oncontextmenu={(e) => handleFileContextMenu(e, row.file)}
                         role="button"
                         tabindex="0"
@@ -322,7 +462,7 @@
                         
                         <button 
                             class="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#30363d] rounded text-[#8b949e] hover:text-white transition-opacity"
-                            onclick={(e) => { e.stopPropagation(); onAction(row.file); }}
+                            onclick={(e) => { e.stopPropagation(); closeFileContextMenu(); onAction(row.file); }}
                             title={actionLabel}
                         >
                             {#if actionLabel === 'Stage'}
@@ -337,6 +477,53 @@
         {/if}
     </div>
 </div>
+
+{#if fileContextMenu.visible}
+    <div
+        class="file-context-menu fixed z-[120] min-w-[180px] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl overflow-hidden"
+        style={`left: ${fileContextMenu.x}px; top: ${fileContextMenu.y}px;`}
+        role="menu"
+    >
+        <button
+            type="button"
+            class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+            onclick={() => void handleCopyFilePath()}
+            role="menuitem"
+        >
+            Copy file path
+        </button>
+        {#if onOpenFile}
+            <button
+                type="button"
+                class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                onclick={handleOpenThisFile}
+                role="menuitem"
+            >
+                Open file
+            </button>
+        {/if}
+        {#if onStash}
+            <button
+                type="button"
+                class="w-full text-left px-3 py-2 text-xs text-[#58a6ff] hover:bg-[#1f2f45] hover:text-[#79c0ff] transition-colors"
+                onclick={handleStashThisFile}
+                role="menuitem"
+            >
+                Stash this file
+            </button>
+        {/if}
+        {#if onDiscard}
+            <button
+                type="button"
+                class="w-full text-left px-3 py-2 text-xs text-[#f85149] hover:bg-[#3b1f2c] hover:text-[#ff7b72] transition-colors"
+                onclick={handleDiscardThisFile}
+                role="menuitem"
+            >
+                Discard this file
+            </button>
+        {/if}
+    </div>
+{/if}
 
 <style>
   .custom-scrollbar::-webkit-scrollbar {

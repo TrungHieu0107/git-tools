@@ -235,6 +235,35 @@
       }
   }
 
+  async function handleStashFile(file: FileStatus) {
+      if (!repoPath) return;
+      try {
+          await GitService.stashFile(file, repoPath);
+          await loadStatus(true);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
+  async function handleStashAll() {
+      if (!repoPath) return;
+      try {
+          await GitService.stashAll(repoPath);
+          await loadStatus(true);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
+  async function handleOpenFile(file: FileStatus) {
+      if (!repoPath) return;
+      try {
+          await GitService.openRepoFile(file.path, repoPath);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
 
 
   $effect(() => {
@@ -313,8 +342,13 @@
                         selectedFile={selectedFile}
                         onSelect={handleSelect}
                         onAction={handleStage}
+                        onOpenFile={handleOpenFile}
                         actionLabel="Stage"
                         onDiscard={handleDiscardFile}
+                        onStash={handleStashFile}
+                        onStashAll={handleStashAll}
+                        stashAllLabel="Stash All"
+                        showStashAll={unstagedFiles.length + stagedFiles.length > 0}
                         onDiscardAll={handleDiscardAll}
                         discardAllLabel="Discard All"
                         showDiscardAll={unstagedFiles.length + stagedFiles.length > 0}
@@ -334,8 +368,10 @@
                         selectedFile={selectedFile}
                         onSelect={handleSelect}
                         onAction={handleUnstage}
+                        onOpenFile={handleOpenFile}
                         actionLabel="Unstage"
                         onDiscard={handleDiscardFile}
+                        onStash={handleStashFile}
                         viewMode={fileViewMode}
                         onActionAll={handleUnstageAll}
                         actionAllLabel="Unstage All"

@@ -962,6 +962,147 @@ pub async fn cmd_git_discard_changes(
     Ok(())
 }
 
+#[tauri::command]
+pub async fn cmd_git_stash_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    file: FileStatus,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let exclusions = {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings.excluded_files.clone()
+    };
+
+    let raw_path = file.path.trim();
+    if raw_path.is_empty() {
+        return Err("No file path provided".to_string());
+    }
+
+    let stash_path = if let Some((_old_path, new_path)) = split_rename_path(raw_path) {
+        new_path
+    } else {
+        raw_path.to_string()
+    };
+
+    if is_excluded(&stash_path, &exclusions) {
+        return Err(format!("File {} is excluded from git operations", stash_path));
+    }
+
+    let include_untracked = file.status.trim() == "??";
+    let stash_message = format!("stash {}", stash_path);
+
+    let mut args: Vec<String> = vec![
+        "stash".into(),
+        "push".into(),
+        "-m".into(),
+        stash_message,
+    ];
+    if include_untracked {
+        args.push("-u".into());
+    }
+    args.push("--".into());
+    args.push(stash_path);
+
+    state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_git_stash_all(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let args: Vec<String> = vec![
+        "stash".into(),
+        "push".into(),
+        "-u".into(),
+        "-m".into(),
+        "stash all".into(),
+    ];
+
+    state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_open_repo_file(
+    state: State<'_, AppState>,
+    file_path: String,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let raw_path = file_path.trim();
+    if raw_path.is_empty() {
+        return Err("No file path provided".to_string());
+    }
+
+    let target_path = if let Some((_old_path, new_path)) = split_rename_path(raw_path) {
+        new_path
+    } else {
+        raw_path.to_string()
+    };
+
+    let candidate = PathBuf::from(&target_path);
+    let full_path = if candidate.is_absolute() {
+        candidate
+    } else {
+        Path::new(&r_path).join(candidate)
+    };
+
+    if !full_path.exists() {
+        return Err(format!("File not found: {}", full_path.display()));
+    }
+
+    let path_str = full_path.to_string_lossy().to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.arg("/C")
+            .arg("start")
+            .arg("")
+            .arg(&path_str);
+        hide_console_window(&mut cmd);
+        cmd.spawn().map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path_str)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path_str)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Conflict Resolution Commands (all async)
 // ---------------------------------------------------------------------------
