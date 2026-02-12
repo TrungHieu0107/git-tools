@@ -10,7 +10,6 @@
   import DiffToolbar from "./diff/DiffToolbar.svelte";
   import type { ViewMode } from "./diff/DiffToolbar.svelte";
   import CommitActions from "./commit/CommitActions.svelte";
-  import ResizableSection from "./resize/ResizableSection.svelte";
   import DiffView from "./diff/DiffView.svelte";
   import FileChangeStatusBadge from "./common/FileChangeStatusBadge.svelte";
 
@@ -31,8 +30,13 @@
   let committing = $state(false);
   let selectedEncoding = $state<string | undefined>(undefined);
   let fileViewMode = $state<"tree" | "path">("path");
+  let fileListsContainerEl = $state<HTMLDivElement | null>(null);
+  let fileListsResizeObserver: ResizeObserver | null = null;
+  let fileSplitTopHeight = $state<number | null>(null);
+  let isFileSplitDragging = $state(false);
 
   const FILE_VIEW_MODE_KEY = "commit_panel_file_view_mode";
+  const FILE_LIST_MIN_SECTION_HEIGHT = 80;
 
 
 
@@ -264,6 +268,69 @@
       }
   }
 
+  function getFileSplitMetrics() {
+      if (!fileListsContainerEl) return null;
+
+      const rect = fileListsContainerEl.getBoundingClientRect();
+      const totalHeight = rect.height;
+      const minTop = Math.min(FILE_LIST_MIN_SECTION_HEIGHT, Math.max(0, totalHeight - FILE_LIST_MIN_SECTION_HEIGHT));
+      const maxTop = Math.max(minTop, totalHeight - FILE_LIST_MIN_SECTION_HEIGHT);
+
+      return { rect, totalHeight, minTop, maxTop };
+  }
+
+  function syncFileSplitHeight() {
+      const metrics = getFileSplitMetrics();
+      if (!metrics) return;
+
+      const fallback = Math.max(
+          metrics.minTop,
+          Math.min(metrics.maxTop, Math.floor(metrics.totalHeight * 0.5))
+      );
+
+      if (fileSplitTopHeight === null) {
+          fileSplitTopHeight = fallback;
+          return;
+      }
+
+      fileSplitTopHeight = Math.max(metrics.minTop, Math.min(metrics.maxTop, fileSplitTopHeight));
+  }
+
+  function handleFileSplitPointerDown(event: PointerEvent) {
+      if (!fileListsContainerEl) return;
+      event.preventDefault();
+
+      isFileSplitDragging = true;
+      syncFileSplitHeight();
+
+      const handle = event.currentTarget as HTMLElement | null;
+      if (handle) {
+          handle.setPointerCapture(event.pointerId);
+      }
+      document.body.classList.add("resizing-v");
+  }
+
+  function handleFileSplitPointerMove(event: PointerEvent) {
+      if (!isFileSplitDragging) return;
+
+      const metrics = getFileSplitMetrics();
+      if (!metrics) return;
+
+      const pointerTop = event.clientY - metrics.rect.top;
+      fileSplitTopHeight = Math.max(metrics.minTop, Math.min(metrics.maxTop, pointerTop));
+  }
+
+  function handleFileSplitPointerUp(event: PointerEvent) {
+      if (!isFileSplitDragging) return;
+      isFileSplitDragging = false;
+
+      const handle = event.currentTarget as HTMLElement | null;
+      if (handle?.hasPointerCapture(event.pointerId)) {
+          handle.releasePointerCapture(event.pointerId);
+      }
+      document.body.classList.remove("resizing-v");
+  }
+
 
 
   $effect(() => {
@@ -277,6 +344,25 @@
       if (saved === "tree" || saved === "path") {
           fileViewMode = saved;
       }
+  });
+
+  onMount(() => {
+      if (typeof ResizeObserver !== "undefined" && fileListsContainerEl) {
+          fileListsResizeObserver = new ResizeObserver(() => {
+              syncFileSplitHeight();
+          });
+          fileListsResizeObserver.observe(fileListsContainerEl);
+      }
+
+      syncFileSplitHeight();
+
+      return () => {
+          if (fileListsResizeObserver) {
+              fileListsResizeObserver.disconnect();
+              fileListsResizeObserver = null;
+          }
+          document.body.classList.remove("resizing-v");
+      };
   });
 
   $effect(() => {
@@ -332,52 +418,69 @@
         </div>
 
         <!-- Resizable file list sections (scrollable region) -->
-        <div class="flex-1 min-h-0 flex flex-col overflow-auto">
+        <div bind:this={fileListsContainerEl} class="flex-1 min-h-0 flex flex-col overflow-hidden">
             <!-- Changes (Unstaged) - shown first to match Git workflow -->
-            <ResizableSection initialSize={180} minSize={80} maxSize={400}>
-                <div class="h-full flex flex-col">
-                    <CommitFileList
-                        title="Changes"
-                        files={unstagedFiles}
-                        selectedFile={selectedFile}
-                        onSelect={handleSelect}
-                        onAction={handleStage}
-                        onOpenFile={handleOpenFile}
-                        actionLabel="Stage"
-                        onDiscard={handleDiscardFile}
-                        onStash={handleStashFile}
-                        onStashAll={handleStashAll}
-                        stashAllLabel="Stash All"
-                        showStashAll={unstagedFiles.length + stagedFiles.length > 0}
-                        onDiscardAll={handleDiscardAll}
-                        discardAllLabel="Discard All"
-                        showDiscardAll={unstagedFiles.length + stagedFiles.length > 0}
-                        viewMode={fileViewMode}
-                        onActionAll={handleStageAll}
-                        actionAllLabel="Stage All"
-                    />
-                </div>
-            </ResizableSection>
+            <div
+                class="min-h-0 shrink-0 flex flex-col"
+                style={fileSplitTopHeight === null ? "height: 50%;" : `height: ${fileSplitTopHeight}px;`}
+            >
+                <CommitFileList
+                    title="Changes"
+                    files={unstagedFiles}
+                    selectedFile={selectedFile}
+                    onSelect={handleSelect}
+                    onAction={handleStage}
+                    onOpenFile={handleOpenFile}
+                    actionLabel="Stage"
+                    onDiscard={handleDiscardFile}
+                    onStash={handleStashFile}
+                    onStashAll={handleStashAll}
+                    stashAllLabel="Stash All"
+                    showStashAll={unstagedFiles.length + stagedFiles.length > 0}
+                    onDiscardAll={handleDiscardAll}
+                    discardAllLabel="Discard All"
+                    showDiscardAll={unstagedFiles.length + stagedFiles.length > 0}
+                    viewMode={fileViewMode}
+                    onActionAll={handleStageAll}
+                    actionAllLabel="Stage All"
+                />
+            </div>
+
+            <!-- Shared splitter between Changes and Staged Changes -->
+            <div
+                class="relative h-2 shrink-0 cursor-row-resize select-none z-10 group"
+                onpointerdown={handleFileSplitPointerDown}
+                onpointermove={handleFileSplitPointerMove}
+                onpointerup={handleFileSplitPointerUp}
+                onpointercancel={handleFileSplitPointerUp}
+                role="separator"
+                aria-orientation="horizontal"
+                tabindex="-1"
+                title="Resize Changes and Staged Changes"
+            >
+                <div
+                    class="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-px transition-colors
+                           {isFileSplitDragging ? 'bg-[#58a6ff]' : 'bg-[#30363d] group-hover:bg-[#484f58]'}"
+                ></div>
+            </div>
 
             <!-- Staged Changes -->
-            <ResizableSection initialSize={180} minSize={80} maxSize={400}>
-                <div class="h-full flex flex-col border-t border-[#30363d]">
-                    <CommitFileList
-                        title="Staged Changes"
-                        files={stagedFiles}
-                        selectedFile={selectedFile}
-                        onSelect={handleSelect}
-                        onAction={handleUnstage}
-                        onOpenFile={handleOpenFile}
-                        actionLabel="Unstage"
-                        onDiscard={handleDiscardFile}
-                        onStash={handleStashFile}
-                        viewMode={fileViewMode}
-                        onActionAll={handleUnstageAll}
-                        actionAllLabel="Unstage All"
-                    />
-                </div>
-            </ResizableSection>
+            <div class="min-h-0 flex-1 flex flex-col border-t border-[#30363d]">
+                <CommitFileList
+                    title="Staged Changes"
+                    files={stagedFiles}
+                    selectedFile={selectedFile}
+                    onSelect={handleSelect}
+                    onAction={handleUnstage}
+                    onOpenFile={handleOpenFile}
+                    actionLabel="Unstage"
+                    onDiscard={handleDiscardFile}
+                    onStash={handleStashFile}
+                    viewMode={fileViewMode}
+                    onActionAll={handleUnstageAll}
+                    actionAllLabel="Unstage All"
+                />
+            </div>
         </div>
 
         <!-- Commit Actions: fixed at bottom, non-resizable -->
@@ -433,3 +536,10 @@
         {/if}
     </div>
 </div>
+
+<style>
+  :global(body.resizing-v) {
+    user-select: none !important;
+    cursor: row-resize !important;
+  }
+</style>
