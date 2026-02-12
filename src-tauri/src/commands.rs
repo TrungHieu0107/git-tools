@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use tauri::{AppHandle, State};
 use uuid::Uuid;
@@ -68,6 +70,15 @@ fn map_git_result(resp: GitResponse, command_type: GitCommandType) -> GitCommand
         command_type,
     }
 }
+
+#[cfg(target_os = "windows")]
+fn hide_console_window(cmd: &mut std::process::Command) {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hide_console_window(_cmd: &mut std::process::Command) {}
 
 
 fn is_excluded(path: &str, exclusions: &[String]) -> bool {
@@ -1528,9 +1539,11 @@ pub async fn cmd_get_commit_changed_files(
         commit_hash,
     ];
 
-    let output = std::process::Command::new(state.git.binary_path())
-        .args(&args)
-        .current_dir(&path)
+    let mut command = std::process::Command::new(state.git.binary_path());
+    command.args(&args).current_dir(&path);
+    hide_console_window(&mut command);
+
+    let output = command
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -1638,9 +1651,13 @@ pub async fn cmd_get_commit_file_diff(
     let path = resolve_repo_path(&state, repo_path)?;
 
     // git show <commit> -- <path>
-    let output = std::process::Command::new(state.git.binary_path())
+    let mut command = std::process::Command::new(state.git.binary_path());
+    command
         .args(&["show", &commit_hash, "--", &file_path])
-        .current_dir(&path)
+        .current_dir(&path);
+    hide_console_window(&mut command);
+
+    let output = command
         .output()
         .map_err(|e| e.to_string())?;
 

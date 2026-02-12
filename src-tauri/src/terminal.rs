@@ -5,6 +5,18 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+fn hide_console_window(cmd: &mut Command) {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hide_console_window(_cmd: &mut Command) {}
+
 pub struct TerminalSession {
     process: Child,
     stdin: std::process::ChildStdin,
@@ -29,7 +41,8 @@ impl TerminalManager {
             return Ok(());
         }
 
-        let mut child = Command::new("powershell")
+        let mut command = Command::new("powershell");
+        command
             .arg("-NoLogo")
             .arg("-NoExit")
             .arg("-Command")
@@ -37,7 +50,10 @@ impl TerminalManager {
             .current_dir(&repo_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        hide_console_window(&mut command);
+
+        let mut child = command
             .spawn()
             .map_err(|e| format!("Failed to spawn powershell: {}", e))?;
 
