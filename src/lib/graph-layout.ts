@@ -8,7 +8,7 @@ export interface Commit {
 }
 
 export interface GraphNode extends Commit {
-  x: number; // Lane index (0, 1, 2...)
+  x: number; // Stable column index (0, 1, 2...)
   y: number; // Row index (0, 1, 2...)
   color: string;
 }
@@ -19,20 +19,46 @@ export interface GraphEdge {
   x2: number;
   y2: number;
   color: string;
-  type: "straight" | "curve";
+  parentIndex: number; // 0 = first-parent (continuity), >0 = secondary (merge/fork)
 }
 
 const PALETTE = [
-  "#0ea5e9", // Sky Blue
-  "#22c55e", // Green
-  "#eab308", // Yellow
-  "#f97316", // Orange
-  "#ef4444", // Red
-  "#a855f7", // Purple
-  "#ec4899", // Pink
-  "#14b8a6", // Teal
-  "#6366f1", // Indigo
+  "#58a6ff", // Blue
+  "#3fb950", // Green
+  "#f2cc60", // Amber
+  "#ff7b72", // Red
+  "#bc8cff", // Purple
+  "#79c0ff", // Cyan
+  "#ffa657", // Orange
+  "#d2a8ff", // Lavender
+  "#56d364", // Mint
 ];
+
+export function buildStraightGraphPath(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  turnGap = 10,
+  turnAtStart = false
+): string {
+  if (x1 === x2) {
+    return `M ${x1} ${y1} V ${y2}`;
+  }
+
+  const verticalDistance = Math.abs(y2 - y1);
+  const clampedTurnGap = Math.max(4, Math.min(turnGap, verticalDistance / 2));
+
+  if (turnAtStart) {
+    // Turn near the source (y1): depart horizontally, then run vertically to parent.
+    const turnY = y2 >= y1 ? y1 + clampedTurnGap : y1 - clampedTurnGap;
+    return `M ${x1} ${y1} V ${turnY} H ${x2} V ${y2}`;
+  } else {
+    // Turn near the target (y2): run vertically, then turn horizontally into parent.
+    const turnY = y2 >= y1 ? y2 - clampedTurnGap : y2 + clampedTurnGap;
+    return `M ${x1} ${y1} V ${turnY} H ${x2} V ${y2}`;
+  }
+}
 
 export function parseGitLog(output: string): Commit[] {
   if (!output.trim()) return [];
@@ -48,11 +74,16 @@ export function parseGitLog(output: string): Commit[] {
       const refsStr = parts[2];
       const author = parts[3];
       const date = parts[4];
-      const subject = parts.slice(5).join("|"); // Join rest in case of pipe in subject
+      const subject = parts.slice(5).join("|");
 
       let refs: string[] = [];
       if (refsStr && refsStr.trim()) {
-        refs = refsStr.trim().replace(/^\(/, "").replace(/\)$/, "").split(",").map(r => r.trim());
+        refs = refsStr
+          .trim()
+          .replace(/^\(/, "")
+          .replace(/\)$/, "")
+          .split(",")
+          .map((r) => r.trim());
       }
 
       return {
@@ -69,138 +100,112 @@ export function parseGitLog(output: string): Commit[] {
 export function calculateGraphLayout(commits: Commit[]): { nodes: GraphNode[]; edges: GraphEdge[] } {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
-  
-  // Lane state management
-  // Maps a lane index to the commit hash it is currently "expecting" (reserved for)
-  const lanes: (string | null)[] = []; 
-  // Track colors for consistency
-  const laneColors: string[] = []; 
 
-  function getColor(laneIdx: number) {
-      if (!laneColors[laneIdx]) {
-          laneColors[laneIdx] = PALETTE[laneIdx % PALETTE.length];
-      }
-      return laneColors[laneIdx];
+  // branch tip hash -> fixed column index
+  const activeBranches = new Map<string, number>();
+  const freeColumns: number[] = [];
+  const laneColors: string[] = [];
+  let nextColumn = 0;
+
+  function getColor(columnIndex: number) {
+    if (!laneColors[columnIndex]) {
+      laneColors[columnIndex] = PALETTE[columnIndex % PALETTE.length];
+    }
+    return laneColors[columnIndex];
   }
 
-  // Iterate top-down to place nodes
+  function takeColumn(): number {
+    if (freeColumns.length > 0) {
+      freeColumns.sort((a, b) => a - b);
+      return freeColumns.shift()!;
+    }
+    const column = nextColumn;
+    nextColumn += 1;
+    return column;
+  }
+
+  function releaseColumn(column: number) {
+    // Keep root lane anchored on the far left.
+    if (column === 0) return;
+    if (!freeColumns.includes(column)) {
+      freeColumns.push(column);
+    }
+  }
+
   for (let i = 0; i < commits.length; i++) {
     const commit = commits[i];
-    let laneIdx = -1;
+    let column = activeBranches.get(commit.hash);
 
-    // 1. Check if any lane is reserved for this commit (from a previous child)
-    // We prioritize the lowest index lane to keep graph left-aligned
-    const reservedLaneIdx = lanes.indexOf(commit.hash);
-
-    if (reservedLaneIdx !== -1) {
-        laneIdx = reservedLaneIdx;
-        // Clear this reservation, we are placing the commit now
-        lanes[laneIdx] = null;
+    if (column !== undefined) {
+      activeBranches.delete(commit.hash);
     } else {
-        // No reservation (new branch, or disjoint history start)
-        // Find first empty lane
-        let freeIdx = lanes.indexOf(null);
-        if (freeIdx === -1) {
-            freeIdx = lanes.length;
-            lanes.push(null);
-        }
-        laneIdx = freeIdx;
+      column = takeColumn();
     }
 
-    // Assign Node placement
-    const color = getColor(laneIdx);
-    const node: GraphNode = {
-        ...commit,
-        x: laneIdx,
-        y: i,
-        color
-    };
-    nodes.push(node);
+    nodes.push({
+      ...commit,
+      x: column,
+      y: i,
+      color: getColor(column),
+    });
 
-    // 2. Prepare reservations for parents
-    const parents = commit.parents;
-    
-    // First parent typically continues the branch (straight line down)
-    // IMPORTANT: Only reserve if the parent isn't ALREADY reserved by someone else (merge scenario)
-    // If parent is already reserved, we have to curve to it later (merge).
-    // If we are the primary child (first), we try to keep the lane.
-    
-    if (parents.length > 0) {
-        const firstParent = parents[0];
-        
-        // If current lane is holding a reservation for something else (e.g. we just cleared it above, but logic?)
-        // Actually, we just cleared `lanes[laneIdx]` above.
-        
-        // Check if firstParent is already reserved elsewhere
-        const existingReservation = lanes.indexOf(firstParent);
-        
-        if (existingReservation !== -1) {
-            // Merge logic: Parent is already continuing another lane (we are merging INTO it)
-            // We cease this lane. `lanes[laneIdx]` stays null (or free).
-            // We will draw a curve to that other lane later.
-        } else {
-            // Continue this lane
-            lanes[laneIdx] = firstParent;
-        }
+    if (commit.parents.length === 0) {
+      releaseColumn(column);
+      continue;
+    }
 
-        // Secondary parents (Merge bases)
-        for (let p = 1; p < parents.length; p++) {
-             const otherParent = parents[p];
-             const otherIdx = lanes.indexOf(otherParent);
-             
-             if (otherIdx === -1) {
-                 // Reserve a NEW lane for this other parent history
-                 let freeIdx = lanes.indexOf(null);
-                 if (freeIdx === -1) {
-                     freeIdx = lanes.length;
-                     lanes.push(null);
-                 }
-                 lanes[freeIdx] = otherParent;
-                 // Assign color if new
-                 if(!laneColors[freeIdx]) laneColors[freeIdx] = PALETTE[freeIdx % PALETTE.length];
-             }
-             // If already reserved, we just connect to it later
-        }
+    const [firstParent, ...secondaryParents] = commit.parents;
+    const firstParentColumn = activeBranches.get(firstParent);
+
+    if (firstParentColumn === undefined) {
+      activeBranches.set(firstParent, column);
+    } else if (firstParentColumn === column) {
+      // Already on the right column — no-op.
+    } else if (column === 0) {
+      // Column 0 always wins contention to keep the root lane stable.
+      activeBranches.set(firstParent, 0);
+    } else {
+      // This branch merged into an existing lane; current lane can be reused.
+      releaseColumn(column);
+    }
+
+    for (const parentHash of secondaryParents) {
+      if (activeBranches.has(parentHash)) continue;
+      const secondaryColumn = takeColumn();
+      activeBranches.set(parentHash, secondaryColumn);
+      getColor(secondaryColumn);
     }
   }
 
-  // Pass 2: Generate Edges based on placed nodes
-  // Optimization: We can do this in Pass 1 if we had a "Node Map", but separating is cleaner for logic
-  // Since we only have the Array, for every node we need to find its parents' positions.
-  // With N=100 or 500, simple lookup is instant.
-  
-  // Note: graph might not contain all parents (if list is limited/paged)
   const nodeMap = new Map<string, GraphNode>();
-  nodes.forEach(n => nodeMap.set(n.hash, n));
+  nodes.forEach((node) => nodeMap.set(node.hash, node));
 
   for (const node of nodes) {
-      for (let p=0; p < node.parents.length; p++) {
-          const parentHash = node.parents[p];
-          const parentNode = nodeMap.get(parentHash);
+    for (let parentIndex = 0; parentIndex < node.parents.length; parentIndex++) {
+      const parentHash = node.parents[parentIndex];
+      const parentNode = nodeMap.get(parentHash);
 
-          if (parentNode) {
-              edges.push({
-                  x1: node.x,
-                  y1: node.y,
-                  x2: parentNode.x,
-                  y2: parentNode.y,
-                  color: p === 0 ? node.color : parentNode.color, // Primary edge takes node color, merge edges take source branch color usually
-                  type: (node.x === parentNode.x) ? "straight" : "curve"
-              });
-          } else {
-              // Parent off-screen. Draw generic "down" edge.
-              // If it's first parent, assume straight down.
-              if (p === 0) {
-                  edges.push({
-                      x1: node.x, y1: node.y,
-                      x2: node.x, y2: node.y + 1, // Just fade out down
-                      color: node.color,
-                      type: "straight"
-                  });
-              }
-              // Ignore secondary parents off-screen to reduce clutter
-          }
+      if (parentNode) {
+        edges.push({
+          x1: node.x,
+          y1: node.y,
+          x2: parentNode.x,
+          y2: parentNode.y,
+          color: parentIndex === 0 ? node.color : parentNode.color,
+          parentIndex,
+        });
+      } else if (parentIndex === 0) {
+        // Parent is outside loaded range; continue line down to viewport edge.
+        edges.push({
+          x1: node.x,
+          y1: node.y,
+          x2: node.x,
+          y2: node.y + 1,
+          color: node.color,
+          parentIndex: 0,
+        });
       }
+    }
   }
 
   return { nodes, edges };

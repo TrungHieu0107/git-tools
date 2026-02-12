@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { GraphNode, GraphEdge } from "../lib/graph-layout";
-  import { onMount, tick } from "svelte";
+  import { buildStraightGraphPath, type GraphNode, type GraphEdge } from "../lib/graph-layout";
+  import { onMount } from "svelte";
   import { GitService } from "../lib/GitService";
   import { confirm } from "../lib/confirmation.svelte";
   import ResizablePanel from "./resize/ResizablePanel.svelte";
@@ -18,12 +18,17 @@
 
   let { nodes = [], edges = [], repoPath, pendingPushCount = 0, onGraphReload }: Props = $props();
 
-  const ROW_HEIGHT = 28;
-  const COL_WIDTH = 20; 
-  const DOT_RADIUS = 4;
+  const ROW_HEIGHT = 40;
+  const COL_WIDTH = 28;
+  const DOT_RADIUS = 5;
   const STROKE_WIDTH = 2;
+  const MERGE_TURN_GAP = 10;
   const PADDING_TOP = 8;
-  const PADDING_LEFT = 10;
+  const PADDING_LEFT = 24;
+  const TOOLTIP_OFFSET_X = 14;
+  const TOOLTIP_OFFSET_Y = 12;
+  const TOOLTIP_MAX_WIDTH = 360;
+  const TOOLTIP_MAX_HEIGHT = 88;
 
   const HEADER_BASE = "h-8 flex items-center bg-[#161b22] border-b border-[#30363d] shrink-0";
   
@@ -236,6 +241,152 @@
   
   // -- Visibility Toggle --
   let showMenu = $state(false);
+  let hoveredBranchColor = $state<string | null>(null);
+  let hoveredCommitHash = $state<string | null>(null);
+  let graphViewportEl = $state<HTMLDivElement | null>(null);
+
+  type GraphTooltip = {
+      visible: boolean;
+      x: number;
+      y: number;
+      subject: string;
+      hash: string;
+  };
+
+  let graphTooltip = $state<GraphTooltip>({
+      visible: false,
+      x: 0,
+      y: 0,
+      subject: "",
+      hash: ""
+  });
+
+  type EdgeGeometry = {
+      key: string;
+      color: string;
+      path: string;
+  };
+
+  let graphColumn = $derived(columns.find(c => c.id === "graph"));
+
+  function columnToX(columnIndex: number) {
+      return columnIndex * COL_WIDTH;
+  }
+
+  function rowToY(rowIndex: number) {
+      return rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
+  }
+
+  function nodeRenderX(node: GraphNode) {
+      return columnToX(node.x);
+  }
+
+  function nodeRenderY(node: GraphNode) {
+      return rowToY(node.y);
+  }
+
+  function getNodeRadius(node: GraphNode) {
+      if (selectedCommit?.hash === node.hash) return DOT_RADIUS + 0.6;
+      if (hoveredBranchColor === node.color) return DOT_RADIUS + 0.9;
+      return DOT_RADIUS;
+  }
+
+  // Geometry is memoized against edge inputs so minor UI state updates avoid recomputing routes.
+  let edgeGeometry = $derived.by<EdgeGeometry[]>(() =>
+      edges.map((edge, idx) => {
+          const x1 = columnToX(edge.x1);
+          const y1 = rowToY(edge.y1);
+          const x2 = columnToX(edge.x2);
+          const y2 = rowToY(edge.y2);
+          // Secondary parent edges (forks) turn near the source (child/merge commit).
+          // First parent edges (continuity) turn near the target (parent).
+          const turnAtStart = edge.parentIndex > 0;
+
+          return {
+              key: `${edge.x1}:${edge.y1}:${edge.x2}:${edge.y2}:${edge.color}:${idx}`,
+              color: edge.color,
+              path: buildStraightGraphPath(x1, y1, x2, y2, MERGE_TURN_GAP, turnAtStart)
+          };
+      })
+  );
+
+  function handleCommitRowKeydown(event: KeyboardEvent, node: GraphNode) {
+      if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          void selectCommit(node);
+      }
+  }
+
+  function getRowCellHighlightClass(nodeHash: string, columnId: string): string {
+      if (columnId === "graph") return "";
+      if (selectedCommit?.hash === nodeHash) return "row-info-cell-selected";
+      if (hoveredCommitHash === nodeHash) return "row-info-cell-hovered";
+      return "";
+  }
+
+  function getTooltipPosition(event: MouseEvent) {
+      if (!graphViewportEl) {
+          return { x: event.clientX + TOOLTIP_OFFSET_X, y: event.clientY + TOOLTIP_OFFSET_Y };
+      }
+
+      const rect = graphViewportEl.getBoundingClientRect();
+      const rawX = event.clientX - rect.left + TOOLTIP_OFFSET_X;
+      const rawY = event.clientY - rect.top + TOOLTIP_OFFSET_Y;
+      const maxX = Math.max(8, rect.width - TOOLTIP_MAX_WIDTH);
+      const maxY = Math.max(8, rect.height - TOOLTIP_MAX_HEIGHT);
+
+      return {
+          x: Math.min(Math.max(8, rawX), maxX),
+          y: Math.min(Math.max(8, rawY), maxY)
+      };
+  }
+
+  function showCommitTooltip(event: MouseEvent, node: GraphNode) {
+      const pos = getTooltipPosition(event);
+      graphTooltip.visible = true;
+      graphTooltip.x = pos.x;
+      graphTooltip.y = pos.y;
+      graphTooltip.subject = node.subject;
+      graphTooltip.hash = node.hash;
+  }
+
+  function moveCommitTooltip(event: MouseEvent) {
+      if (!graphTooltip.visible) return;
+      const pos = getTooltipPosition(event);
+      graphTooltip.x = pos.x;
+      graphTooltip.y = pos.y;
+  }
+
+  function hideCommitTooltip() {
+      graphTooltip.visible = false;
+  }
+
+  function handleRowMouseEnter(event: MouseEvent, node: GraphNode) {
+      hoveredCommitHash = node.hash;
+      hoveredBranchColor = node.color;
+      showCommitTooltip(event, node);
+  }
+
+  function handleRowMouseMove(event: MouseEvent) {
+      moveCommitTooltip(event);
+  }
+
+  function handleRowMouseLeave() {
+      hoveredCommitHash = null;
+      hoveredBranchColor = null;
+      hideCommitTooltip();
+  }
+
+  function handleRowFocus(node: GraphNode) {
+      hoveredCommitHash = node.hash;
+      hoveredBranchColor = node.color;
+  }
+
+  function handleRowBlur() {
+      hoveredCommitHash = null;
+      hoveredBranchColor = null;
+      hideCommitTooltip();
+  }
 
   // Helper to parse refs for badges
   function getBadges(refs: string[]) {
@@ -444,77 +595,74 @@
             {/each}
         </div>
 
-        <div class="flex-1 overflow-auto custom-scrollbar relative">
+        <div class="flex-1 overflow-auto custom-scrollbar relative" bind:this={graphViewportEl} onscroll={hideCommitTooltip}>
             <div class="relative min-w-full" style="height: {nodes.length * ROW_HEIGHT + PADDING_TOP}px;">
                 
                 <!-- Graph SVG Layer -->
                 <!-- Locked to the width of the 'graph' column if visible -->
-                {#if columns.find(c => c.id === 'graph')?.visible}
-                    <div class="absolute top-0 left-0 h-full pointer-events-none z-10 overflow-hidden" style="width: {columns.find(c => c.id === 'graph')?.width}px">
+                {#if graphColumn?.visible}
+                    <div class="absolute top-0 left-0 h-full pointer-events-none z-[5] overflow-hidden" style="width: {graphColumn?.width}px">
                         <svg class="w-full h-full"> 
                         <g transform="translate({PADDING_LEFT}, {PADDING_TOP})">
-                            <!-- Edges -->
-                            {#each edges as edge}
-                            {#if edge.type === 'straight'}
-                                <line 
-                                    x1={edge.x1 * COL_WIDTH + COL_WIDTH/2} 
-                                    y1={edge.y1 * ROW_HEIGHT + ROW_HEIGHT/2} 
-                                    x2={edge.x2 * COL_WIDTH + COL_WIDTH/2} 
-                                    y2={edge.y2 * ROW_HEIGHT + ROW_HEIGHT/2}
-                                    stroke={edge.color}
-                                    stroke-width={STROKE_WIDTH}
-                                    stroke-linecap="round"
-                                />
-                            {:else}
-                                <path
-                                    d="M {edge.x1 * COL_WIDTH + COL_WIDTH/2} {edge.y1 * ROW_HEIGHT + ROW_HEIGHT/2}
-                                        C {edge.x1 * COL_WIDTH + COL_WIDTH/2} {edge.y2 * ROW_HEIGHT},
-                                            {edge.x2 * COL_WIDTH + COL_WIDTH/2} {edge.y1 * ROW_HEIGHT + ROW_HEIGHT},
-                                            {edge.x2 * COL_WIDTH + COL_WIDTH/2} {edge.y2 * ROW_HEIGHT + ROW_HEIGHT/2}"
-                                    fill="none"
-                                    stroke={edge.color}
-                                    stroke-width={STROKE_WIDTH}
-                                    stroke-linecap="round"
-                                    opacity="0.8"
-                                />
-                            {/if}
-                            {/each}
-                            
-                            <!-- Nodes -->
-                            {#each nodes as node}
-                            <circle 
-                                cx={node.x * COL_WIDTH + COL_WIDTH/2} 
-                                cy={node.y * ROW_HEIGHT + ROW_HEIGHT/2} 
-                                r={DOT_RADIUS} 
-                                fill={node.color} 
-                                stroke="#0d1117"
-                                stroke-width="4"
-                            />
-                            {/each}
+                            <g class="edges">
+                                {#each edgeGeometry as edge (edge.key)}
+                                    <path
+                                        class="graph-edge"
+                                        d={edge.path}
+                                        fill="none"
+                                        stroke={edge.color}
+                                        stroke-width={STROKE_WIDTH}
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                        opacity={hoveredBranchColor && edge.color !== hoveredBranchColor ? 0.26 : 0.92}
+                                    />
+                                {/each}
+                            </g>
+                            <g class="nodes">
+                                {#each nodes as node (node.hash)}
+                                <circle 
+                                    cx={nodeRenderX(node)} 
+                                    cy={nodeRenderY(node)} 
+                                    r={getNodeRadius(node)} 
+                                    fill={node.color} 
+                                    stroke={selectedCommit?.hash === node.hash ? "#f0f6fc" : "#0d1117"}
+                                    stroke-width={selectedCommit?.hash === node.hash ? 4.5 : 4}
+                                    aria-label={`Commit ${node.hash}`}
+                                >
+                                    <title>{`${node.hash} - ${node.subject}`}</title>
+                                </circle>
+                                {/each}
+                            </g>
                         </g>
                         </svg>
                     </div>
                 {/if}
 
                 <!-- Rows Container -->
-                <div class="absolute top-0 left-0 w-full pt-[8px]">
-                {#each nodes as node}
+                <div class="absolute top-0 left-0 w-full pt-[8px] z-10">
+                {#each nodes as node (node.hash)}
                     <div 
-                        class="border-b border-[#30363d]/20 hover:bg-[#0d1b2a] transition-colors text-xs items-center group cursor-pointer
-                               {selectedCommit?.hash === node.hash ? 'bg-[#1f6feb]/20 hover:bg-[#1f6feb]/30' : ''}"
+                        class="border-b border-[#30363d]/20 transition-colors text-xs items-center group cursor-pointer
+                               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#58a6ff]/70 focus-visible:ring-inset"
                         style="display: grid; grid-template-columns: {gridTemplate}; height: {ROW_HEIGHT}px;"
                         onclick={() => selectCommit(node)}
+                        onmouseenter={(e) => handleRowMouseEnter(e, node)}
+                        onmousemove={handleRowMouseMove}
+                        onmouseleave={handleRowMouseLeave}
+                        onfocus={() => handleRowFocus(node)}
+                        onblur={handleRowBlur}
                         role="button"
                         tabindex="0"
-                        onkeydown={(e) => e.key === 'Enter' && selectCommit(node)}
+                        aria-label={`Select commit ${node.hash}: ${node.subject}`}
+                        onkeydown={(e) => handleCommitRowKeydown(e, node)}
                     >
                         {#each visibleColumns as col}
                         {#if col.id === 'graph'}
-                            <div><!-- Placeholder for SVG overlay --></div>
+                            <div class="pointer-events-none"><!-- Placeholder for SVG overlay --></div>
                         {:else if col.id === 'hash'}
-                            <div class="pl-4 font-mono text-[#8b949e] opacity-70 truncate">{node.hash}</div>
+                            <div class="pl-4 font-mono text-[#8b949e] opacity-70 truncate graph-row-info-cell {getRowCellHighlightClass(node.hash, col.id)}">{node.hash}</div>
                         {:else if col.id === 'message'}
-                            <div class="pl-4 flex items-center min-w-0 pr-4 overflow-hidden">
+                            <div class="pl-4 flex items-center min-w-0 pr-4 overflow-hidden graph-row-info-cell {getRowCellHighlightClass(node.hash, col.id)}">
                                 <!-- Badges inside Message column -->
                                 {#each getBadges(node.refs) as badge}
                                     <span 
@@ -527,12 +675,12 @@
                                     {badge.text}
                                     </span>
                                 {/each}
-                                <span class="truncate text-[#c9d1d9] group-hover:text-white" title={node.subject}>{node.subject}</span>
+                                <span class="truncate text-[#c9d1d9] group-hover:text-white">{node.subject}</span>
                             </div>
                         {:else if col.id === 'author'}
-                            <div class="pl-4 truncate text-[#c9d1d9] opacity-80" title={node.author}>{node.author}</div>
+                            <div class="pl-4 truncate text-[#c9d1d9] opacity-80 graph-row-info-cell {getRowCellHighlightClass(node.hash, col.id)}">{node.author}</div>
                         {:else if col.id === 'date'}
-                            <div class="pl-4 text-[#8b949e] opacity-70 font-mono truncate">
+                            <div class="pl-4 text-[#8b949e] opacity-70 font-mono truncate graph-row-info-cell {getRowCellHighlightClass(node.hash, col.id)}">
                                 {new Date(node.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit' })}
                             </div>
                         {/if}
@@ -541,6 +689,17 @@
                 {/each}
                 </div>
 
+            </div>
+            <div class="absolute inset-0 z-50 pointer-events-none">
+                {#if graphTooltip.visible}
+                    <div
+                        class="graph-tooltip absolute"
+                        style="transform: translate({graphTooltip.x}px, {graphTooltip.y}px);"
+                    >
+                        <div class="graph-tooltip-subject">{graphTooltip.subject}</div>
+                        <div class="graph-tooltip-hash">{graphTooltip.hash}</div>
+                    </div>
+                {/if}
             </div>
         </div>
   </div>
@@ -623,6 +782,58 @@
 </div>
 
 <style>
+  .graph-edge {
+    transition: opacity 120ms ease;
+    animation: graph-edge-fade-in 180ms ease-out both;
+  }
+
+  .graph-row-info-cell {
+    transition: background-color 120ms ease;
+  }
+
+  .row-info-cell-hovered {
+    background: rgba(26, 35, 52, 0.42);
+  }
+
+  .row-info-cell-selected {
+    background: rgba(31, 111, 235, 0.18);
+  }
+
+  .graph-tooltip {
+    max-width: 340px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(88, 166, 255, 0.35);
+    background: rgba(13, 17, 23, 0.95);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(3px);
+  }
+
+  .graph-tooltip-subject {
+    color: #c9d1d9;
+    font-size: 12px;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .graph-tooltip-hash {
+    margin-top: 4px;
+    color: #8b949e;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 11px;
+  }
+
+  @keyframes graph-edge-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
   .custom-scrollbar::-webkit-scrollbar {
     width: 10px;
     height: 10px;
