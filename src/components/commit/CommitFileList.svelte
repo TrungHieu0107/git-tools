@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { FileStatus } from "../../lib/GitService";
   import { toast } from "../../lib/toast.svelte";
   import FileChangeStatusBadge from "../common/FileChangeStatusBadge.svelte";
@@ -44,6 +45,7 @@
   const CONTEXT_MENU_WIDTH = 190;
   const CONTEXT_MENU_ITEM_HEIGHT = 32;
   const CONTEXT_MENU_PADDING_Y = 4;
+  const MIN_HEADER_TITLE_WIDTH = 96;
 
   interface Props {
       title: string;
@@ -94,6 +96,12 @@
       y: 0,
       file: null
   });
+  let headerEl = $state<HTMLDivElement | null>(null);
+  let actionsEl = $state<HTMLDivElement | null>(null);
+  let iconOnlyActions = $state(false);
+
+  let headerResizeObserver: ResizeObserver | null = null;
+  let responsiveUpdateRafId = 0;
 
   function getTreePath(filePath: string): string {
       const normalized = filePath.replaceAll("\\", "/");
@@ -374,17 +382,90 @@
           closeFileContextMenu();
       }
   }
+
+  function scheduleResponsiveModeUpdate(): void {
+      if (typeof window === "undefined") return;
+      if (responsiveUpdateRafId !== 0) {
+          window.cancelAnimationFrame(responsiveUpdateRafId);
+      }
+      responsiveUpdateRafId = window.requestAnimationFrame(() => {
+          responsiveUpdateRafId = 0;
+          updateResponsiveMode();
+      });
+  }
+
+  function measureActionWidthWithLabels(): number {
+      if (!headerEl || !actionsEl) return 0;
+
+      const clone = actionsEl.cloneNode(true) as HTMLElement;
+      clone.classList.remove("commit-file-list-actions-icon-only");
+      clone.style.position = "absolute";
+      clone.style.left = "-9999px";
+      clone.style.top = "0";
+      clone.style.visibility = "hidden";
+      clone.style.pointerEvents = "none";
+      clone.style.width = "max-content";
+      clone.setAttribute("aria-hidden", "true");
+
+      headerEl.appendChild(clone);
+      const width = Math.ceil(clone.getBoundingClientRect().width);
+      clone.remove();
+
+      return width;
+  }
+
+  function updateResponsiveMode(): void {
+      if (!headerEl || !actionsEl) return;
+      const headerWidth = Math.ceil(headerEl.getBoundingClientRect().width);
+      const actionsWidthWithLabels = measureActionWidthWithLabels();
+      iconOnlyActions = headerWidth < actionsWidthWithLabels + MIN_HEADER_TITLE_WIDTH;
+  }
+
+  onMount(() => {
+      if (typeof ResizeObserver !== "undefined" && headerEl) {
+          headerResizeObserver = new ResizeObserver(() => {
+              scheduleResponsiveModeUpdate();
+          });
+          headerResizeObserver.observe(headerEl);
+      }
+
+      scheduleResponsiveModeUpdate();
+
+      return () => {
+          if (headerResizeObserver) {
+              headerResizeObserver.disconnect();
+              headerResizeObserver = null;
+          }
+          if (responsiveUpdateRafId !== 0) {
+              window.cancelAnimationFrame(responsiveUpdateRafId);
+              responsiveUpdateRafId = 0;
+          }
+      };
+  });
+
+  $effect(() => {
+      files.length;
+      showStashAll;
+      showDiscardAll;
+      onStashAll;
+      onDiscardAll;
+      onActionAll;
+      stashAllLabel;
+      discardAllLabel;
+      actionAllLabel;
+      scheduleResponsiveModeUpdate();
+  });
 </script>
 
 <svelte:window onmousedown={handleWindowMouseDown} onkeydown={handleWindowKeydown} />
 
 <div class="flex flex-col flex-1 overflow-hidden min-h-0 border-b border-[#30363d] last:border-b-0">
-    <div class="h-8 px-3 flex items-center bg-[#21262d] font-semibold text-xs uppercase tracking-wider text-[#8b949e] shrink-0 justify-between group/header">
-        <span>{title} ({files.length})</span>
-        <div class="flex items-center gap-1.5">
+    <div bind:this={headerEl} class="commit-file-list-header h-8 px-3 flex items-center bg-[#21262d] font-semibold text-xs uppercase tracking-wider text-[#8b949e] shrink-0 justify-between group/header">
+        <span class="min-w-0 truncate pr-2">{title} ({files.length})</span>
+        <div bind:this={actionsEl} class="commit-file-list-actions flex items-center gap-1.5 shrink-0" class:commit-file-list-actions-icon-only={iconOnlyActions}>
             {#if onStashAll && (showStashAll ?? files.length > 0)}
                 <button
-                    class="opacity-90 hover:opacity-100 transition-opacity px-2 py-1 rounded hover:bg-[#1f2f45] text-[#58a6ff] hover:text-[#79c0ff] text-xs font-medium flex items-center gap-1.5"
+                    class="commit-file-list-action-btn opacity-90 hover:opacity-100 transition-opacity px-2 py-1 rounded hover:bg-[#1f2f45] text-[#58a6ff] hover:text-[#79c0ff] text-xs font-medium flex items-center gap-1.5"
                     onclick={(e) => { e.stopPropagation(); onStashAll(); }}
                     title={stashAllLabel ?? "Stash All Changes"}
                 >
@@ -392,12 +473,12 @@
                         <polyline points="3 7 12 13 21 7"></polyline>
                         <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7"></path>
                     </svg>
-                    {stashAllLabel ?? "Stash All"}
+                    <span class="commit-file-list-action-label">{stashAllLabel ?? "Stash All"}</span>
                 </button>
             {/if}
             {#if onDiscardAll && (showDiscardAll ?? files.length > 0)}
                 <button
-                    class="opacity-90 hover:opacity-100 transition-opacity px-2 py-1 rounded hover:bg-[#3b1f2c] text-[#f85149] hover:text-[#ff7b72] text-xs font-medium flex items-center gap-1.5"
+                    class="commit-file-list-action-btn opacity-90 hover:opacity-100 transition-opacity px-2 py-1 rounded hover:bg-[#3b1f2c] text-[#f85149] hover:text-[#ff7b72] text-xs font-medium flex items-center gap-1.5"
                     onclick={(e) => { e.stopPropagation(); onDiscardAll(); }}
                     title={discardAllLabel ?? "Discard All Changes"}
                 >
@@ -405,12 +486,12 @@
                         <polyline points="3 6 5 6 21 6"></polyline>
                         <path d="M19 6l-1 14H6L5 6m3 0V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"></path>
                     </svg>
-                    {discardAllLabel ?? "Discard All"}
+                    <span class="commit-file-list-action-label">{discardAllLabel ?? "Discard All"}</span>
                 </button>
             {/if}
             {#if files.length > 0 && onActionAll}
                 <button 
-                    class="opacity-90 hover:opacity-100 transition-opacity px-2 py-1 rounded hover:bg-[#30363d] text-[#58a6ff] hover:text-[#79c0ff] text-xs font-medium flex items-center gap-1.5"
+                    class="commit-file-list-action-btn opacity-90 hover:opacity-100 transition-opacity px-2 py-1 rounded hover:bg-[#30363d] text-[#58a6ff] hover:text-[#79c0ff] text-xs font-medium flex items-center gap-1.5"
                     onclick={(e) => { e.stopPropagation(); onActionAll(); }}
                     title={actionAllLabel}
                 >
@@ -419,7 +500,7 @@
                     {:else}
                         <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
                     {/if}
-                    {actionAllLabel}
+                    <span class="commit-file-list-action-label">{actionAllLabel}</span>
                 </button>
             {/if}
         </div>
@@ -540,5 +621,19 @@
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #484f58;
+  }
+
+  .commit-file-list-action-label {
+    white-space: nowrap;
+  }
+
+  .commit-file-list-actions-icon-only .commit-file-list-action-label {
+    display: none;
+  }
+
+  .commit-file-list-actions-icon-only .commit-file-list-action-btn {
+    padding-left: 0.375rem;
+    padding-right: 0.375rem;
+    gap: 0;
   }
 </style>
