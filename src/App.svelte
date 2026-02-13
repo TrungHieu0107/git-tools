@@ -4,6 +4,7 @@
   import { GitService, type RepoEntry, type FileStatus, type AppSettings } from './lib/GitService';
   import GlobalConfirmation from './components/GlobalConfirmation.svelte';
   import CreateBranchDialog from './components/CreateBranchDialog.svelte';
+  import PromptDialog from './components/common/PromptDialog.svelte';
   import ToastContainer from './components/ToastContainer.svelte';
   import RepoManager from './components/RepoManager.svelte';
   import Workspace from './components/Workspace.svelte';
@@ -137,6 +138,7 @@
 
   <GlobalConfirmation />
   <CreateBranchDialog />
+  <PromptDialog />
   <ToastContainer />
 </main>
 

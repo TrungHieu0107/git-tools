@@ -1303,6 +1303,34 @@ pub async fn cmd_create_patch(
 }
 
 #[tauri::command]
+pub async fn cmd_create_patch_from_commit(
+    state: State<'_, AppState>,
+    commit_hash: String,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let target_commit = commit_hash.trim();
+    if target_commit.is_empty() {
+        return Err("No commit hash provided".to_string());
+    }
+
+    let args = vec![
+        "format-patch".to_string(),
+        "-1".to_string(),
+        target_commit.to_string(),
+        "--stdout".to_string(),
+    ];
+
+    let resp = state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(resp.stdout)
+}
+
+#[tauri::command]
 pub async fn cmd_delete_file(
     state: State<'_, AppState>,
     file_path: String,
@@ -1652,6 +1680,235 @@ pub async fn cmd_git_merge(
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
     Ok(map_git_result(resp, GitCommandType::Merge))
+}
+
+#[tauri::command]
+pub async fn cmd_git_revert(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    commit_hash: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let target_commit = commit_hash.trim();
+    if target_commit.is_empty() {
+        return Err("No commit hash provided".to_string());
+    }
+
+    let args: Vec<String> = vec![
+        "revert".into(),
+        "--no-edit".into(),
+        target_commit.to_string(),
+    ];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(map_git_result(resp, GitCommandType::Other))
+}
+
+#[tauri::command]
+pub async fn cmd_git_reset(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    commit_hash: String,
+    mode: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let target_commit = commit_hash.trim();
+    if target_commit.is_empty() {
+        return Err("No commit hash provided".to_string());
+    }
+
+    let normalized_mode = mode.trim().to_lowercase();
+    if !matches!(normalized_mode.as_str(), "soft" | "mixed" | "hard") {
+        return Err("Invalid reset mode. Expected soft, mixed, or hard.".to_string());
+    }
+
+    let mode_flag = format!("--{}", normalized_mode);
+    let args: Vec<String> = vec!["reset".into(), mode_flag, target_commit.to_string()];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(map_git_result(resp, GitCommandType::Other))
+}
+
+#[tauri::command]
+pub async fn cmd_git_create_tag(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    tag_name: String,
+    commit_hash: String,
+    message: Option<String>,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let target_tag = tag_name.trim();
+    let target_commit = commit_hash.trim();
+
+    if target_tag.is_empty() {
+        return Err("No tag name provided".to_string());
+    }
+    if target_commit.is_empty() {
+        return Err("No commit hash provided".to_string());
+    }
+
+    let trimmed_message = message
+        .as_ref()
+        .map(|msg| msg.trim())
+        .filter(|msg| !msg.is_empty())
+        .map(|msg| msg.to_string());
+
+    let mut args: Vec<String> = vec!["tag".into()];
+    match trimmed_message {
+        Some(msg) => {
+            args.push("-a".into());
+            args.push(target_tag.to_string());
+            args.push(target_commit.to_string());
+            args.push("-m".into());
+            args.push(msg);
+        }
+        None => {
+            args.push(target_tag.to_string());
+            args.push(target_commit.to_string());
+        }
+    }
+
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(map_git_result(resp, GitCommandType::Branch))
+}
+
+#[tauri::command]
+pub async fn cmd_git_delete_branch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    branch_name: String,
+    force: bool,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let target_branch = branch_name.trim();
+    if target_branch.is_empty() {
+        return Err("No branch name provided".to_string());
+    }
+
+    let delete_flag = if force { "-D" } else { "-d" };
+    let args: Vec<String> = vec!["branch".into(), delete_flag.into(), target_branch.to_string()];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(map_git_result(resp, GitCommandType::Branch))
+}
+
+#[tauri::command]
+pub async fn cmd_git_delete_remote_branch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    remote: String,
+    branch_name: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let target_remote = remote.trim();
+    let target_branch = branch_name.trim();
+
+    if target_remote.is_empty() || target_branch.is_empty() {
+        return Err("Remote and branch name are required".to_string());
+    }
+
+    let args: Vec<String> = vec![
+        "push".into(),
+        target_remote.to_string(),
+        format!(":{}", target_branch),
+    ];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_NETWORK)
+        .await
+        .map_err(|e| e.to_string())?;
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(map_git_result(resp, GitCommandType::Push))
+}
+
+#[tauri::command]
+pub async fn cmd_git_rename_branch(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    old_name: String,
+    new_name: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let old_branch = old_name.trim();
+    let new_branch = new_name.trim();
+    if old_branch.is_empty() || new_branch.is_empty() {
+        return Err("Both old and new branch names are required".to_string());
+    }
+
+    let args: Vec<String> = vec![
+        "branch".into(),
+        "-m".into(),
+        old_branch.to_string(),
+        new_branch.to_string(),
+    ];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(map_git_result(resp, GitCommandType::Branch))
+}
+
+#[tauri::command]
+pub async fn cmd_git_set_upstream(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    branch_name: String,
+    upstream: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let local_branch = branch_name.trim();
+    let upstream_ref = upstream.trim();
+    if local_branch.is_empty() || upstream_ref.is_empty() {
+        return Err("Branch and upstream are required".to_string());
+    }
+
+    let args: Vec<String> = vec![
+        "branch".into(),
+        "--set-upstream-to".into(),
+        upstream_ref.to_string(),
+        local_branch.to_string(),
+    ];
+    let resp = state
+        .git
+        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+    Ok(map_git_result(resp, GitCommandType::Other))
 }
 
 #[tauri::command]

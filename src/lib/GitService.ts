@@ -256,6 +256,47 @@ export class GitService {
     return BranchService.push(repoPath);
   }
 
+  static async revertCommit(commitHash: string, repoPath?: string): Promise<GitCommandResult> {
+    return BranchService.revertCommit(commitHash, repoPath);
+  }
+
+  static async resetToCommit(
+    commitHash: string,
+    mode: "soft" | "mixed" | "hard",
+    repoPath?: string,
+  ): Promise<GitCommandResult> {
+    return BranchService.resetToCommit(commitHash, mode, repoPath);
+  }
+
+  static async createTag(
+    tagName: string,
+    commitHash: string,
+    message?: string,
+    repoPath?: string,
+  ): Promise<GitCommandResult> {
+    return BranchService.createTag(tagName, commitHash, message, repoPath);
+  }
+
+  static async deleteBranch(branchName: string, force = false, repoPath?: string): Promise<GitCommandResult> {
+    return BranchService.deleteBranch(branchName, force, repoPath);
+  }
+
+  static async deleteRemoteBranch(remote: string, branchName: string, repoPath?: string): Promise<GitCommandResult> {
+    return BranchService.deleteRemoteBranch(remote, branchName, repoPath);
+  }
+
+  static async renameBranch(oldName: string, newName: string, repoPath?: string): Promise<GitCommandResult> {
+    return BranchService.renameBranch(oldName, newName, repoPath);
+  }
+
+  static async setUpstream(branchName: string, upstream: string, repoPath?: string): Promise<GitCommandResult> {
+    return BranchService.setUpstream(branchName, upstream, repoPath);
+  }
+
+  static async createPatchFromCommit(commitHash: string, repoPath?: string): Promise<string> {
+    return BranchService.createPatchFromCommit(commitHash, repoPath);
+  }
+
   static async commit(message: string, repoPath?: string): Promise<GitCommandResult> {
     return CommitService.commit(message, repoPath);
   }

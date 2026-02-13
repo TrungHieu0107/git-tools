@@ -85,6 +85,7 @@ fn main() {
             commands::cmd_open_in_editor,
             commands::cmd_open_in_diff_tool,
             commands::cmd_create_patch,
+            commands::cmd_create_patch_from_commit,
             commands::cmd_delete_file,
             commands::cmd_git_blame,
             commands::cmd_git_add_all,
@@ -98,6 +99,13 @@ fn main() {
             commands::cmd_terminal_stop,
             commands::cmd_get_commit_changed_files,
             commands::cmd_get_commit_file_diff,
+            commands::cmd_git_revert,
+            commands::cmd_git_reset,
+            commands::cmd_git_create_tag,
+            commands::cmd_git_delete_branch,
+            commands::cmd_git_delete_remote_branch,
+            commands::cmd_git_rename_branch,
+            commands::cmd_git_set_upstream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

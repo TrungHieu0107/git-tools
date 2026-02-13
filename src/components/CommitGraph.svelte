@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import { GitService, type CommitChangedFile } from "../lib/GitService";
   import { confirm } from "../lib/confirmation.svelte";
+  import { prompt } from "../lib/prompt.svelte";
   import { toast } from "../lib/toast.svelte";
   import { GRAPH_CONFIG } from "../lib/graph-config";
   import {
@@ -16,8 +17,13 @@
   import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
   import DiffView from "./diff/DiffView.svelte";
   import DiffToolbar from "./diff/DiffToolbar.svelte";
+  import CommitContextMenu from "./common/CommitContextMenu.svelte";
   import BranchContextMenu from "./common/BranchContextMenu.svelte";
   import type { BranchContextMenuState } from "./common/branch-context-menu-types";
+  import type {
+      CommitContextMenuAction,
+      CommitContextMenuState
+  } from "./common/commit-context-menu-types";
   import FileChangeStatusBadge from "./common/FileChangeStatusBadge.svelte";
 
   interface Props {
@@ -137,6 +143,7 @@
       changedFiles = [];
       changedFilesCollapsedDirs = new Set();
       closeChangedFileContextMenu();
+      closeBranchContextMenu();
       // Reset diff view when switching commits (optional, or keep if same file exists?)
       closeDiff(); 
       
@@ -309,6 +316,7 @@
   let hoveredCommitHash = $state<string | null>(null);
   let graphViewportEl = $state<HTMLDivElement | null>(null);
   let branchContextMenu = $state<BranchContextMenuState | null>(null);
+  let commitContextMenu = $state<CommitContextMenuState | null>(null);
 
   type GraphTooltip = {
       visible: boolean;
@@ -530,10 +538,17 @@
       }
   }
 
+  function handleCommitRowClick(node: GraphNode) {
+      closeBranchContextMenu();
+      closeCommitContextMenu();
+      closeChangedFileContextMenu();
+      void selectCommit(node);
+  }
+
   function handleCommitRowKeydown(event: KeyboardEvent, node: GraphNode) {
       if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          void selectCommit(node);
+          handleCommitRowClick(node);
       }
   }
 
@@ -767,6 +782,7 @@
           file
       };
       branchContextMenu = null;
+      commitContextMenu = null;
   }
 
   async function handleOpenChangedFile(): Promise<void> {
@@ -897,6 +913,414 @@
       return "bg-yellow-900/40 text-yellow-300 border-yellow-700/50";
   }
 
+  type ParsedCommitRefs = {
+      isHead: boolean;
+      localBranches: string[];
+      remoteBranches: string[];
+      tags: string[];
+  };
+
+  function parseCommitRefsForContextMenu(refs: string[]): ParsedCommitRefs {
+      const localBranches: string[] = [];
+      const remoteBranches: string[] = [];
+      const tags: string[] = [];
+      const localSeen = new Set<string>();
+      const remoteSeen = new Set<string>();
+      const tagSeen = new Set<string>();
+      let isHead = false;
+
+      function pushUnique(target: string[], seen: Set<string>, value: string) {
+          const normalized = value.trim();
+          if (!normalized) return;
+          const key = normalized.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          target.push(normalized);
+      }
+
+      for (const rawRef of refs) {
+          const ref = rawRef.trim();
+          if (!ref || isStashRefBadge(ref)) continue;
+
+          const headMatch = ref.match(/^HEAD\s*->\s*(.+)$/);
+          if (headMatch?.[1]) {
+              isHead = true;
+              pushUnique(localBranches, localSeen, headMatch[1]);
+              continue;
+          }
+
+          if (ref === "HEAD") {
+              isHead = true;
+              continue;
+          }
+
+          if (ref.startsWith("tag:")) {
+              pushUnique(tags, tagSeen, ref.replace("tag:", ""));
+              continue;
+          }
+
+          if (ref.includes("/")) {
+              pushUnique(remoteBranches, remoteSeen, ref);
+              continue;
+          }
+
+          pushUnique(localBranches, localSeen, ref);
+      }
+
+      return { isHead, localBranches, remoteBranches, tags };
+  }
+
+  function closeCommitContextMenu() {
+      commitContextMenu = null;
+  }
+
+  function handleCommitRowContextMenu(event: MouseEvent, node: GraphNode) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const parsedRefs = parseCommitRefsForContextMenu(node.refs);
+      closeChangedFileContextMenu();
+      closeBranchContextMenu();
+
+      commitContextMenu = {
+          x: event.clientX,
+          y: event.clientY,
+          node,
+          isHead: parsedRefs.isHead,
+          currentBranch: currentBranchName,
+          localBranches: parsedRefs.localBranches,
+          remoteBranches: parsedRefs.remoteBranches,
+          tags: parsedRefs.tags
+      };
+  }
+
+  function parseRemoteRef(remoteRef: string): { remote: string; branch: string } | null {
+      const normalized = remoteRef.trim();
+      if (!normalized) return null;
+      const slashIndex = normalized.indexOf("/");
+      if (slashIndex <= 0 || slashIndex >= normalized.length - 1) return null;
+      return {
+          remote: normalized.slice(0, slashIndex),
+          branch: normalized.slice(slashIndex + 1)
+      };
+  }
+
+  function getPreferredUpstreamRef(menu: CommitContextMenuState): string {
+      const current = menu.currentBranch.trim();
+      if (current) {
+          const match = menu.remoteBranches.find((remoteRef) => {
+              const parsed = parseRemoteRef(remoteRef);
+              return parsed?.branch === current;
+          });
+          if (match) return match;
+          return `origin/${current}`;
+      }
+      return menu.remoteBranches[0] ?? "origin/main";
+  }
+
+  async function handleCommitContextAction(action: CommitContextMenuAction, menu: CommitContextMenuState) {
+      const shortHash = menu.node.hash.slice(0, 8);
+
+      try {
+          switch (action.type) {
+              case "pull":
+                  await handlePull();
+                  return;
+              case "push":
+                  await handlePush();
+                  return;
+              case "fetch":
+                  await handleFetch();
+                  return;
+              case "set-upstream": {
+                  if (!repoPath) return;
+                  const branchName = menu.currentBranch.trim();
+                  if (!branchName) {
+                      toast.error("Current branch is required to set upstream");
+                      return;
+                  }
+
+                  const upstreamInput = await prompt({
+                      title: "Set Upstream",
+                      message: `Set upstream for branch <code>${branchName}</code>:`,
+                      isHtmlMessage: true,
+                      placeholder: "origin/main",
+                      defaultValue: getPreferredUpstreamRef(menu),
+                      confirmLabel: "Set Upstream",
+                      cancelLabel: "Cancel"
+                  });
+
+                  const upstream = upstreamInput?.trim() ?? "";
+                  if (!upstream) return;
+
+                  const res = await GitService.setUpstream(branchName, upstream, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                      await loadToolbarBranches();
+                  }
+                  return;
+              }
+              case "checkout-local":
+                  await checkoutFromBadge({
+                      text: action.branch,
+                      type: "branch",
+                      isCurrent: action.branch === currentBranchName,
+                      originalIndex: 0
+                  });
+                  return;
+              case "checkout-remote":
+                  await checkoutFromBadge({
+                      text: action.remoteRef,
+                      type: "remote",
+                      isCurrent: false,
+                      originalIndex: 0
+                  });
+                  return;
+              case "checkout-detached": {
+                  if (!repoPath) return;
+                  const confirmed = await confirm({
+                      title: "Detached HEAD Checkout",
+                      message: `Checkout commit <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${shortHash}</span> in detached HEAD state?`,
+                      isHtmlMessage: true,
+                      confirmLabel: "Checkout",
+                      cancelLabel: "Cancel"
+                  });
+                  if (!confirmed) return;
+
+                  const res = await GitService.checkout(menu.node.hash, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                      await loadToolbarBranches();
+                  }
+                  return;
+              }
+              case "create-branch-here": {
+                  if (!repoPath) return;
+
+                  const branchInput = await prompt({
+                      title: "Create Branch Here",
+                      message: `Enter a branch name for commit <code>${shortHash}</code>:`,
+                      isHtmlMessage: true,
+                      placeholder: "feature/my-branch",
+                      confirmLabel: "Create",
+                      cancelLabel: "Cancel"
+                  });
+
+                  const branchName = branchInput?.trim() ?? "";
+                  if (!branchName) return;
+
+                  const res = await GitService.createBranch(branchName, menu.node.hash, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                      await loadToolbarBranches();
+                  }
+                  return;
+              }
+              case "reset": {
+                  if (!repoPath) return;
+
+                  const resetLabel = action.mode.toUpperCase();
+                  const resetConfirm = action.mode === "hard"
+                      ? await confirm({
+                          title: "Hard Reset",
+                          message: `Hard reset to <code>${shortHash}</code>?<br/><br/><strong class="text-[#f85149]">Warning: all uncommitted changes will be permanently lost.</strong>`,
+                          isHtmlMessage: true,
+                          confirmLabel: "Hard Reset",
+                          cancelLabel: "Cancel"
+                      })
+                      : await confirm({
+                          title: `${resetLabel} Reset`,
+                          message: `${resetLabel} reset to commit <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${shortHash}</span>?`,
+                          isHtmlMessage: true,
+                          confirmLabel: "Reset",
+                          cancelLabel: "Cancel"
+                      });
+
+                  if (!resetConfirm) return;
+
+                  const res = await GitService.resetToCommit(menu.node.hash, action.mode, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                      await loadToolbarBranches();
+                  }
+                  return;
+              }
+              case "revert": {
+                  if (!repoPath) return;
+                  const confirmed = await confirm({
+                      title: "Revert Commit",
+                      message: `Revert commit <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${shortHash}</span>?<br/><em>"${menu.node.subject}"</em><br/><br/>This creates a new commit that undoes this commit.`,
+                      isHtmlMessage: true,
+                      confirmLabel: "Revert",
+                      cancelLabel: "Cancel"
+                  });
+                  if (!confirmed) return;
+
+                  const res = await GitService.revertCommit(menu.node.hash, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                      await loadToolbarBranches();
+                  }
+                  return;
+              }
+              case "rename-branch": {
+                  if (!repoPath) return;
+                  const oldName = action.branch.trim();
+                  if (!oldName) return;
+
+                  const newNameInput = await prompt({
+                      title: "Rename Branch",
+                      message: `Rename branch <code>${oldName}</code> to:`,
+                      isHtmlMessage: true,
+                      defaultValue: oldName,
+                      placeholder: "new-branch-name",
+                      confirmLabel: "Rename",
+                      cancelLabel: "Cancel"
+                  });
+
+                  const newName = newNameInput?.trim() ?? "";
+                  if (!newName || newName === oldName) return;
+
+                  const res = await GitService.renameBranch(oldName, newName, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                      await loadToolbarBranches();
+                  }
+                  return;
+              }
+              case "delete-local-branch": {
+                  if (!repoPath) return;
+                  const targetBranch = action.branch.trim();
+                  if (!targetBranch) return;
+
+                  const confirmed = await confirm({
+                      title: "Delete Local Branch",
+                      message: `Delete local branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${targetBranch}</span>?`,
+                      isHtmlMessage: true,
+                      confirmLabel: "Delete",
+                      cancelLabel: "Cancel"
+                  });
+                  if (!confirmed) return;
+
+                  const res = await GitService.deleteBranch(targetBranch, false, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                      await loadToolbarBranches();
+                  }
+                  return;
+              }
+              case "delete-remote-branch": {
+                  if (!repoPath) return;
+                  const parsed = parseRemoteRef(action.remoteRef);
+                  if (!parsed) {
+                      toast.error("Invalid remote branch reference");
+                      return;
+                  }
+
+                  const confirmed = await confirm({
+                      title: "Delete Remote Branch",
+                      message: `Delete remote branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${action.remoteRef}</span>?`,
+                      isHtmlMessage: true,
+                      confirmLabel: "Delete",
+                      cancelLabel: "Cancel"
+                  });
+                  if (!confirmed) return;
+
+                  const res = await GitService.deleteRemoteBranch(parsed.remote, parsed.branch, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                      await loadToolbarBranches();
+                  }
+                  return;
+              }
+              case "delete-local-and-remote": {
+                  if (!repoPath) return;
+                  const parsed = parseRemoteRef(action.remoteRef);
+                  if (!parsed) {
+                      toast.error("Invalid remote branch reference");
+                      return;
+                  }
+
+                  const confirmed = await confirm({
+                      title: "Delete Local and Remote Branch",
+                      message: `Delete local branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${action.branch}</span> and remote branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${action.remoteRef}</span>?`,
+                      isHtmlMessage: true,
+                      confirmLabel: "Delete Both",
+                      cancelLabel: "Cancel"
+                  });
+                  if (!confirmed) return;
+
+                  const remoteRes = await GitService.deleteRemoteBranch(parsed.remote, parsed.branch, repoPath);
+                  if (!remoteRes.success) return;
+
+                  const localRes = await GitService.deleteBranch(action.branch, false, repoPath);
+                  if (localRes.success) {
+                      await onGraphReload?.();
+                      await loadToolbarBranches();
+                  }
+                  return;
+              }
+              case "copy-commit-sha":
+                  await navigator.clipboard.writeText(menu.node.hash);
+                  toast.success(`Copied: ${shortHash}`);
+                  return;
+              case "copy-branch-name":
+                  await navigator.clipboard.writeText(action.branch);
+                  toast.success(`Copied: ${action.branch}`);
+                  return;
+              case "create-patch-from-commit": {
+                  if (!repoPath) return;
+                  const patch = await GitService.createPatchFromCommit(menu.node.hash, repoPath);
+                  if (!patch.trim()) {
+                      toast.error("No patch content available for this commit");
+                      return;
+                  }
+                  await navigator.clipboard.writeText(patch);
+                  toast.success(`Copied patch for ${shortHash}`);
+                  return;
+              }
+              case "create-tag": {
+                  if (!repoPath) return;
+
+                  const tagNameInput = await prompt({
+                      title: action.annotated ? "Create Annotated Tag" : "Create Tag",
+                      message: `Tag name for commit <code>${shortHash}</code>:`,
+                      isHtmlMessage: true,
+                      placeholder: "v1.0.0",
+                      confirmLabel: "Create",
+                      cancelLabel: "Cancel"
+                  });
+
+                  const tagName = tagNameInput?.trim() ?? "";
+                  if (!tagName) return;
+
+                  let tagMessage: string | undefined = undefined;
+                  if (action.annotated) {
+                      const messageInput = await prompt({
+                          title: "Annotated Tag Message",
+                          message: "Enter annotation message:",
+                          placeholder: "Release notes",
+                          confirmLabel: "Continue",
+                          cancelLabel: "Cancel"
+                      });
+                      const trimmedMessage = messageInput?.trim() ?? "";
+                      if (!trimmedMessage) return;
+                      tagMessage = trimmedMessage;
+                  }
+
+                  const res = await GitService.createTag(tagName, menu.node.hash, tagMessage, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                      await loadToolbarBranches();
+                  }
+                  return;
+              }
+          }
+      } catch (e) {
+          console.error("Commit context menu action failed", e);
+      }
+  }
+
   let isBranchCheckoutLoading = $state(false);
 
   function canCheckoutFromBadge(badge: RefBadge): boolean {
@@ -926,6 +1350,7 @@
       event.stopPropagation();
       if (!canCheckoutFromBadge(badge)) return;
       closeChangedFileContextMenu();
+      closeCommitContextMenu();
       branchContextMenu = {
           x: event.clientX,
           y: event.clientY,
@@ -1504,7 +1929,8 @@
                                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4a90d9]/70 focus-visible:ring-inset
                                {isHoveredRow ? 'row-hover' : ''} {isCurrentHead ? 'row-head' : ''} {isSelectedRow ? 'row-selected' : ''}"
                         style="display: grid; grid-template-columns: {gridTemplate}; height: {ROW_HEIGHT}px;"
-                        onclick={() => selectCommit(node)}
+                        onclick={() => handleCommitRowClick(node)}
+                        oncontextmenu={(event) => handleCommitRowContextMenu(event, node)}
                         onmouseenter={(e) => handleRowMouseEnter(e, node)}
                         onmousemove={handleRowMouseMove}
                         onmouseleave={handleRowMouseLeave}
@@ -1758,6 +2184,12 @@
   onClose={closeBranchContextMenu}
   onCheckout={handleBranchContextCheckout}
   onMerge={handleBranchContextMerge}
+/>
+
+<CommitContextMenu
+  menu={commitContextMenu}
+  onClose={closeCommitContextMenu}
+  onAction={handleCommitContextAction}
 />
 
 <style>
