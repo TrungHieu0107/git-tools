@@ -39,9 +39,21 @@
     pendingPushCount?: number;
     onGraphReload?: () => Promise<void>;
     onNavigateToCommitPanel?: () => void;
+    onShowHistory?: (filePath: string) => void;
+    onShowBlame?: (filePath: string) => void;
   }
 
-  let { nodes = [], lanes = [], connections = [], repoPath, pendingPushCount = 0, onGraphReload, onNavigateToCommitPanel }: Props = $props();
+  let {
+      nodes = [],
+      lanes = [],
+      connections = [],
+      repoPath,
+      pendingPushCount = 0,
+      onGraphReload,
+      onNavigateToCommitPanel,
+      onShowHistory,
+      onShowBlame
+  }: Props = $props();
 
   const ROW_HEIGHT = GRAPH_CONFIG.ROW_HEIGHT;
   const COL_WIDTH = GRAPH_CONFIG.COLUMN_WIDTH;
@@ -68,6 +80,9 @@
   const CHANGED_FILE_CONTEXT_MENU_WIDTH = GRAPH_CONFIG.CHANGED_FILE_CONTEXT_MENU_WIDTH;
   const CHANGED_FILE_CONTEXT_MENU_ITEM_HEIGHT = GRAPH_CONFIG.CHANGED_FILE_CONTEXT_MENU_ITEM_HEIGHT;
   const CHANGED_FILE_CONTEXT_MENU_PADDING_Y = GRAPH_CONFIG.CHANGED_FILE_CONTEXT_MENU_PADDING_Y;
+  const CHANGED_FILE_CONTEXT_MENU_SEPARATOR_HEIGHT = 9;
+  const CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS =
+      "w-full text-left px-4 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors whitespace-nowrap";
 
   const HEADER_BASE = "h-8 flex items-center bg-[#111827] border-b border-[#1e293b] shrink-0";
   
@@ -881,6 +896,12 @@
       }
   }
 
+  function resolveChangedFilePath(path: string): string {
+      const normalized = path.replaceAll("\\", "/").trim();
+      const renameParts = normalized.split(" -> ");
+      return (renameParts[renameParts.length - 1] ?? normalized).trim();
+  }
+
   function closeChangedFileContextMenu(): void {
       changedFileContextMenu = {
           visible: false,
@@ -900,10 +921,23 @@
       };
   }
 
+  function getChangedFileContextMenuGroups(): number[] {
+      const group1 = [!!onShowHistory, !!onShowBlame].filter(Boolean).length;
+      const group2 = repoPath ? 4 : 0;
+      const group3 = 1; // Copy file path
+      const group4 = repoPath ? 2 : 0;
+      return [group1, group2, group3, group4].filter((count) => count > 0);
+  }
+
   function getChangedFileContextMenuHeight(): number {
-      let actionCount = 1; // Copy file path is always available.
-      if (repoPath) actionCount += 1;
-      return actionCount * CHANGED_FILE_CONTEXT_MENU_ITEM_HEIGHT + CHANGED_FILE_CONTEXT_MENU_PADDING_Y * 2;
+      const groups = getChangedFileContextMenuGroups();
+      const actionCount = groups.reduce((total, count) => total + count, 0);
+      const separatorCount = Math.max(0, groups.length - 1);
+      return (
+          actionCount * CHANGED_FILE_CONTEXT_MENU_ITEM_HEIGHT +
+          separatorCount * CHANGED_FILE_CONTEXT_MENU_SEPARATOR_HEIGHT +
+          CHANGED_FILE_CONTEXT_MENU_PADDING_Y * 2
+      );
   }
 
   function handleChangedFileContextMenu(event: MouseEvent, file: CommitChangedFile): void {
@@ -921,16 +955,67 @@
       stashCommitContextMenu = null;
   }
 
-  async function handleOpenChangedFile(): Promise<void> {
+  function handleChangedFileShowHistory(): void {
+      if (!changedFileContextMenu.file || !onShowHistory) return;
+      const targetPath = resolveChangedFilePath(changedFileContextMenu.file.path);
+      closeChangedFileContextMenu();
+      onShowHistory(targetPath);
+  }
+
+  function handleChangedFileShowBlame(): void {
+      if (!changedFileContextMenu.file || !onShowBlame) return;
+      const targetPath = resolveChangedFilePath(changedFileContextMenu.file.path);
+      closeChangedFileContextMenu();
+      onShowBlame(targetPath);
+  }
+
+  async function handleOpenChangedFileInDiffTool(): Promise<void> {
       if (!repoPath || !changedFileContextMenu.file) return;
       const targetPath = changedFileContextMenu.file.path;
       closeChangedFileContextMenu();
-      await GitService.openRepoFile(targetPath, repoPath);
+      try {
+          await GitService.openInDiffTool(targetPath, false, repoPath);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
+  async function handleOpenChangedFileInEditor(): Promise<void> {
+      if (!repoPath || !changedFileContextMenu.file) return;
+      const targetPath = changedFileContextMenu.file.path;
+      closeChangedFileContextMenu();
+      try {
+          await GitService.openInEditor(targetPath, repoPath);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
+  async function handleOpenChangedFileInDefaultProgram(): Promise<void> {
+      if (!repoPath || !changedFileContextMenu.file) return;
+      const targetPath = changedFileContextMenu.file.path;
+      closeChangedFileContextMenu();
+      try {
+          await GitService.openRepoFile(targetPath, repoPath);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
+  async function handleShowChangedFileInFolder(): Promise<void> {
+      if (!repoPath || !changedFileContextMenu.file) return;
+      const targetPath = changedFileContextMenu.file.path;
+      closeChangedFileContextMenu();
+      try {
+          await GitService.showInFolder(targetPath, repoPath);
+      } catch (e) {
+          // toast handled in service
+      }
   }
 
   async function handleCopyChangedFilePath(): Promise<void> {
       if (!changedFileContextMenu.file) return;
-      const targetPath = changedFileContextMenu.file.path;
+      const targetPath = resolveChangedFilePath(changedFileContextMenu.file.path);
       closeChangedFileContextMenu();
 
       try {
@@ -939,6 +1024,34 @@
       } catch (e) {
           console.error("Copy file path failed", e);
           toast.error("Copy file path failed");
+      }
+  }
+
+  async function handleEditChangedFile(): Promise<void> {
+      await handleOpenChangedFileInEditor();
+  }
+
+  async function handleDeleteChangedFile(): Promise<void> {
+      if (!repoPath || !changedFileContextMenu.file) return;
+      const targetPath = changedFileContextMenu.file.path;
+      const displayPath = resolveChangedFilePath(targetPath);
+      closeChangedFileContextMenu();
+
+      const confirmed = await confirm({
+          title: "Delete File",
+          message: `Delete "${displayPath}" permanently?\nThis action cannot be undone.`,
+          confirmLabel: "Delete",
+          cancelLabel: "Cancel"
+      });
+      if (!confirmed) return;
+
+      try {
+          await GitService.deleteFile(targetPath, repoPath);
+          if (isWipRowSelected) {
+              await loadWipSummary();
+          }
+      } catch (e) {
+          // toast handled in service
       }
   }
 
@@ -2513,8 +2626,8 @@
 
 {#if changedFileContextMenu.visible}
   <div
-    class="fixed z-[70] bg-[#1f2428] border border-[#30363d] rounded-md shadow-xl py-1 min-w-[190px] changed-file-context-menu"
-    style="top: {changedFileContextMenu.y}px; left: {changedFileContextMenu.x}px;"
+    class="fixed z-[70] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl py-1 changed-file-context-menu"
+    style="top: {changedFileContextMenu.y}px; left: {changedFileContextMenu.x}px; width: {CHANGED_FILE_CONTEXT_MENU_WIDTH}px;"
     role="menu"
     tabindex="-1"
     oncontextmenu={(e) => {
@@ -2522,19 +2635,95 @@
       e.stopPropagation();
     }}
   >
-    <button
-      class="w-full text-left px-4 py-2 text-xs text-[#c9d1d9] hover:bg-[#1f6feb] hover:text-white flex items-center gap-2"
-      onclick={() => void handleCopyChangedFilePath()}
-    >
-      <span>Copy file path</span>
-    </button>
+    {#if onShowHistory}
+      <button
+        type="button"
+        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
+        onclick={handleChangedFileShowHistory}
+        role="menuitem"
+      >
+        File History
+      </button>
+    {/if}
+    {#if onShowBlame}
+      <button
+        type="button"
+        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
+        onclick={handleChangedFileShowBlame}
+        role="menuitem"
+      >
+        File Blame
+      </button>
+    {/if}
+
+    {#if onShowHistory || onShowBlame}
+      <div class="border-t border-[#30363d] my-1"></div>
+    {/if}
+
     {#if repoPath}
       <button
-      class="w-full text-left px-4 py-2 text-xs text-[#c9d1d9] hover:bg-[#1f6feb] hover:text-white flex items-center gap-2"
-      onclick={() => void handleOpenChangedFile()}
+        type="button"
+        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
+        onclick={() => void handleOpenChangedFileInDiffTool()}
+        role="menuitem"
+      >
+        Open in external diff tool
+      </button>
+      <button
+        type="button"
+        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
+        onclick={() => void handleOpenChangedFileInEditor()}
+        role="menuitem"
+      >
+        Open in external editor
+      </button>
+      <button
+        type="button"
+        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
+        onclick={() => void handleOpenChangedFileInDefaultProgram()}
+        role="menuitem"
+      >
+        Open file in default program
+      </button>
+      <button
+        type="button"
+        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
+        onclick={() => void handleShowChangedFileInFolder()}
+        role="menuitem"
+      >
+        Show in folder
+      </button>
+
+      <div class="border-t border-[#30363d] my-1"></div>
+    {/if}
+
+    <button
+      type="button"
+      class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
+      onclick={() => void handleCopyChangedFilePath()}
+      role="menuitem"
     >
-      <span>Open file</span>
+      Copy file path
     </button>
+
+    {#if repoPath}
+      <div class="border-t border-[#30363d] my-1"></div>
+      <button
+        type="button"
+        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
+        onclick={() => void handleEditChangedFile()}
+        role="menuitem"
+      >
+        Edit file
+      </button>
+      <button
+        type="button"
+        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
+        onclick={() => void handleDeleteChangedFile()}
+        role="menuitem"
+      >
+        Delete file
+      </button>
     {/if}
   </div>
 {/if}

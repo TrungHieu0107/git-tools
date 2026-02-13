@@ -343,6 +343,8 @@
                   pendingPushCount={pendingPushCount}
                   onGraphReload={loadGraph}
                   onNavigateToCommitPanel={() => activeTab = "commit"}
+                  onShowHistory={handleShowFileHistory}
+                  onShowBlame={handleShowFileBlame}
                 />
             {/if}
          </div>

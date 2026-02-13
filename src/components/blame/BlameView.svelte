@@ -135,11 +135,11 @@
           <div class="px-3 py-2 text-right">Line</div>
           <div class="px-3 py-2">Commit</div>
           <div class="px-3 py-2">Author / Date</div>
-          <div class="px-3 py-2">Content</div>
+          <div class="px-3 py-2 border-l border-[#30363d]">Content</div>
         </div>
 
         {#each lines as line, i (`${line.lineNumber}:${line.commitHash}:${i}`)}
-          <div class="grid grid-cols-[72px_120px_230px_1fr] border-b border-[#21262d] hover:bg-[#161b22]/60">
+          <div class="blame-row grid grid-cols-[72px_120px_230px_1fr] border-b border-[#21262d] hover:bg-[#161b22]/60">
             <div class="px-3 py-1.5 text-right text-xs text-[#8b949e] font-mono">{line.lineNumber}</div>
             <div class="px-3 py-1.5 text-xs">
               <button
@@ -153,7 +153,9 @@
             <div class="px-3 py-1.5 text-xs text-[#8b949e] truncate" title={`${line.author} • ${formatDate(line.date)}`}>
               {line.author} • {formatDate(line.date)}
             </div>
-            <pre class="px-3 py-1.5 text-xs text-[#c9d1d9] font-mono whitespace-pre overflow-x-auto">{line.content}</pre>
+            <div class="px-2 py-1.5 border-l border-[#21262d]">
+              <pre class="blame-content-block">{line.content || " "}</pre>
+            </div>
           </div>
         {/each}
       </div>
@@ -176,5 +178,24 @@
   }
   .custom-scrollbar::-webkit-scrollbar-thumb:hover {
     background: #484f58;
+  }
+
+  .blame-content-block {
+    margin: 0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid #25324e;
+    background: #0a1221;
+    color: #d6e4ff;
+    font-size: 12px;
+    line-height: 1.4;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .blame-row:hover .blame-content-block {
+    border-color: #344873;
+    background: #0d1730;
   }
 </style>
