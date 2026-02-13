@@ -1,19 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import { triggerGraphReload } from "./stores/git-events";
+import { formatGitOutput, invokeShared } from "./services/invoke-shared";
 import type { GitCommandResult } from "./types";
 
 // Helper to handle GitCommandResult in this service
-async function runGitCmd(cmd: string, args?: Record<string, any>): Promise<string> {
-   const res = await invoke<GitCommandResult>(cmd, args);
-   if (res.success) {
-       triggerGraphReload();
-   }
-   // Return combined output for the console
-   let out = res.stdout;
-   if (res.stderr) {
-       out += "\n" + res.stderr;
-   }
-   return out || (res.success ? "Success" : "Failed");
+async function runGitCmd(cmd: string, args?: Record<string, unknown>): Promise<string> {
+  return invokeShared<GitCommandResult, string>(cmd, args, {
+    isSuccess: (res) => res.success,
+    reloadGraphOnSuccess: true,
+    formatResult: formatGitOutput,
+  });
 }
 
 export interface GitCommand {

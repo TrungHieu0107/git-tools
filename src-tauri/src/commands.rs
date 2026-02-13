@@ -76,6 +76,72 @@ async fn git_run(
         .map_err(|e| e.to_string())
 }
 
+fn emit_git_change_event(app: &AppHandle) -> Result<(), String> {
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())
+}
+
+async fn git_run_vec(
+    state: &State<'_, AppState>,
+    repo_path: Option<String>,
+    args: Vec<String>,
+    timeout: u64,
+) -> Result<GitResponse, String> {
+    let path = resolve_repo_path(state, repo_path)?;
+    git_run_vec_at_path(state, &path, args, timeout).await
+}
+
+async fn git_run_vec_at_path(
+    state: &State<'_, AppState>,
+    repo_path: &str,
+    args: Vec<String>,
+    timeout: u64,
+) -> Result<GitResponse, String> {
+    state
+        .git
+        .run(Path::new(repo_path), &args, timeout)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn git_run_result_with_event(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    repo_path: Option<String>,
+    args: Vec<String>,
+    timeout: u64,
+    command_type: GitCommandType,
+) -> Result<GitCommandResult, String> {
+    let resp = git_run_vec(state, repo_path, args, timeout).await?;
+    emit_git_change_event(app)?;
+    Ok(map_git_result(resp, command_type))
+}
+
+async fn git_run_result_at_path_with_event(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    repo_path: &str,
+    args: Vec<String>,
+    timeout: u64,
+    command_type: GitCommandType,
+) -> Result<GitCommandResult, String> {
+    let resp = git_run_vec_at_path(state, repo_path, args, timeout).await?;
+    emit_git_change_event(app)?;
+    Ok(map_git_result(resp, command_type))
+}
+
+async fn git_run_void_with_event(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    repo_path: Option<String>,
+    args: Vec<String>,
+    timeout: u64,
+) -> Result<(), String> {
+    git_run_vec(state, repo_path, args, timeout).await?;
+    emit_git_change_event(app)?;
+    Ok(())
+}
+
 fn map_git_result(resp: GitResponse, command_type: GitCommandType) -> GitCommandResult {
     GitCommandResult {
         success: resp.exit_code == 0,
@@ -386,8 +452,7 @@ pub async fn cmd_git_pull(
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
     let resp = git_run(&state, repo_path, &["pull"], TIMEOUT_NETWORK).await?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
+    emit_git_change_event(&app)?;
     Ok(map_git_result(resp, GitCommandType::Pull))
 }
 
@@ -459,8 +524,7 @@ pub async fn cmd_git_push(
             .map_err(|e| e.to_string())?
     };
 
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
+    emit_git_change_event(&app)?;
     Ok(map_git_result(resp, GitCommandType::Push))
 }
 
@@ -516,8 +580,7 @@ pub async fn cmd_git_commit(
         .run(Path::new(&path), &args, TIMEOUT_LOCAL)
         .await
         .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
+    emit_git_change_event(&app)?;
     Ok(map_git_result(resp, GitCommandType::Commit))
 }
 
@@ -562,17 +625,9 @@ pub async fn cmd_git_unstage_all(
     state: State<'_, AppState>,
     repo_path: Option<String>,
 ) -> Result<(), String> {
-    let r_path = resolve_repo_path(&state, repo_path)?;
     // git restore --staged .
     let args: Vec<String> = vec!["restore".into(), "--staged".into(), ".".into()];
-    state
-        .git
-        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    git_run_void_with_event(&app, &state, repo_path, args, TIMEOUT_LOCAL).await
 }
 
 #[tauri::command]
@@ -582,17 +637,17 @@ pub async fn cmd_git_checkout(
     branch: String,
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
-    let path = resolve_repo_path(&state, repo_path)?;
     let args: Vec<String> = vec!["checkout".into(), branch];
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
     // checkout output often goes to stderr even on success
-    Ok(map_git_result(resp, GitCommandType::Checkout))
+    git_run_result_with_event(
+        &app,
+        &state,
+        repo_path,
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Checkout,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -900,13 +955,8 @@ pub async fn cmd_git_add(
     }
 
     let args: Vec<String> = vec!["add".into(), path];
-    state
-        .git
-        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
+    git_run_vec_at_path(&state, &r_path, args, TIMEOUT_LOCAL).await?;
+    emit_git_change_event(&app)?;
     Ok(())
 }
 
@@ -939,17 +989,9 @@ pub async fn cmd_git_unstage(
     path: String,
     repo_path: Option<String>,
 ) -> Result<(), String> {
-    let r_path = resolve_repo_path(&state, repo_path)?;
     // git restore --staged <path>
     let args: Vec<String> = vec!["restore".into(), "--staged".into(), path];
-    state
-        .git
-        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    git_run_void_with_event(&app, &state, repo_path, args, TIMEOUT_LOCAL).await
 }
 
 #[tauri::command]
@@ -1013,8 +1055,7 @@ pub async fn cmd_git_discard_changes(
             .map_err(|e| e.to_string())?;
     }
 
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
+    emit_git_change_event(&app)?;
     Ok(())
 }
 
@@ -1061,8 +1102,7 @@ pub async fn cmd_git_stash_file(
         .await
         .map_err(|e| e.to_string())?;
 
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
+    emit_git_change_event(&app)?;
     Ok(())
 }
 
@@ -1087,8 +1127,7 @@ pub async fn cmd_git_stash_all(
         .await
         .map_err(|e| e.to_string())?;
 
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
+    emit_git_change_event(&app)?;
     Ok(())
 }
 
@@ -1103,16 +1142,15 @@ pub async fn cmd_git_apply_stash(
     let stash_ref = resolve_stash_ref_by_commit_hash(&state, &r_path, &commit_hash).await?;
 
     let args = vec!["stash".to_string(), "apply".to_string(), stash_ref];
-    let resp = state
-        .git
-        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-
-    Ok(map_git_result(resp, GitCommandType::Other))
+    git_run_result_at_path_with_event(
+        &app,
+        &state,
+        &r_path,
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Other,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -1126,16 +1164,15 @@ pub async fn cmd_git_pop_stash(
     let stash_ref = resolve_stash_ref_by_commit_hash(&state, &r_path, &commit_hash).await?;
 
     let args = vec!["stash".to_string(), "pop".to_string(), stash_ref];
-    let resp = state
-        .git
-        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-
-    Ok(map_git_result(resp, GitCommandType::Other))
+    git_run_result_at_path_with_event(
+        &app,
+        &state,
+        &r_path,
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Other,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -1149,16 +1186,15 @@ pub async fn cmd_git_delete_stash(
     let stash_ref = resolve_stash_ref_by_commit_hash(&state, &r_path, &commit_hash).await?;
 
     let args = vec!["stash".to_string(), "drop".to_string(), stash_ref];
-    let resp = state
-        .git
-        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-
-    Ok(map_git_result(resp, GitCommandType::Other))
+    git_run_result_at_path_with_event(
+        &app,
+        &state,
+        &r_path,
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Other,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -1213,8 +1249,7 @@ pub async fn cmd_git_edit_stash_message(
         .await
         .map_err(|e| e.to_string())?;
 
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
+    emit_git_change_event(&app)?;
 
     Ok(map_git_result(store_resp, GitCommandType::Other))
 }
@@ -1838,10 +1873,16 @@ pub async fn cmd_git_switch_branch(
         }
     }
 
-    let resp = git_run(&state, repo_path, &["switch", target], TIMEOUT_LOCAL).await?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(map_git_result(resp, GitCommandType::Checkout))
+    let args: Vec<String> = vec!["switch".into(), target.to_string()];
+    git_run_result_with_event(
+        &app,
+        &state,
+        repo_path,
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Checkout,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -1852,16 +1893,16 @@ pub async fn cmd_git_checkout_new_branch(
     start_point: String,
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
-    let path = resolve_repo_path(&state, repo_path)?;
     let args: Vec<String> = vec!["checkout".into(), "-b".into(), name, start_point];
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(map_git_result(resp, GitCommandType::Checkout))
+    git_run_result_with_event(
+        &app,
+        &state,
+        repo_path,
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Checkout,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -1888,16 +1929,16 @@ pub async fn cmd_git_merge(
     branch: String,
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
-    let path = resolve_repo_path(&state, repo_path)?;
     let args: Vec<String> = vec!["merge".into(), branch];
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(map_git_result(resp, GitCommandType::Merge))
+    git_run_result_with_event(
+        &app,
+        &state,
+        repo_path,
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Merge,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -1918,14 +1959,15 @@ pub async fn cmd_git_revert(
         "--no-edit".into(),
         target_commit.to_string(),
     ];
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(map_git_result(resp, GitCommandType::Other))
+    git_run_result_with_event(
+        &app,
+        &state,
+        Some(path),
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Other,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -1949,14 +1991,15 @@ pub async fn cmd_git_reset(
 
     let mode_flag = format!("--{}", normalized_mode);
     let args: Vec<String> = vec!["reset".into(), mode_flag, target_commit.to_string()];
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(map_git_result(resp, GitCommandType::Other))
+    git_run_result_with_event(
+        &app,
+        &state,
+        Some(path),
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Other,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2000,14 +2043,15 @@ pub async fn cmd_git_create_tag(
         }
     }
 
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(map_git_result(resp, GitCommandType::Branch))
+    git_run_result_with_event(
+        &app,
+        &state,
+        Some(path),
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Branch,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2026,14 +2070,15 @@ pub async fn cmd_git_delete_branch(
 
     let delete_flag = if force { "-D" } else { "-d" };
     let args: Vec<String> = vec!["branch".into(), delete_flag.into(), target_branch.to_string()];
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(map_git_result(resp, GitCommandType::Branch))
+    git_run_result_with_event(
+        &app,
+        &state,
+        Some(path),
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Branch,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2057,14 +2102,15 @@ pub async fn cmd_git_delete_remote_branch(
         target_remote.to_string(),
         format!(":{}", target_branch),
     ];
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_NETWORK)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(map_git_result(resp, GitCommandType::Push))
+    git_run_result_with_event(
+        &app,
+        &state,
+        Some(path),
+        args,
+        TIMEOUT_NETWORK,
+        GitCommandType::Push,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2088,14 +2134,15 @@ pub async fn cmd_git_rename_branch(
         old_branch.to_string(),
         new_branch.to_string(),
     ];
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(map_git_result(resp, GitCommandType::Branch))
+    git_run_result_with_event(
+        &app,
+        &state,
+        Some(path),
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Branch,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -2119,14 +2166,15 @@ pub async fn cmd_git_set_upstream(
         upstream_ref.to_string(),
         local_branch.to_string(),
     ];
-    let resp = state
-        .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(map_git_result(resp, GitCommandType::Other))
+    git_run_result_with_event(
+        &app,
+        &state,
+        Some(path),
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Other,
+    )
+    .await
 }
 
 #[tauri::command]

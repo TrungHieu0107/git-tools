@@ -451,8 +451,7 @@ pub async fn cmd_git_stage_line_impl(
 
     apply_result.map_err(|e| e.to_string())?;
 
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
+    emit_git_change_event(&app)?;
     Ok(())
 }
 
@@ -523,7 +522,6 @@ pub async fn cmd_git_unstage_line_impl(
 
     apply_result.map_err(|e| e.to_string())?;
 
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
+    emit_git_change_event(&app)?;
     Ok(())
 }

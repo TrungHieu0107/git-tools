@@ -64,16 +64,8 @@ pub async fn cmd_resolve_ours_impl(
     path: String,
     repo_path: Option<String>,
 ) -> Result<(), String> {
-    let r_path = resolve_repo_path(&state, repo_path)?;
     let args: Vec<String> = vec!["checkout".into(), "--ours".into(), path];
-    state
-        .git
-        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    git_run_void_with_event(&app, &state, repo_path, args, TIMEOUT_LOCAL).await
 }
 
 pub async fn cmd_resolve_theirs_impl(
@@ -82,16 +74,8 @@ pub async fn cmd_resolve_theirs_impl(
     path: String,
     repo_path: Option<String>,
 ) -> Result<(), String> {
-    let r_path = resolve_repo_path(&state, repo_path)?;
     let args: Vec<String> = vec!["checkout".into(), "--theirs".into(), path];
-    state
-        .git
-        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    git_run_void_with_event(&app, &state, repo_path, args, TIMEOUT_LOCAL).await
 }
 
 pub async fn cmd_mark_resolved_impl(
@@ -100,16 +84,8 @@ pub async fn cmd_mark_resolved_impl(
     path: String,
     repo_path: Option<String>,
 ) -> Result<(), String> {
-    let r_path = resolve_repo_path(&state, repo_path)?;
     let args: Vec<String> = vec!["add".into(), path];
-    state
-        .git
-        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
-        .await
-        .map_err(|e| e.to_string())?;
-    app.emit("git-event", json!({ "type": "change" }))
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    git_run_void_with_event(&app, &state, repo_path, args, TIMEOUT_LOCAL).await
 }
 
 pub async fn cmd_check_conflict_state_impl(

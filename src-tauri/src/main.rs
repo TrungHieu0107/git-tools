@@ -93,7 +93,6 @@ fn main() {
             commands::cmd_create_patch_from_commit,
             commands::cmd_delete_file,
             commands::cmd_git_blame,
-            commands::cmd_git_add_all,
             commands::cmd_git_unstage_all,
             commands::cmd_get_file_history,
             commands::cmd_search_repo_files,
