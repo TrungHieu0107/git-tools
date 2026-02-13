@@ -111,4 +111,48 @@ export class FileService {
   static async openRepoFile(filePath: string, repoPath?: string): Promise<void> {
     await executeCommand<void>("cmd_open_repo_file", { filePath, repoPath }, "", "Open file failed");
   }
+
+  static async ignoreFile(pattern: string, repoPath?: string): Promise<void> {
+    await executeCommand<void>(
+      "cmd_git_ignore_file",
+      { pattern, repoPath },
+      `Added ${pattern} to .gitignore`,
+      "Ignore file failed",
+    );
+  }
+
+  static async openInDiffTool(filePath: string, staged: boolean, repoPath?: string): Promise<void> {
+    await executeCommand<void>(
+      "cmd_open_in_diff_tool",
+      { filePath, staged, repoPath },
+      "",
+      "Open in external diff tool failed",
+    );
+  }
+
+  static async openInEditor(filePath: string, repoPath?: string): Promise<void> {
+    await executeCommand<void>(
+      "cmd_open_in_editor",
+      { filePath, repoPath },
+      "",
+      "Open in external editor failed",
+    );
+  }
+
+  static async showInFolder(filePath: string, repoPath?: string): Promise<void> {
+    await executeCommand<void>("cmd_show_in_folder", { filePath, repoPath }, "", "Show in folder failed");
+  }
+
+  static async createPatch(filePath: string, staged: boolean, repoPath?: string): Promise<string> {
+    return executeCommand<string>(
+      "cmd_create_patch",
+      { filePath, staged, repoPath },
+      "",
+      "Create patch failed",
+    );
+  }
+
+  static async deleteFile(filePath: string, repoPath?: string): Promise<void> {
+    await executeCommand<void>("cmd_delete_file", { filePath, repoPath }, `Deleted ${filePath}`, "Delete file failed");
+  }
 }

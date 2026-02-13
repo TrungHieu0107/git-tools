@@ -1,5 +1,5 @@
 import type { DiffStageLineTarget } from "./diff";
-import type { CommitDiff, FileCommit, GitCommandResult } from "./types";
+import type { BlameLine, CommitDiff, FileCommit, GitCommandResult } from "./types";
 import { RepositoryService } from "./services/RepositoryService";
 import { FileService } from "./services/FileService";
 import { CommitService } from "./services/CommitService";
@@ -188,6 +188,30 @@ export class GitService {
     return FileService.openRepoFile(filePath, repoPath);
   }
 
+  static async ignoreFile(pattern: string, repoPath?: string): Promise<void> {
+    return FileService.ignoreFile(pattern, repoPath);
+  }
+
+  static async openInDiffTool(filePath: string, staged: boolean, repoPath?: string): Promise<void> {
+    return FileService.openInDiffTool(filePath, staged, repoPath);
+  }
+
+  static async openInEditor(filePath: string, repoPath?: string): Promise<void> {
+    return FileService.openInEditor(filePath, repoPath);
+  }
+
+  static async showInFolder(filePath: string, repoPath?: string): Promise<void> {
+    return FileService.showInFolder(filePath, repoPath);
+  }
+
+  static async createPatch(filePath: string, staged: boolean, repoPath?: string): Promise<string> {
+    return FileService.createPatch(filePath, staged, repoPath);
+  }
+
+  static async deleteFile(filePath: string, repoPath?: string): Promise<void> {
+    return FileService.deleteFile(filePath, repoPath);
+  }
+
   static async getBranches(includeRemote = false, repoPath?: string): Promise<string[]> {
     return BranchService.getBranches(includeRemote, repoPath);
   }
@@ -242,6 +266,10 @@ export class GitService {
 
   static async getFileHistory(filePath: string, limit = 100, repoPath?: string): Promise<FileCommit[]> {
     return CommitService.getFileHistory(filePath, limit, repoPath);
+  }
+
+  static async getBlame(filePath: string, repoPath?: string): Promise<BlameLine[]> {
+    return CommitService.getBlame(filePath, repoPath);
   }
 
   static async searchRepoFiles(pattern?: string, repoPath?: string): Promise<string[]> {

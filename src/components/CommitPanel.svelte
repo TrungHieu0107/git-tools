@@ -17,8 +17,16 @@
       repoPath?: string;
       isActive?: boolean;
       selectedFile?: FileStatus | null;
+      onShowHistory?: (filePath: string) => void;
+      onShowBlame?: (filePath: string) => void;
   }
-  let { repoPath, isActive = false, selectedFile = $bindable(null) }: Props = $props();
+  let {
+      repoPath,
+      isActive = false,
+      selectedFile = $bindable(null),
+      onShowHistory,
+      onShowBlame
+  }: Props = $props();
 
   let stagedFiles = $state<FileStatus[]>([]);
   let unstagedFiles = $state<FileStatus[]>([]);
@@ -41,6 +49,12 @@
 
   const FILE_VIEW_MODE_KEY = "commit_panel_file_view_mode";
   const FILE_LIST_MIN_SECTION_HEIGHT = 80;
+
+  function resolvePathForActions(path: string): string {
+      const normalized = path.replaceAll("\\", "/").trim();
+      const parts = normalized.split(" -> ");
+      return (parts[parts.length - 1] ?? normalized).trim();
+  }
 
 
 
@@ -306,6 +320,93 @@
       }
   }
 
+  async function handleIgnoreFile(pattern: string) {
+      if (!repoPath) return;
+      try {
+          await GitService.ignoreFile(pattern, repoPath);
+          await loadStatus(true);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
+  function handleShowFileHistory(file: FileStatus) {
+      const targetPath = resolvePathForActions(file.path);
+      selectedFile = { ...file, path: targetPath };
+      onShowHistory?.(targetPath);
+  }
+
+  function handleShowFileBlame(file: FileStatus) {
+      const targetPath = resolvePathForActions(file.path);
+      selectedFile = { ...file, path: targetPath };
+      onShowBlame?.(targetPath);
+  }
+
+  async function handleOpenInDiffTool(file: FileStatus) {
+      if (!repoPath) return;
+      try {
+          await GitService.openInDiffTool(file.path, file.staged, repoPath);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
+  async function handleOpenInEditor(file: FileStatus) {
+      if (!repoPath) return;
+      try {
+          await GitService.openInEditor(file.path, repoPath);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
+  async function handleShowInFolder(file: FileStatus) {
+      if (!repoPath) return;
+      try {
+          await GitService.showInFolder(file.path, repoPath);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
+  async function handleCreatePatchFromFile(file: FileStatus) {
+      if (!repoPath) return;
+      try {
+          const patchContent = await GitService.createPatch(file.path, file.staged, repoPath);
+          if (!patchContent.trim()) {
+              toast.error("No patch content available for this file");
+              return;
+          }
+          await navigator.clipboard.writeText(patchContent);
+          toast.success(`Copied patch for ${resolvePathForActions(file.path)}`);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
+  async function handleEditFile(file: FileStatus) {
+      await handleOpenInEditor(file);
+  }
+
+  async function handleDeleteFile(file: FileStatus) {
+      if (!repoPath) return;
+      const targetPath = resolvePathForActions(file.path);
+      const confirmed = await confirm({
+          title: "Delete File",
+          message: `Delete "${targetPath}" permanently?\nThis action cannot be undone.`,
+          confirmLabel: "Delete",
+          cancelLabel: "Cancel"
+      });
+      if (!confirmed) return;
+
+      try {
+          await GitService.deleteFile(file.path, repoPath);
+          await loadStatus(true);
+      } catch (e) {
+          // toast handled in service
+      }
+  }
+
   function getFileSplitMetrics() {
       if (!fileListsContainerEl) return null;
 
@@ -485,6 +586,15 @@
                     actionLabel="Stage"
                     onDiscard={handleDiscardFile}
                     onStash={handleStashFile}
+                    onIgnore={handleIgnoreFile}
+                    onShowHistory={handleShowFileHistory}
+                    onShowBlame={handleShowFileBlame}
+                    onOpenInDiffTool={handleOpenInDiffTool}
+                    onOpenInEditor={handleOpenInEditor}
+                    onShowInFolder={handleShowInFolder}
+                    onCreatePatch={handleCreatePatchFromFile}
+                    onEditFile={handleEditFile}
+                    onDeleteFile={handleDeleteFile}
                     onStashAll={handleStashAll}
                     stashAllLabel="Stash All"
                     showStashAll={unstagedFiles.length + stagedFiles.length > 0}
@@ -527,6 +637,15 @@
                     actionLabel="Unstage"
                     onDiscard={handleDiscardFile}
                     onStash={handleStashFile}
+                    onIgnore={handleIgnoreFile}
+                    onShowHistory={handleShowFileHistory}
+                    onShowBlame={handleShowFileBlame}
+                    onOpenInDiffTool={handleOpenInDiffTool}
+                    onOpenInEditor={handleOpenInEditor}
+                    onShowInFolder={handleShowInFolder}
+                    onCreatePatch={handleCreatePatchFromFile}
+                    onEditFile={handleEditFile}
+                    onDeleteFile={handleDeleteFile}
                     viewMode={fileViewMode}
                     onActionAll={handleUnstageAll}
                     actionAllLabel="Unstage All"

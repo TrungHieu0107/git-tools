@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { CommitChangedFile } from "../GitService";
-import type { CommitDiff, FileCommit, GitCommandResult } from "../types";
+import type { BlameLine, CommitDiff, FileCommit, GitCommandResult } from "../types";
 import { executeGitCommand } from "./command-executor";
 
 export class CommitService {
@@ -59,5 +59,9 @@ export class CommitService {
     encoding?: string,
   ): Promise<string> {
     return invoke("cmd_get_file_at_commit", { commitHash, filePath, repoPath, encoding });
+  }
+
+  static async getBlame(filePath: string, repoPath?: string): Promise<BlameLine[]> {
+    return invoke("cmd_git_blame", { filePath, repoPath });
   }
 }

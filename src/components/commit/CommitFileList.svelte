@@ -39,11 +39,18 @@
       y: number;
       file: FileStatus | null;
   };
+  type IgnoreSubmenuState = {
+      visible: boolean;
+      x: number;
+      y: number;
+  };
 
   const PATH_LABEL_MAX_LENGTH = 42;
   const PATH_COLLAPSE_TOKEN = "....";
-  const CONTEXT_MENU_WIDTH = 190;
+  const CONTEXT_MENU_WIDTH = 260;
+  const IGNORE_SUBMENU_WIDTH = 220;
   const CONTEXT_MENU_ITEM_HEIGHT = 32;
+  const CONTEXT_MENU_SEPARATOR_HEIGHT = 9;
   const CONTEXT_MENU_PADDING_Y = 4;
   const MIN_HEADER_TITLE_WIDTH = 96;
 
@@ -60,6 +67,15 @@
       onOpenFile?: (file: FileStatus) => void;
       onDiscard?: (file: FileStatus) => void;
       onStash?: (file: FileStatus) => void;
+      onIgnore?: (pattern: string) => void;
+      onShowHistory?: (file: FileStatus) => void;
+      onShowBlame?: (file: FileStatus) => void;
+      onOpenInDiffTool?: (file: FileStatus) => void;
+      onOpenInEditor?: (file: FileStatus) => void;
+      onShowInFolder?: (file: FileStatus) => void;
+      onCreatePatch?: (file: FileStatus) => void;
+      onEditFile?: (file: FileStatus) => void;
+      onDeleteFile?: (file: FileStatus) => void;
       onStashAll?: () => void;
       stashAllLabel?: string;
       showStashAll?: boolean;
@@ -80,6 +96,15 @@
       onOpenFile,
       onDiscard,
       onStash,
+      onIgnore,
+      onShowHistory,
+      onShowBlame,
+      onOpenInDiffTool,
+      onOpenInEditor,
+      onShowInFolder,
+      onCreatePatch,
+      onEditFile,
+      onDeleteFile,
       onStashAll,
       stashAllLabel,
       showStashAll,
@@ -95,6 +120,11 @@
       x: 0,
       y: 0,
       file: null
+  });
+  let ignoreSubmenu = $state<IgnoreSubmenuState>({
+      visible: false,
+      x: 0,
+      y: 0
   });
   let headerEl = $state<HTMLDivElement | null>(null);
   let actionsEl = $state<HTMLDivElement | null>(null);
@@ -294,6 +324,47 @@
       }
   }
 
+  function splitRenamePath(path: string): { oldPath: string; newPath: string } | null {
+      const normalized = path.replaceAll("\\", "/");
+      const parts = normalized.split(" -> ");
+      if (parts.length !== 2) return null;
+      const oldPath = parts[0]?.trim() ?? "";
+      const newPath = parts[1]?.trim() ?? "";
+      if (!oldPath || !newPath) return null;
+      return { oldPath, newPath };
+  }
+
+  function resolvePathForActions(path: string): string {
+      const trimmed = path.trim();
+      if (!trimmed) return trimmed;
+      const renamed = splitRenamePath(trimmed);
+      return renamed ? renamed.newPath : trimmed.replaceAll("\\", "/");
+  }
+
+  function getIgnoreExtensionPattern(path: string): string | null {
+      const normalized = resolvePathForActions(path);
+      const segments = normalized.split("/").filter(Boolean);
+      const fileName = segments[segments.length - 1] ?? normalized;
+      const dotIndex = fileName.lastIndexOf(".");
+      if (dotIndex <= 0 || dotIndex >= fileName.length - 1) return null;
+      return `*.${fileName.slice(dotIndex + 1)}`;
+  }
+
+  function getIgnoreParentFolderPattern(path: string): string | null {
+      const normalized = resolvePathForActions(path);
+      const slashIndex = normalized.lastIndexOf("/");
+      if (slashIndex <= 0) return null;
+      return `${normalized.slice(0, slashIndex)}/`;
+  }
+
+  function closeIgnoreSubmenu(): void {
+      ignoreSubmenu = {
+          visible: false,
+          x: 0,
+          y: 0
+      };
+  }
+
   function closeFileContextMenu(): void {
       fileContextMenu = {
           visible: false,
@@ -301,14 +372,31 @@
           y: 0,
           file: null
       };
+      closeIgnoreSubmenu();
+  }
+
+  function countGroupItems(flags: boolean[]): number {
+      return flags.reduce((total, value) => total + (value ? 1 : 0), 0);
+  }
+
+  function getContextMenuGroups(): number[] {
+      const group1 = countGroupItems([true, !!onDiscard, !!onIgnore, !!onStash]);
+      const group2 = countGroupItems([!!onShowHistory, !!onShowBlame]);
+      const group3 = countGroupItems([!!onOpenInDiffTool, !!onOpenInEditor, !!onOpenFile, !!onShowInFolder]);
+      const group4 = countGroupItems([true, !!onCreatePatch]);
+      const group5 = countGroupItems([!!onEditFile, !!onDeleteFile]);
+      return [group1, group2, group3, group4, group5].filter((count) => count > 0);
   }
 
   function getContextMenuHeight(): number {
-      let actionCount = 1; // Copy file path is always available.
-      if (onOpenFile) actionCount += 1;
-      if (onStash) actionCount += 1;
-      if (onDiscard) actionCount += 1;
-      return actionCount * CONTEXT_MENU_ITEM_HEIGHT + CONTEXT_MENU_PADDING_Y * 2;
+      const groups = getContextMenuGroups();
+      const actionCount = groups.reduce((total, count) => total + count, 0);
+      const separatorCount = Math.max(0, groups.length - 1);
+      return (
+          actionCount * CONTEXT_MENU_ITEM_HEIGHT +
+          separatorCount * CONTEXT_MENU_SEPARATOR_HEIGHT +
+          CONTEXT_MENU_PADDING_Y * 2
+      );
   }
 
   function getContextMenuPosition(clientX: number, clientY: number): { x: number; y: number } {
@@ -325,12 +413,20 @@
       event.preventDefault();
       event.stopPropagation();
       const pos = getContextMenuPosition(event.clientX, event.clientY);
+      closeIgnoreSubmenu();
       fileContextMenu = {
           visible: true,
           x: pos.x,
           y: pos.y,
           file
       };
+  }
+
+  function handleStageFromContextMenu(): void {
+      if (!fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onAction(target);
   }
 
   function handleOpenThisFile(): void {
@@ -342,7 +438,7 @@
 
   async function handleCopyFilePath(): Promise<void> {
       if (!fileContextMenu.file) return;
-      const targetPath = fileContextMenu.file.path;
+      const targetPath = resolvePathForActions(fileContextMenu.file.path);
       closeFileContextMenu();
 
       try {
@@ -368,10 +464,92 @@
       onDiscard(target);
   }
 
+  function handleShowHistory(): void {
+      if (!onShowHistory || !fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onShowHistory(target);
+  }
+
+  function handleShowBlame(): void {
+      if (!onShowBlame || !fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onShowBlame(target);
+  }
+
+  function handleOpenInDiffTool(): void {
+      if (!onOpenInDiffTool || !fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onOpenInDiffTool(target);
+  }
+
+  function handleOpenInEditor(): void {
+      if (!onOpenInEditor || !fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onOpenInEditor(target);
+  }
+
+  function handleShowInFolder(): void {
+      if (!onShowInFolder || !fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onShowInFolder(target);
+  }
+
+  function handleCreatePatch(): void {
+      if (!onCreatePatch || !fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onCreatePatch(target);
+  }
+
+  function handleEditFile(): void {
+      if (!onEditFile || !fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onEditFile(target);
+  }
+
+  function handleDeleteFile(): void {
+      if (!onDeleteFile || !fileContextMenu.file) return;
+      const target = fileContextMenu.file;
+      closeFileContextMenu();
+      onDeleteFile(target);
+  }
+
+  function handleOpenIgnoreSubmenu(event: MouseEvent): void {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!fileContextMenu.file || !onIgnore) return;
+
+      const target = event.currentTarget as HTMLElement | null;
+      if (!target) return;
+
+      const rect = target.getBoundingClientRect();
+      const submenuHeight = CONTEXT_MENU_ITEM_HEIGHT * 3 + CONTEXT_MENU_PADDING_Y * 2;
+      const maxX = Math.max(8, window.innerWidth - IGNORE_SUBMENU_WIDTH - 8);
+      const maxY = Math.max(8, window.innerHeight - submenuHeight - 8);
+
+      ignoreSubmenu = {
+          visible: true,
+          x: Math.min(Math.max(8, rect.right + 4), maxX),
+          y: Math.min(Math.max(8, rect.top), maxY)
+      };
+  }
+
+  function handleIgnorePattern(pattern: string): void {
+      if (!onIgnore || !pattern.trim()) return;
+      closeFileContextMenu();
+      onIgnore(pattern);
+  }
+
   function handleWindowMouseDown(event: MouseEvent): void {
       if (!fileContextMenu.visible) return;
       const target = event.target as Element | null;
-      if (target?.closest(".file-context-menu")) return;
+      if (target?.closest(".file-context-menu") || target?.closest(".file-ignore-submenu")) return;
       closeFileContextMenu();
   }
 
@@ -455,6 +633,21 @@
       actionAllLabel;
       scheduleResponsiveModeUpdate();
   });
+
+  let showContextGroup1 = $derived(!!onAction || !!onDiscard || !!onIgnore || !!onStash);
+  let showContextGroup2 = $derived(!!onShowHistory || !!onShowBlame);
+  let showContextGroup3 = $derived(!!onOpenInDiffTool || !!onOpenInEditor || !!onOpenFile || !!onShowInFolder);
+  let showContextGroup4 = $derived(true);
+  let showContextGroup5 = $derived(!!onEditFile || !!onDeleteFile);
+  let currentIgnoreFilePattern = $derived(
+      fileContextMenu.file ? resolvePathForActions(fileContextMenu.file.path) : ""
+  );
+  let currentIgnoreExtensionPattern = $derived(
+      fileContextMenu.file ? getIgnoreExtensionPattern(fileContextMenu.file.path) : null
+  );
+  let currentIgnoreParentFolderPattern = $derived(
+      fileContextMenu.file ? getIgnoreParentFolderPattern(fileContextMenu.file.path) : null
+  );
 </script>
 
 <svelte:window onmousedown={handleWindowMouseDown} onkeydown={handleWindowKeydown} />
@@ -561,48 +754,226 @@
 
 {#if fileContextMenu.visible}
     <div
-        class="file-context-menu fixed z-[120] min-w-[180px] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl overflow-hidden"
+        class="file-context-menu fixed z-[120] min-w-[260px] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl py-1"
         style={`left: ${fileContextMenu.x}px; top: ${fileContextMenu.y}px;`}
+        role="menu"
+    >
+        {#if showContextGroup1}
+            <button
+                type="button"
+                class="w-full text-left px-3 py-2 text-xs text-[#58a6ff] hover:bg-[#1f2f45] hover:text-[#79c0ff] transition-colors"
+                onclick={handleStageFromContextMenu}
+                onmouseenter={closeIgnoreSubmenu}
+                role="menuitem"
+            >
+                {actionLabel}
+            </button>
+            {#if onDiscard}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#f85149] hover:bg-[#3b1f2c] hover:text-[#ff7b72] transition-colors"
+                    onclick={handleDiscardThisFile}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    Discard changes
+                </button>
+            {/if}
+            {#if onIgnore}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors flex items-center justify-between"
+                    onclick={handleOpenIgnoreSubmenu}
+                    onmouseenter={handleOpenIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    <span>Ignore</span>
+                    <span class="text-[#8b949e]">▸</span>
+                </button>
+            {/if}
+            {#if onStash}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#58a6ff] hover:bg-[#1f2f45] hover:text-[#79c0ff] transition-colors"
+                    onclick={handleStashThisFile}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    Stash file
+                </button>
+            {/if}
+        {/if}
+
+        {#if showContextGroup1 && (showContextGroup2 || showContextGroup3 || showContextGroup4 || showContextGroup5)}
+            <div class="border-t border-[#30363d] my-1"></div>
+        {/if}
+
+        {#if showContextGroup2}
+            {#if onShowHistory}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    onclick={handleShowHistory}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    File History
+                </button>
+            {/if}
+            {#if onShowBlame}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    onclick={handleShowBlame}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    File Blame
+                </button>
+            {/if}
+        {/if}
+
+        {#if showContextGroup2 && (showContextGroup3 || showContextGroup4 || showContextGroup5)}
+            <div class="border-t border-[#30363d] my-1"></div>
+        {/if}
+
+        {#if showContextGroup3}
+            {#if onOpenInDiffTool}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    onclick={handleOpenInDiffTool}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    Open in external diff tool
+                </button>
+            {/if}
+            {#if onOpenInEditor}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    onclick={handleOpenInEditor}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    Open in external editor
+                </button>
+            {/if}
+            {#if onOpenFile}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    onclick={handleOpenThisFile}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    Open file in default program
+                </button>
+            {/if}
+            {#if onShowInFolder}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    onclick={handleShowInFolder}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    Show in folder
+                </button>
+            {/if}
+        {/if}
+
+        {#if showContextGroup3 && (showContextGroup4 || showContextGroup5)}
+            <div class="border-t border-[#30363d] my-1"></div>
+        {/if}
+
+        {#if showContextGroup4}
+            <button
+                type="button"
+                class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                onclick={() => void handleCopyFilePath()}
+                onmouseenter={closeIgnoreSubmenu}
+                role="menuitem"
+            >
+                Copy file path
+            </button>
+            {#if onCreatePatch}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    onclick={handleCreatePatch}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    Create patch from changes
+                </button>
+            {/if}
+        {/if}
+
+        {#if showContextGroup4 && showContextGroup5}
+            <div class="border-t border-[#30363d] my-1"></div>
+        {/if}
+
+        {#if showContextGroup5}
+            {#if onEditFile}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    onclick={handleEditFile}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    Edit file
+                </button>
+            {/if}
+            {#if onDeleteFile}
+                <button
+                    type="button"
+                    class="w-full text-left px-3 py-2 text-xs text-[#f85149] hover:bg-[#3b1f2c] hover:text-[#ff7b72] transition-colors"
+                    onclick={handleDeleteFile}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    Delete file
+                </button>
+            {/if}
+        {/if}
+    </div>
+{/if}
+
+{#if fileContextMenu.visible && ignoreSubmenu.visible && onIgnore}
+    <div
+        class="file-ignore-submenu fixed z-[130] min-w-[220px] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl py-1"
+        style={`left: ${ignoreSubmenu.x}px; top: ${ignoreSubmenu.y}px;`}
         role="menu"
     >
         <button
             type="button"
             class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
-            onclick={() => void handleCopyFilePath()}
+            onclick={() => handleIgnorePattern(currentIgnoreFilePattern)}
             role="menuitem"
         >
-            Copy file path
+            Ignore this file
         </button>
-        {#if onOpenFile}
-            <button
-                type="button"
-                class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
-                onclick={handleOpenThisFile}
-                role="menuitem"
-            >
-                Open file
-            </button>
-        {/if}
-        {#if onStash}
-            <button
-                type="button"
-                class="w-full text-left px-3 py-2 text-xs text-[#58a6ff] hover:bg-[#1f2f45] hover:text-[#79c0ff] transition-colors"
-                onclick={handleStashThisFile}
-                role="menuitem"
-            >
-                Stash this file
-            </button>
-        {/if}
-        {#if onDiscard}
-            <button
-                type="button"
-                class="w-full text-left px-3 py-2 text-xs text-[#f85149] hover:bg-[#3b1f2c] hover:text-[#ff7b72] transition-colors"
-                onclick={handleDiscardThisFile}
-                role="menuitem"
-            >
-                Discard this file
-            </button>
-        {/if}
+        <button
+            type="button"
+            class="w-full text-left px-3 py-2 text-xs transition-colors {currentIgnoreExtensionPattern ? 'text-[#c9d1d9] hover:bg-[#21262d] hover:text-white' : 'text-[#6e7681] cursor-not-allowed'}"
+            onclick={() => currentIgnoreExtensionPattern && handleIgnorePattern(currentIgnoreExtensionPattern)}
+            disabled={!currentIgnoreExtensionPattern}
+            role="menuitem"
+        >
+            Ignore by extension
+        </button>
+        <button
+            type="button"
+            class="w-full text-left px-3 py-2 text-xs transition-colors {currentIgnoreParentFolderPattern ? 'text-[#c9d1d9] hover:bg-[#21262d] hover:text-white' : 'text-[#6e7681] cursor-not-allowed'}"
+            onclick={() => currentIgnoreParentFolderPattern && handleIgnorePattern(currentIgnoreParentFolderPattern)}
+            disabled={!currentIgnoreParentFolderPattern}
+            role="menuitem"
+        >
+            Ignore parent folder
+        </button>
     </div>
 {/if}
 

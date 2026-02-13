@@ -158,6 +158,20 @@
       }
   }
 
+  export async function focusCommit(hash: string): Promise<boolean> {
+      const normalized = hash.trim().toLowerCase();
+      if (!normalized) return false;
+
+      const target = nodes.find((node) => {
+          const nodeHash = node.hash.toLowerCase();
+          return nodeHash === normalized || nodeHash.startsWith(normalized);
+      });
+      if (!target) return false;
+
+      await selectCommit(target);
+      return true;
+  }
+
   function closeDetails() {
       selectedCommit = null;
       changedFiles = [];

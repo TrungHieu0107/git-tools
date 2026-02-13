@@ -132,6 +132,63 @@ fn is_untracked_status(status: &str) -> bool {
     matches!(status.trim(), "??" | "?")
 }
 
+fn resolve_file_target_path(raw_path: &str) -> String {
+    if let Some((_old_path, new_path)) = split_rename_path(raw_path) {
+        new_path
+    } else {
+        raw_path.to_string()
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn quote_windows_arg(value: &str) -> String {
+    let escaped = value.replace('"', "\\\"");
+    format!("\"{}\"", escaped)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn quote_shell_arg(value: &str) -> String {
+    let escaped = value.replace('\'', "'\"'\"'");
+    format!("'{}'", escaped)
+}
+
+async fn get_configured_editor_command(
+    state: &State<'_, AppState>,
+    repo_path: &str,
+) -> Option<String> {
+    if let Ok(resp) = state
+        .git
+        .run(
+            Path::new(repo_path),
+            &[
+                "config".to_string(),
+                "--get".to_string(),
+                "core.editor".to_string(),
+            ],
+            TIMEOUT_QUICK,
+        )
+        .await
+    {
+        let editor = resp.stdout.trim();
+        if !editor.is_empty() {
+            return Some(editor.to_string());
+        }
+    }
+
+    if let Ok(editor) = std::env::var("VISUAL") {
+        if !editor.trim().is_empty() {
+            return Some(editor);
+        }
+    }
+    if let Ok(editor) = std::env::var("EDITOR") {
+        if !editor.trim().is_empty() {
+            return Some(editor);
+        }
+    }
+
+    None
+}
+
 // ---------------------------------------------------------------------------
 // Settings Commands
 // ---------------------------------------------------------------------------
@@ -621,6 +678,16 @@ pub struct CommitChangedFile {
     pub status: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BlameLine {
+    pub commit_hash: String,
+    pub author: String,
+    pub date: String,
+    pub line_number: u32,
+    pub content: String,
+}
+
 #[tauri::command]
 pub async fn cmd_get_status_files(
     state: State<'_, AppState>,
@@ -902,11 +969,7 @@ pub async fn cmd_git_stash_file(
         return Err("No file path provided".to_string());
     }
 
-    let stash_path = if let Some((_old_path, new_path)) = split_rename_path(raw_path) {
-        new_path
-    } else {
-        raw_path.to_string()
-    };
+    let stash_path = resolve_file_target_path(raw_path);
 
     if is_excluded(&stash_path, &exclusions) {
         return Err(format!(
@@ -974,11 +1037,7 @@ pub async fn cmd_open_repo_file(
         return Err("No file path provided".to_string());
     }
 
-    let target_path = if let Some((_old_path, new_path)) = split_rename_path(raw_path) {
-        new_path
-    } else {
-        raw_path.to_string()
-    };
+    let target_path = resolve_file_target_path(raw_path);
 
     let candidate = PathBuf::from(&target_path);
     let full_path = if candidate.is_absolute() {
@@ -1018,6 +1077,351 @@ pub async fn cmd_open_repo_file(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_git_ignore_file(
+    state: State<'_, AppState>,
+    pattern: String,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let trimmed_pattern = pattern.trim();
+    if trimmed_pattern.is_empty() {
+        return Err("Ignore pattern cannot be empty".to_string());
+    }
+
+    let gitignore_path = Path::new(&r_path).join(".gitignore");
+    let mut content = if gitignore_path.exists() {
+        std::fs::read_to_string(&gitignore_path).map_err(|e| e.to_string())?
+    } else {
+        String::new()
+    };
+
+    if content.lines().any(|line| line.trim() == trimmed_pattern) {
+        return Ok(());
+    }
+
+    if !content.is_empty() && !content.ends_with('\n') {
+        content.push('\n');
+    }
+    content.push_str(trimmed_pattern);
+    content.push('\n');
+
+    std::fs::write(&gitignore_path, content).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_show_in_folder(
+    state: State<'_, AppState>,
+    file_path: String,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let raw_path = file_path.trim();
+    if raw_path.is_empty() {
+        return Err("No file path provided".to_string());
+    }
+
+    let target_path = resolve_file_target_path(raw_path);
+    let candidate = PathBuf::from(&target_path);
+    let full_path = if candidate.is_absolute() {
+        candidate
+    } else {
+        Path::new(&r_path).join(candidate)
+    };
+
+    if !full_path.exists() {
+        return Err(format!("File not found: {}", full_path.display()));
+    }
+
+    let path_str = full_path.to_string_lossy().to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = std::process::Command::new("explorer");
+        cmd.arg("/select,").arg(&path_str);
+        hide_console_window(&mut cmd);
+        cmd.spawn().map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(&path_str)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if let Some(parent) = full_path.parent() {
+            std::process::Command::new("xdg-open")
+                .arg(parent.to_string_lossy().to_string())
+                .spawn()
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_open_in_editor(
+    state: State<'_, AppState>,
+    file_path: String,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let raw_path = file_path.trim();
+    if raw_path.is_empty() {
+        return Err("No file path provided".to_string());
+    }
+
+    let target_path = resolve_file_target_path(raw_path);
+    let candidate = PathBuf::from(&target_path);
+    let full_path = if candidate.is_absolute() {
+        candidate
+    } else {
+        Path::new(&r_path).join(candidate)
+    };
+
+    if !full_path.exists() {
+        return Err(format!("File not found: {}", full_path.display()));
+    }
+
+    let editor = get_configured_editor_command(&state, &r_path)
+        .await
+        .unwrap_or_else(|| "code".to_string());
+    let path_str = full_path.to_string_lossy().to_string();
+
+    #[cfg(target_os = "windows")]
+    {
+        let command_line = format!("{} {}", editor, quote_windows_arg(&path_str));
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.arg("/C").arg(command_line);
+        hide_console_window(&mut cmd);
+        cmd.spawn()
+            .map_err(|e| format!("Failed to open editor '{}': {}", editor, e))?;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let command_line = format!("{} {}", editor, quote_shell_arg(&path_str));
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(command_line)
+            .spawn()
+            .map_err(|e| format!("Failed to open editor '{}': {}", editor, e))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_open_in_diff_tool(
+    state: State<'_, AppState>,
+    file_path: String,
+    staged: bool,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let raw_path = file_path.trim();
+    if raw_path.is_empty() {
+        return Err("No file path provided".to_string());
+    }
+
+    let configured_diff_tool = state
+        .git
+        .run(
+            Path::new(&r_path),
+            &[
+                "config".to_string(),
+                "--get".to_string(),
+                "diff.tool".to_string(),
+            ],
+            TIMEOUT_QUICK,
+        )
+        .await
+        .ok()
+        .map(|resp| resp.stdout.trim().to_string())
+        .unwrap_or_default();
+
+    if configured_diff_tool.is_empty() {
+        return Err(
+            "No external diff tool configured. Run `git config diff.tool <tool>` first."
+                .to_string(),
+        );
+    }
+
+    let target_path = resolve_file_target_path(raw_path);
+    let mut args = vec!["difftool".to_string(), "--no-prompt".to_string()];
+    if staged {
+        args.push("--cached".to_string());
+    }
+    args.push("--".to_string());
+    args.push(target_path);
+
+    state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_create_patch(
+    state: State<'_, AppState>,
+    file_path: String,
+    staged: bool,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let raw_path = file_path.trim();
+    if raw_path.is_empty() {
+        return Err("No file path provided".to_string());
+    }
+
+    let target_path = resolve_file_target_path(raw_path);
+    let mut args = vec!["diff".to_string()];
+    if staged {
+        args.push("--cached".to_string());
+    }
+    args.push("--".to_string());
+    args.push(target_path);
+
+    let resp = state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(resp.stdout)
+}
+
+#[tauri::command]
+pub async fn cmd_delete_file(
+    state: State<'_, AppState>,
+    file_path: String,
+    repo_path: Option<String>,
+) -> Result<(), String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let raw_path = file_path.trim();
+    if raw_path.is_empty() {
+        return Err("No file path provided".to_string());
+    }
+
+    let target_path = resolve_file_target_path(raw_path);
+    let repo_root = PathBuf::from(&r_path);
+    let candidate = PathBuf::from(&target_path);
+    let full_path = if candidate.is_absolute() {
+        candidate
+    } else {
+        repo_root.join(candidate)
+    };
+
+    if !full_path.exists() {
+        return Err(format!("File not found: {}", full_path.display()));
+    }
+
+    let canonical_repo = repo_root.canonicalize().map_err(|e| e.to_string())?;
+    let canonical_target = full_path.canonicalize().map_err(|e| e.to_string())?;
+
+    if !canonical_target.starts_with(&canonical_repo) {
+        return Err("Invalid path: cannot delete outside of repository".to_string());
+    }
+
+    if canonical_target.is_dir() {
+        std::fs::remove_dir_all(&canonical_target)
+            .map_err(|e| format!("Failed to delete {}: {}", target_path, e))?;
+    } else {
+        std::fs::remove_file(&canonical_target)
+            .map_err(|e| format!("Failed to delete {}: {}", target_path, e))?;
+    }
+
+    Ok(())
+}
+
+fn parse_blame_header(line: &str) -> Option<(String, u32)> {
+    let mut parts = line.split_whitespace();
+    let commit_hash = parts.next()?;
+    let _orig_line = parts.next()?;
+    let final_line = parts.next()?.parse::<u32>().ok()?;
+    if commit_hash.is_empty() {
+        return None;
+    }
+    Some((commit_hash.to_string(), final_line))
+}
+
+fn parse_blame_output(stdout: &str) -> Vec<BlameLine> {
+    let mut lines = Vec::new();
+    let mut current_commit = String::new();
+    let mut current_author = String::new();
+    let mut current_date = String::new();
+    let mut current_line_number: u32 = 0;
+
+    for line in stdout.lines() {
+        if let Some(content) = line.strip_prefix('\t') {
+            lines.push(BlameLine {
+                commit_hash: current_commit.clone(),
+                author: current_author.clone(),
+                date: current_date.clone(),
+                line_number: current_line_number,
+                content: content.to_string(),
+            });
+            continue;
+        }
+
+        if let Some((commit_hash, line_number)) = parse_blame_header(line) {
+            current_commit = commit_hash;
+            current_line_number = line_number;
+            current_author.clear();
+            current_date.clear();
+            continue;
+        }
+
+        if let Some(author) = line.strip_prefix("author ") {
+            current_author = author.to_string();
+            continue;
+        }
+
+        if let Some(date) = line.strip_prefix("author-time ") {
+            current_date = date.to_string();
+        }
+    }
+
+    lines
+}
+
+#[tauri::command]
+pub async fn cmd_git_blame(
+    state: State<'_, AppState>,
+    file_path: String,
+    repo_path: Option<String>,
+) -> Result<Vec<BlameLine>, String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let raw_path = file_path.trim();
+    if raw_path.is_empty() {
+        return Err("No file path provided".to_string());
+    }
+
+    let target_path = resolve_file_target_path(raw_path);
+    let args = vec![
+        "blame".to_string(),
+        "--line-porcelain".to_string(),
+        "--".to_string(),
+        target_path,
+    ];
+
+    let resp = state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(parse_blame_output(&resp.stdout))
 }
 
 // ---------------------------------------------------------------------------

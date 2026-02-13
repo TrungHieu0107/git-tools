@@ -47,6 +47,14 @@ export interface FileCommit {
   message: string;
 }
 
+export interface BlameLine {
+  commitHash: string;
+  author: string;
+  date: string;
+  lineNumber: number;
+  content: string;
+}
+
 export type DiffLineType = "context" | "add" | "remove";
 
 export interface DiffLine {

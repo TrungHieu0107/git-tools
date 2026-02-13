@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { GitService, type RepoEntry, type FileStatus } from '../lib/GitService';
   import { parseGitLog, calculateGraphLayout, type GraphNode, type LanePath, type ConnectionPath } from "../lib/graph-layout";
   import { getAuthRequiredMessage } from "../lib/git-errors";
@@ -9,6 +9,7 @@
   import CommitGraph from './CommitGraph.svelte';
   import CommitPanel from './CommitPanel.svelte';
   import FileHistoryPanel from './FileHistoryPanel.svelte';
+  import BlameView from './blame/BlameView.svelte';
   import BranchExplorer from './BranchExplorer.svelte';
   import ResizablePanel from './resize/ResizablePanel.svelte';
   import SettingsView from './SettingsView.svelte';
@@ -29,7 +30,7 @@
   
   // View Routing
   let currentView = $state<'repos' | 'conflicts'>('repos'); 
-  let activeTab = $state<"terminal" | "graph" | "commit" | "history" | "settings">("graph");
+  let activeTab = $state<"terminal" | "graph" | "commit" | "history" | "blame" | "settings">("graph");
   
   // Graph State
   let graphNodes = $state<GraphNode[]>([]);
@@ -41,8 +42,10 @@
   // Repo State
   let hasConflicts = $state(false);
   let pendingPushCount = $state(0);
+  let commitGraph = $state<any>(null);
   let commitPanel = $state<any>(null);
   let selectedFile = $state<FileStatus | null>(null);
+  let pendingCommitFocusHash = $state<string | null>(null);
 
   async function handleConflictDetection() {
     if (!repoPath) {
@@ -90,11 +93,46 @@
       if (switchToGraph !== false) {
           activeTab = "graph";
       }
+      await tick();
+      await focusPendingCommit();
     } catch (e) {
       console.error("Failed to load graph:", e);
     } finally {
       graphLoading = false;
     }
+  }
+
+  function setSelectedFilePath(path: string): void {
+      selectedFile = { path, status: "", staged: false };
+  }
+
+  function handleShowFileHistory(path: string): void {
+      setSelectedFilePath(path);
+      activeTab = "history";
+  }
+
+  function handleShowFileBlame(path: string): void {
+      setSelectedFilePath(path);
+      activeTab = "blame";
+  }
+
+  async function focusPendingCommit(): Promise<void> {
+      if (!pendingCommitFocusHash || !commitGraph) return;
+      const targetHash = pendingCommitFocusHash;
+      const focused = await commitGraph.focusCommit(targetHash);
+      if (focused) {
+          pendingCommitFocusHash = null;
+      }
+  }
+
+  async function handleBlameCommitSelect(commitHash: string): Promise<void> {
+      pendingCommitFocusHash = commitHash;
+      activeTab = "graph";
+      if (graphNodes.length === 0 && !graphLoading) {
+          await loadGraph(false);
+          return;
+      }
+      await focusPendingCommit();
   }
 
   // Subscribe to global reload events, but check if they apply to us (or just reload all)
@@ -263,6 +301,12 @@
         >
            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> History
         </button>
+        <button 
+           onclick={() => activeTab = "blame"}
+           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'blame' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+        >
+           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg> Blame
+        </button>
         <div class="flex-1"></div>
         <button 
            onclick={() => activeTab = "settings"}
@@ -290,13 +334,28 @@
                   <p class="text-sm">No graph loaded. Enter commit limit and click "Load Graph".</p>
                 </div>
             {:else}
-                <CommitGraph nodes={graphNodes} lanes={graphLanes} connections={graphConnections} repoPath={repoPath} pendingPushCount={pendingPushCount} onGraphReload={loadGraph} />
+                <CommitGraph
+                  bind:this={commitGraph}
+                  nodes={graphNodes}
+                  lanes={graphLanes}
+                  connections={graphConnections}
+                  repoPath={repoPath}
+                  pendingPushCount={pendingPushCount}
+                  onGraphReload={loadGraph}
+                />
             {/if}
          </div>
 
           <!-- Commit Tab -->
           <div class="absolute inset-0 {activeTab === 'commit' ? 'z-10 visible' : 'z-0 invisible'}">
-             <CommitPanel bind:this={commitPanel} repoPath={repoPath} isActive={isActive && activeTab === 'commit'} bind:selectedFile={selectedFile} />
+             <CommitPanel
+               bind:this={commitPanel}
+               repoPath={repoPath}
+               isActive={isActive && activeTab === 'commit'}
+               bind:selectedFile={selectedFile}
+               onShowHistory={handleShowFileHistory}
+               onShowBlame={handleShowFileBlame}
+             />
           </div>
 
           <!-- History Tab -->
@@ -304,7 +363,16 @@
              <FileHistoryPanel 
                repoPath={repoPath} 
                filePath={selectedFile?.path ?? null} 
-               onFileSelect={(path) => { selectedFile = { path, status: '', staged: false }; }}
+               onFileSelect={setSelectedFilePath}
+             />
+          </div>
+
+          <!-- Blame Tab -->
+          <div class="absolute inset-0 bg-[#0d1117] {activeTab === 'blame' ? 'z-10 visible' : 'z-0 invisible'}">
+             <BlameView
+               repoPath={repoPath}
+               filePath={selectedFile?.path ?? null}
+               onCommitSelect={handleBlameCommitSelect}
              />
           </div>
 
