@@ -131,6 +131,14 @@
       selectedFile = { path, status: "", staged: false };
   }
 
+  async function navigateToCommitPanel(): Promise<void> {
+      activeTab = "commit";
+      await tick();
+      if (commitPanel?.refresh) {
+          commitPanel.refresh();
+      }
+  }
+
   function handleShowFileHistory(path: string): void {
       setSelectedFilePath(path);
       activeTab = "history";
@@ -253,7 +261,7 @@
                  {#if hasConflicts}
                      <button 
                         class="text-xs px-2 py-1 rounded hover:bg-red-900/50 text-red-400 font-bold border border-red-900 animate-pulse {currentView === 'conflicts' ? 'bg-red-900 text-white' : ''}"
-                        onclick={() => currentView = 'conflicts'}
+                        onclick={navigateToCommitPanel}
                      >
                         ⚠ Conflicts
                      </button>
@@ -267,7 +275,11 @@
 
       <!-- Branch Explorer (Flexible) -->
       <div class="flex-1 overflow-hidden border-t border-[#30363d]">
-          <BranchExplorer {repoPath} {isActive} />
+          <BranchExplorer
+            {repoPath}
+            {isActive}
+            onNavigateToCommitPanel={navigateToCommitPanel}
+          />
       </div>
       
     </aside>
@@ -345,7 +357,7 @@
                   onLoadMoreCommits={handleLoadMoreCommits}
                   hasMoreCommits={graphHasMoreCommits}
                   isLoadingMoreCommits={graphLoadingMore}
-                  onNavigateToCommitPanel={() => activeTab = "commit"}
+                  onNavigateToCommitPanel={navigateToCommitPanel}
                   onShowHistory={handleShowFileHistory}
                   onShowBlame={handleShowFileBlame}
                 />

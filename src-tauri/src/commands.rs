@@ -1764,6 +1764,14 @@ pub async fn cmd_check_conflict_state(
     conflict_commands::cmd_check_conflict_state_impl(state, repo_path).await
 }
 
+#[tauri::command]
+pub async fn cmd_get_operation_state(
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<conflict_commands::GitOperationState, String> {
+    conflict_commands::cmd_get_operation_state_impl(state, repo_path).await
+}
+
 // ---------------------------------------------------------------------------
 // File Operations
 // ---------------------------------------------------------------------------
@@ -1937,6 +1945,45 @@ pub async fn cmd_git_merge(
         args,
         TIMEOUT_LOCAL,
         GitCommandType::Merge,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn cmd_abort_operation(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
+    let git_dir = Path::new(&path).join(".git");
+
+    let is_merging = git_dir.join("MERGE_HEAD").exists();
+    let is_rebasing = git_dir.join("REBASE_HEAD").exists()
+        || git_dir.join("rebase-merge").exists()
+        || git_dir.join("rebase-apply").exists();
+    let is_cherry_picking = git_dir.join("CHERRY_PICK_HEAD").exists();
+    let is_reverting = git_dir.join("REVERT_HEAD").exists();
+
+    let args: Vec<String> = if is_rebasing {
+        vec!["rebase".into(), "--abort".into()]
+    } else if is_merging {
+        vec!["merge".into(), "--abort".into()]
+    } else if is_cherry_picking {
+        vec!["cherry-pick".into(), "--abort".into()]
+    } else if is_reverting {
+        vec!["revert".into(), "--abort".into()]
+    } else {
+        return Err("No merge/rebase/cherry-pick/revert operation is in progress.".to_string());
+    };
+
+    git_run_result_with_event(
+        &app,
+        &state,
+        Some(path),
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Other,
     )
     .await
 }

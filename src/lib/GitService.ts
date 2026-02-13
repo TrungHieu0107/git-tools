@@ -13,6 +13,15 @@ export interface ConflictFile {
   theirs: string;
 }
 
+export interface GitOperationState {
+  isMerging: boolean;
+  isRebasing: boolean;
+  isCherryPicking: boolean;
+  isReverting: boolean;
+  hasConflicts: boolean;
+  conflictPaths: string[];
+}
+
 export interface RepoEntry {
   id: string;
   name: string;
@@ -116,6 +125,10 @@ export class GitService {
 
   static async checkConflictState(repoPath?: string): Promise<boolean> {
     return ConflictService.checkConflictState(repoPath);
+  }
+
+  static async getOperationState(repoPath?: string): Promise<GitOperationState> {
+    return ConflictService.getOperationState(repoPath);
   }
 
   static async getStatusFiles(repoPath?: string): Promise<FileStatus[]> {
@@ -242,6 +255,10 @@ export class GitService {
 
   static async merge(branch: string, repoPath?: string): Promise<GitCommandResult> {
     return BranchService.merge(branch, repoPath);
+  }
+
+  static async abortOperation(repoPath?: string): Promise<GitCommandResult> {
+    return BranchService.abortOperation(repoPath);
   }
 
   static async fetch(repoPath?: string): Promise<GitCommandResult> {

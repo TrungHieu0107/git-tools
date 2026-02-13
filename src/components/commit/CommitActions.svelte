@@ -5,6 +5,10 @@
     generating: boolean;
     onCommit: (message: string, push: boolean) => Promise<void> | void;
     onGenerate: () => Promise<void> | void;
+    onAbortOperation?: () => Promise<void> | void;
+    showAbortOperation?: boolean;
+    abortOperationLabel?: string;
+    primaryActionLabel?: string;
     message?: string;
   }
 
@@ -14,6 +18,10 @@
     generating,
     onCommit,
     onGenerate,
+    onAbortOperation,
+    showAbortOperation = false,
+    abortOperationLabel = "Abort Merge",
+    primaryActionLabel,
     message = $bindable(""),
   }: Props = $props();
 
@@ -64,14 +72,22 @@
   let summaryTooLong = $derived(summary.length > 72);
   let canGenerate = $derived(stagedCount > 0 && !busy && !generating);
   let canCommit = $derived(stagedCount > 0 && !!summary.trim() && !busy && !generating);
+  let canAbortOperation = $derived(showAbortOperation && !busy && !generating);
   let commitButtonLabel = $derived(
     stagedCount === 0
       ? "Stage Changes to Commit"
       : `Commit Changes to ${stagedCount} File${stagedCount === 1 ? "" : "s"}`
   );
+  let resolvedPrimaryActionLabel = $derived(primaryActionLabel?.trim() || commitButtonLabel);
 
   const commitButtonClass =
-    "w-full bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md shadow-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-[rgba(240,246,252,0.1)] text-xs focus:outline-none";
+    "bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md shadow-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-[rgba(240,246,252,0.1)] text-xs focus:outline-none";
+
+  const operationPrimaryButtonClass =
+    "w-full h-10 px-3 rounded-sm border border-[#2ea043] bg-[#163222] text-[#d0d7de] hover:bg-[#1b3d29] disabled:opacity-45 disabled:cursor-not-allowed transition-colors text-[15px] font-semibold inline-flex items-center justify-center whitespace-nowrap";
+
+  const operationAbortButtonClass =
+    "w-full h-10 px-3 rounded-sm border border-[#f85149] bg-[#3a1b23] text-[#f3d7db] hover:bg-[#4a232d] disabled:opacity-45 disabled:cursor-not-allowed transition-colors text-[15px] font-semibold inline-flex items-center justify-center whitespace-nowrap";
 
   async function handleCommit() {
     if (!canCommit) return;
@@ -84,6 +100,11 @@
   async function handleGenerate() {
     if (!canGenerate) return;
     await onGenerate();
+  }
+
+  async function handleAbortOperation() {
+    if (!canAbortOperation || !onAbortOperation) return;
+    await onAbortOperation();
   }
 </script>
 
@@ -208,25 +229,42 @@
     </div>
   {/if}
 
-  <button
-    class={`${commitButtonClass} text-center break-words`}
-    disabled={!canCommit}
-    onclick={handleCommit}
-  >
-    {#if busy}
-      <span class="flex items-center gap-1.5">
-        <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-        </svg>
-        Working...
-      </span>
-    {:else}
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-        <circle cx="12" cy="12" r="3"></circle>
-        <line x1="2" y1="12" x2="7" y2="12"></line>
-        <line x1="17" y1="12" x2="22" y2="12"></line>
-      </svg>
-      {commitButtonLabel}
+  <div class={showAbortOperation ? "grid grid-cols-2 gap-2" : "flex items-stretch gap-2"}>
+    <button
+      class={`${showAbortOperation ? operationPrimaryButtonClass : `${commitButtonClass} text-center break-words w-full`}`}
+      disabled={!canCommit}
+      onclick={handleCommit}
+    >
+      {#if busy}
+        <span class="flex items-center gap-1.5">
+          <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+          </svg>
+          Working...
+        </span>
+      {:else}
+        {#if showAbortOperation}
+          {resolvedPrimaryActionLabel}
+        {:else}
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <circle cx="12" cy="12" r="3"></circle>
+            <line x1="2" y1="12" x2="7" y2="12"></line>
+            <line x1="17" y1="12" x2="22" y2="12"></line>
+          </svg>
+          {commitButtonLabel}
+        {/if}
+      {/if}
+    </button>
+
+    {#if showAbortOperation}
+      <button
+        type="button"
+        class={operationAbortButtonClass}
+        disabled={!canAbortOperation}
+        onclick={handleAbortOperation}
+      >
+        {abortOperationLabel}
+      </button>
     {/if}
-  </button>
+  </div>
 </div>

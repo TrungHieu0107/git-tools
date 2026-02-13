@@ -55,6 +55,16 @@ export class BranchService {
     );
   }
 
+  static async abortOperation(repoPath?: string): Promise<GitCommandResult> {
+    return executeGitCommand(
+      "cmd_abort_operation",
+      { repoPath },
+      "Aborted current git operation",
+      "Abort failed",
+      { reloadGraph: true },
+    );
+  }
+
   static async fetch(repoPath?: string): Promise<GitCommandResult> {
     return executeGitCommand("cmd_git_fetch", { repoPath }, "Fetch completed", "Fetch failed", {
       reloadGraph: true,

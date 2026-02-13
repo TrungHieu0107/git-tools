@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { GitService, type FileStatus } from "../lib/GitService";
+  import { GitService, type FileStatus, type GitOperationState } from "../lib/GitService";
   import { toast } from "../lib/toast.svelte";
   import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk, type DiffStageLineTarget } from "../lib/diff";
   import { confirm } from "../lib/confirmation.svelte";
 
   import CommitFileList from "./commit/CommitFileList.svelte";
+  import ConflictResolveModal from "./commit/ConflictResolveModal.svelte";
 
   import DiffToolbar from "./diff/DiffToolbar.svelte";
   import type { ViewMode } from "./diff/DiffToolbar.svelte";
@@ -35,13 +36,25 @@
   let modifiedContent = $state<string>("");
   let loadingStatus = $state(false);
   let loadingDiff = $state(false);
-  type CommitActionState = "idle" | "committing" | "generatingMessage";
+  type CommitActionState = "idle" | "committing" | "generatingMessage" | "aborting";
   let commitActionState = $state<CommitActionState>("idle");
   let committing = $derived(commitActionState === "committing");
+  let abortingOperation = $derived(commitActionState === "aborting");
   let generatingCommitMessage = $derived(commitActionState === "generatingMessage");
   let commitMessage = $state("");
   let selectedEncoding = $state<string | undefined>(undefined);
   let fileViewMode = $state<"tree" | "path">("path");
+  let conflictPaths = $state<Set<string>>(new Set());
+  const DEFAULT_OPERATION_STATE: GitOperationState = {
+      isMerging: false,
+      isRebasing: false,
+      isCherryPicking: false,
+      isReverting: false,
+      hasConflicts: false,
+      conflictPaths: []
+  };
+  let operationState = $state<GitOperationState>(DEFAULT_OPERATION_STATE);
+  let resolvingConflictFilePath = $state<string | null>(null);
   let fileListsContainerEl = $state<HTMLDivElement | null>(null);
   let fileListsResizeObserver: ResizeObserver | null = null;
   let fileSplitTopHeight = $state<number | null>(null);
@@ -54,6 +67,41 @@
       const normalized = path.replaceAll("\\", "/").trim();
       const parts = normalized.split(" -> ");
       return (parts[parts.length - 1] ?? normalized).trim();
+  }
+
+  function normalizeOperationState(state: GitOperationState | null | undefined): GitOperationState {
+      if (!state) return DEFAULT_OPERATION_STATE;
+      return {
+          isMerging: !!state.isMerging,
+          isRebasing: !!state.isRebasing,
+          isCherryPicking: !!state.isCherryPicking,
+          isReverting: !!state.isReverting,
+          hasConflicts: !!state.hasConflicts,
+          conflictPaths: (state.conflictPaths ?? []).map((path) => resolvePathForActions(path))
+      };
+  }
+
+  function mergeStatusFilesWithConflictPaths(
+      statusFiles: FileStatus[],
+      conflictFilePaths: string[]
+  ): FileStatus[] {
+      if (conflictFilePaths.length === 0) return statusFiles;
+
+      const merged = [...statusFiles];
+      const existing = new Set(statusFiles.map((file) => resolvePathForActions(file.path)));
+
+      for (const conflictPath of conflictFilePaths) {
+          const normalized = resolvePathForActions(conflictPath);
+          if (!normalized || existing.has(normalized)) continue;
+          merged.push({
+              path: normalized,
+              status: "U",
+              staged: false
+          });
+          existing.add(normalized);
+      }
+
+      return merged;
   }
 
 
@@ -103,12 +151,28 @@
       if (!repoPath) return;
       loadingStatus = true;
       try {
-          const files = await GitService.getStatusFiles(repoPath);
-          stagedFiles = files.filter(f => f.staged);
-          unstagedFiles = files.filter(f => !f.staged);
-          await reconcileSelectedFile(files, refreshDiff);
+          const [files, conflicts, nextOperationState] = await Promise.all([
+              GitService.getStatusFiles(repoPath),
+              GitService.getConflicts(repoPath).catch(() => [] as string[]),
+              GitService.getOperationState(repoPath).catch(() => DEFAULT_OPERATION_STATE)
+          ]);
+
+          operationState = normalizeOperationState(nextOperationState);
+
+          const conflictCandidates = operationState.conflictPaths.length > 0
+              ? operationState.conflictPaths
+              : conflicts.map((path) => resolvePathForActions(path));
+
+          const mergedFiles = mergeStatusFilesWithConflictPaths(files, conflictCandidates);
+
+          stagedFiles = mergedFiles.filter(f => f.staged);
+          unstagedFiles = mergedFiles.filter(f => !f.staged);
+          conflictPaths = new Set(conflictCandidates.map((path) => resolvePathForActions(path)));
+          await reconcileSelectedFile(mergedFiles, refreshDiff);
       } catch (e: any) {
           console.error("Failed to load status:", e);
+          conflictPaths = new Set();
+          operationState = DEFAULT_OPERATION_STATE;
       } finally {
           loadingStatus = false;
       }
@@ -215,6 +279,20 @@
           toast.success("Generated commit message from staged changes");
       } catch (e: any) {
           toast.error(`Generate message failed: ${e}`);
+      } finally {
+          commitActionState = "idle";
+      }
+  }
+
+  async function handleAbortOperation() {
+      if (!repoPath || commitActionState !== "idle") return;
+      commitActionState = "aborting";
+      try {
+          await GitService.abortOperation(repoPath);
+          await loadStatus(true);
+          selectedFile = null;
+          baseContent = "";
+          modifiedContent = "";
       } finally {
           commitActionState = "idle";
       }
@@ -407,6 +485,19 @@
       }
   }
 
+  function handleResolveConflict(file: FileStatus) {
+      resolvingConflictFilePath = resolvePathForActions(file.path);
+  }
+
+  function handleCloseConflictResolver() {
+      resolvingConflictFilePath = null;
+  }
+
+  async function handleConflictResolved(_filePath: string) {
+      resolvingConflictFilePath = null;
+      await loadStatus(true);
+  }
+
   function getFileSplitMetrics() {
       if (!fileListsContainerEl) return null;
 
@@ -530,6 +621,33 @@
       loadStatus(true);
   }
 
+  let isOperationInProgress = $derived(
+      operationState.isMerging ||
+      operationState.isRebasing ||
+      operationState.isCherryPicking ||
+      operationState.isReverting
+  );
+
+  let showAbortOperationButton = $derived(
+      isOperationInProgress && (operationState.hasConflicts || conflictPaths.size > 0)
+  );
+
+  let abortOperationLabel = $derived.by(() => {
+      if (operationState.isRebasing) return "Abort Rebase";
+      if (operationState.isMerging) return "Abort Merge";
+      if (operationState.isCherryPicking) return "Abort Cherry-pick";
+      if (operationState.isReverting) return "Abort Revert";
+      return "Abort Operation";
+  });
+
+  let primaryOperationLabel = $derived.by(() => {
+      if (operationState.isMerging) return "Commit and Merge";
+      if (operationState.isRebasing) return "Commit and Continue Rebase";
+      if (operationState.isCherryPicking) return "Commit and Continue Cherry-pick";
+      if (operationState.isReverting) return "Commit and Continue Revert";
+      return "Commit";
+  });
+
   let canStageSelectedLine = $derived(
       !!selectedFile &&
       !selectedFile.staged &&
@@ -602,6 +720,8 @@
                     discardAllLabel="Discard All"
                     showDiscardAll={unstagedFiles.length + stagedFiles.length > 0}
                     viewMode={fileViewMode}
+                    conflictPaths={conflictPaths}
+                    onResolveConflict={handleResolveConflict}
                     onActionAll={handleStageAll}
                     actionAllLabel="Stage All"
                 />
@@ -647,6 +767,8 @@
                     onEditFile={handleEditFile}
                     onDeleteFile={handleDeleteFile}
                     viewMode={fileViewMode}
+                    conflictPaths={conflictPaths}
+                    onResolveConflict={handleResolveConflict}
                     onActionAll={handleUnstageAll}
                     actionAllLabel="Unstage All"
                 />
@@ -657,11 +779,15 @@
         <div class="shrink-0 border-t border-[#30363d]">
             <CommitActions
                 stagedCount={stagedFiles.length}
-                busy={committing || loadingStatus}
+                busy={committing || abortingOperation || loadingStatus}
                 generating={generatingCommitMessage}
                 bind:message={commitMessage}
                 onCommit={handleCommit}
                 onGenerate={handleGenerateCommitMessage}
+                showAbortOperation={showAbortOperationButton}
+                primaryActionLabel={primaryOperationLabel}
+                abortOperationLabel={abortOperationLabel}
+                onAbortOperation={handleAbortOperation}
             />
         </div>
     </div>
@@ -713,6 +839,15 @@
         {/if}
     </div>
 </div>
+
+{#if resolvingConflictFilePath}
+    <ConflictResolveModal
+        repoPath={repoPath}
+        filePath={resolvingConflictFilePath}
+        onClose={handleCloseConflictResolver}
+        onResolved={handleConflictResolved}
+    />
+{/if}
 
 <style>
   :global(body.resizing-v) {

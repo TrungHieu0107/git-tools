@@ -7,7 +7,15 @@
   import BranchContextMenu from "./common/BranchContextMenu.svelte";
   import type { BranchContextMenuState } from "./common/branch-context-menu-types";
 
-  let { repoPath = undefined, isActive = false }: { repoPath?: string; isActive?: boolean } = $props();
+  let {
+      repoPath = undefined,
+      isActive = false,
+      onNavigateToCommitPanel
+  }: {
+      repoPath?: string;
+      isActive?: boolean;
+      onNavigateToCommitPanel?: () => void | Promise<void>;
+  } = $props();
 
   let branches = $state<string[]>([]);
   let currentBranch = $state("");
@@ -171,6 +179,34 @@
       };
   }
 
+  function toErrorText(error: unknown): string {
+      if (error instanceof Error) {
+          return error.message;
+      }
+      return String(error ?? "");
+  }
+
+  function isMergeOrRebaseInProgressMessage(message: string): boolean {
+      const normalized = message.toLowerCase();
+      return (
+          normalized.includes("merge_head exists") ||
+          normalized.includes("not concluded your merge") ||
+          normalized.includes("you have unmerged paths") ||
+          normalized.includes("conflict") ||
+          normalized.includes("rebase") ||
+          normalized.includes("cherry-pick")
+      );
+  }
+
+  async function navigateToCommitWhenMergeBlocked(message: string): Promise<boolean> {
+      const hasConflicts = await GitService.checkConflictState(repoPath).catch(() => false);
+      if (hasConflicts || isMergeOrRebaseInProgressMessage(message)) {
+          await onNavigateToCommitPanel?.();
+          return true;
+      }
+      return false;
+  }
+
   async function handleMerge(node: BranchNode) {
       // Block if same branch
       if (node.fullPath === currentBranch) {
@@ -195,16 +231,25 @@
           // We can assume user knows what they are doing OR do a check.
           // Let's rely on git merge command failing if dirty and conflicting.
           
-          await GitService.merge(node.fullPath!, repoPath);
-          await loadBranches(); // Refresh in case merge refs changed? (unlikely to change branch list, but good for sync)
-          // Also maybe notify success?
-          // Since we don't have toast, we do nothing on success except maybe log.
-          console.log("Merge successful");
+          const result = await GitService.merge(node.fullPath!, repoPath);
+          if (result.success) {
+              await loadBranches(); // Refresh in case merge refs changed? (unlikely to change branch list, but good for sync)
+              // Also maybe notify success?
+              // Since we don't have toast, we do nothing on success except maybe log.
+              console.log("Merge successful");
+              return;
+          }
+
+          const mergedErrorText = result.stderr || result.stdout || "";
+          await navigateToCommitWhenMergeBlocked(mergedErrorText);
       } catch (e: any) {
           console.error("Merge failed", e);
+          const errorText = toErrorText(e);
+          const navigated = await navigateToCommitWhenMergeBlocked(errorText);
+          if (navigated) return;
           await confirm({
               title: "Merge Failed",
-              message: e.toString(),
+              message: errorText,
               confirmLabel: "OK",
               cancelLabel: "Close"
           });

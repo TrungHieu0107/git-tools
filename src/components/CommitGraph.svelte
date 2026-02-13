@@ -42,7 +42,7 @@
     onLoadMoreCommits?: () => Promise<boolean>;
     hasMoreCommits?: boolean;
     isLoadingMoreCommits?: boolean;
-    onNavigateToCommitPanel?: () => void;
+    onNavigateToCommitPanel?: () => void | Promise<void>;
     onShowHistory?: (filePath: string) => void;
     onShowBlame?: (filePath: string) => void;
   }
@@ -719,8 +719,8 @@
       }
   }
 
-  function navigateToCommitPanel() {
-      onNavigateToCommitPanel?.();
+  async function navigateToCommitPanel() {
+      await onNavigateToCommitPanel?.();
   }
 
   function getRowCellHighlightClass(nodeHash: string, columnId: string): string {
@@ -1890,15 +1890,49 @@
       });
       if (!confirmed) return;
 
+      function toErrorText(error: unknown): string {
+          if (error instanceof Error) {
+              return error.message;
+          }
+          return String(error ?? "");
+      }
+
+      function isMergeOrRebaseInProgressMessage(message: string): boolean {
+          const normalized = message.toLowerCase();
+          return (
+              normalized.includes("merge_head exists") ||
+              normalized.includes("not concluded your merge") ||
+              normalized.includes("you have unmerged paths") ||
+              normalized.includes("conflict") ||
+              normalized.includes("rebase") ||
+              normalized.includes("cherry-pick")
+          );
+      }
+
+      async function navigateToCommitWhenMergeBlocked(message: string): Promise<boolean> {
+          const hasConflicts = await GitService.checkConflictState(repoPath).catch(() => false);
+          if (hasConflicts || isMergeOrRebaseInProgressMessage(message)) {
+              await onNavigateToCommitPanel?.();
+              return true;
+          }
+          return false;
+      }
+
       isBranchCheckoutLoading = true;
       try {
           const res = await GitService.merge(branchRef, repoPath);
           if (res.success) {
               await onGraphReload?.();
               await loadToolbarBranches();
+              return;
           }
+
+          const mergedErrorText = res.stderr || res.stdout || "";
+          await navigateToCommitWhenMergeBlocked(mergedErrorText);
       } catch (e) {
           console.error("Failed to merge from graph branch badge", e);
+          const errorText = toErrorText(e);
+          await navigateToCommitWhenMergeBlocked(errorText);
       } finally {
           isBranchCheckoutLoading = false;
       }

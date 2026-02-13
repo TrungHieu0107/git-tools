@@ -63,6 +63,8 @@
       selectedFile: FileStatus | null;
       onSelect: (file: FileStatus) => void;
       onAction: (file: FileStatus) => void; // Stage or Unstage action
+      onResolveConflict?: (file: FileStatus) => void;
+      conflictPaths?: Set<string> | string[];
       actionLabel: string; // "Stage" or "Unstage" text for tooltip/aria (or implied by context)
       actionIcon?: string; // Optional custom icon?
       onActionAll?: () => void;
@@ -93,6 +95,8 @@
       selectedFile,
       onSelect,
       onAction,
+      onResolveConflict,
+      conflictPaths,
       actionLabel,
       onActionAll,
       actionAllLabel,
@@ -342,6 +346,15 @@
       if (!trimmed) return trimmed;
       const renamed = splitRenamePath(trimmed);
       return renamed ? renamed.newPath : trimmed.replaceAll("\\", "/");
+  }
+
+  let normalizedConflictPaths = $derived.by<Set<string>>(() => {
+      const values = conflictPaths instanceof Set ? [...conflictPaths] : (conflictPaths ?? []);
+      return new Set(values.map((value) => resolvePathForActions(value)));
+  });
+
+  function isConflictFile(file: FileStatus): boolean {
+      return normalizedConflictPaths.has(resolvePathForActions(file.path));
   }
 
   function getIgnoreExtensionPattern(path: string): string | null {
@@ -775,17 +788,31 @@
                         <FileChangeStatusBadge status={row.file.status} compact={true} showCode={true} className="shrink-0" />
                         <span class="truncate flex-1" title={row.title}>{row.label}</span>
                         
-                        <button 
-                            class="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-[#30363d] rounded text-[#8b949e] hover:text-white transition-opacity"
-                            onclick={(e) => { e.stopPropagation(); closeFileContextMenu(); onAction(row.file); }}
-                            title={actionLabel}
-                        >
-                            {#if actionLabel === 'Stage'}
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                            {:else}
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                            {/if}
-                        </button>
+                        {#if onResolveConflict && isConflictFile(row.file)}
+                            <button
+                                class="opacity-100 md:opacity-0 md:group-hover:opacity-100 px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-wider border border-[#f85149]/40 bg-[#3b1f2c] text-[#ff7b72] hover:bg-[#4c2434] transition-opacity"
+                                onclick={(e) => {
+                                    e.stopPropagation();
+                                    closeFileContextMenu();
+                                    onResolveConflict(row.file);
+                                }}
+                                title="Resolve conflict"
+                            >
+                                Resolve
+                            </button>
+                        {:else}
+                            <button 
+                                class="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-[#30363d] rounded text-[#8b949e] hover:text-white transition-opacity"
+                                onclick={(e) => { e.stopPropagation(); closeFileContextMenu(); onAction(row.file); }}
+                                title={actionLabel}
+                            >
+                                {#if actionLabel === 'Stage'}
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                {:else}
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                {/if}
+                            </button>
+                        {/if}
                     </div>
                 {/if}
             {/each}

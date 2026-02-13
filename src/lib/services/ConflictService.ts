@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ConflictFile } from "../GitService";
+import type { ConflictFile, GitOperationState } from "../GitService";
 
 export class ConflictService {
   static async getConflicts(repoPath?: string): Promise<string[]> {
@@ -28,5 +28,9 @@ export class ConflictService {
 
   static async checkConflictState(repoPath?: string): Promise<boolean> {
     return invoke("cmd_check_conflict_state", { repoPath });
+  }
+
+  static async getOperationState(repoPath?: string): Promise<GitOperationState> {
+    return invoke("cmd_get_operation_state", { repoPath });
   }
 }
