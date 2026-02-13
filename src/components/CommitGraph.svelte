@@ -299,6 +299,7 @@
       const parentHashes = [...selectedCommit.parents];
 
       selectedDiffFile = file;
+      showMenu = false;
       leftPanelMode = 'diff';
       isLoadingDiff = true;
       baseContent = "";
@@ -1894,28 +1895,30 @@
                 </button>
             </div>
 
-            <div class="absolute right-2 top-1/2 -translate-y-1/2 z-50">
-                <button  
-                    onclick={() => showMenu = !showMenu}
-                    class="text-xs text-[#8b949e] hover:text-[#c9d1d9] px-2 py-1 rounded hover:bg-[#1e293b] flex items-center gap-1 transition-colors"
-                >
-                    <span>Columns</span>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-                </button>
+            {#if leftPanelMode === 'graph'}
+                <div class="absolute right-2 top-1/2 -translate-y-1/2 z-50">
+                    <button  
+                        onclick={() => showMenu = !showMenu}
+                        class="text-xs text-[#8b949e] hover:text-[#c9d1d9] px-2 py-1 rounded hover:bg-[#1e293b] flex items-center gap-1 transition-colors"
+                    >
+                        <span>Columns</span>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+                    </button>
 
-                {#if showMenu}
-                    <div class="absolute top-8 right-0 bg-[#111827] border border-[#1e293b] rounded-md shadow-xl z-[70] p-2 w-40 animate-in fade-in zoom-in-95 duration-100">
-                        {#each columns as col}
-                            <label class="flex items-center gap-2 p-1.5 hover:bg-[#1e293b] rounded cursor-pointer text-xs text-[#c9d1d9]">
-                                <input type="checkbox" bind:checked={col.visible} class="rounded border-[#1e293b] bg-[#0f172a] text-[#238636] focus:ring-0">
-                                {col.label}
-                            </label>
-                        {/each}
-                    </div>
-                {/if}
-            </div>
+                    {#if showMenu}
+                        <div class="absolute top-8 right-0 bg-[#111827] border border-[#1e293b] rounded-md shadow-xl z-[70] p-2 w-40 animate-in fade-in zoom-in-95 duration-100">
+                            {#each columns as col}
+                                <label class="flex items-center gap-2 p-1.5 hover:bg-[#1e293b] rounded cursor-pointer text-xs text-[#c9d1d9]">
+                                    <input type="checkbox" bind:checked={col.visible} class="rounded border-[#1e293b] bg-[#0f172a] text-[#238636] focus:ring-0">
+                                    {col.label}
+                                </label>
+                            {/each}
+                        </div>
+                    {/if}
+                </div>
+            {/if}
 
-            {#if showMenu}
+            {#if leftPanelMode === 'graph' && showMenu}
                 <!-- Backdrop to close -->
                 <div class="fixed inset-0 z-40" onclick={() => showMenu = false} role="none"></div>
             {/if}
