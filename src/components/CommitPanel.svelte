@@ -27,8 +27,10 @@
   let modifiedContent = $state<string>("");
   let loadingStatus = $state(false);
   let loadingDiff = $state(false);
-  let committing = $state(false);
-  let generatingCommitMessage = $state(false);
+  type CommitActionState = "idle" | "committing" | "generatingMessage";
+  let commitActionState = $state<CommitActionState>("idle");
+  let committing = $derived(commitActionState === "committing");
+  let generatingCommitMessage = $derived(commitActionState === "generatingMessage");
   let commitMessage = $state("");
   let selectedEncoding = $state<string | undefined>(undefined);
   let fileViewMode = $state<"tree" | "path">("path");
@@ -60,6 +62,29 @@
   });
 
   // Load Status
+  async function reconcileSelectedFile(files: FileStatus[], refreshDiff: boolean): Promise<void> {
+      if (!selectedFile) return;
+
+      const matched = files.find((file) => file.path === selectedFile?.path && file.staged === selectedFile?.staged);
+      if (matched) {
+          if (refreshDiff) {
+              await loadDiff(matched);
+          }
+          return;
+      }
+
+      const alternate = files.find((file) => file.path === selectedFile?.path && file.staged !== selectedFile?.staged);
+      if (alternate) {
+          selectedFile = alternate;
+          await loadDiff(alternate);
+          return;
+      }
+
+      selectedFile = null;
+      baseContent = "";
+      modifiedContent = "";
+  }
+
   async function loadStatus(refreshDiff = false) {
       if (!repoPath) return;
       loadingStatus = true;
@@ -67,27 +92,7 @@
           const files = await GitService.getStatusFiles(repoPath);
           stagedFiles = files.filter(f => f.staged);
           unstagedFiles = files.filter(f => !f.staged);
-
-          // Validate selection
-          if (selectedFile) {
-              const stillExists = files.find(f => f.path === selectedFile?.path && f.staged === selectedFile?.staged);
-              if (!stillExists) {
-                  // Try to find same file in other list?
-                  const otherState = files.find(f => f.path === selectedFile?.path && f.staged !== selectedFile?.staged);
-                  if (otherState) {
-                      selectedFile = otherState;
-                      loadDiff(otherState); // Reload diff as it might change (staged vs unstaged diff)
-                  } else {
-                      selectedFile = null;
-                      baseContent = "";
-                      modifiedContent = "";
-                  }
-              } else if (refreshDiff) {
-                  // If file still exists and we want a refresh, reload its diff
-                  // This ensures we see changes made externally even if selection didn't change
-                  loadDiff(selectedFile);
-              }
-          }
+          await reconcileSelectedFile(files, refreshDiff);
       } catch (e: any) {
           console.error("Failed to load status:", e);
       } finally {
@@ -168,8 +173,8 @@
   }
 
   async function handleCommit(message: string, push: boolean) {
-      if (!repoPath) return;
-      committing = true;
+      if (!repoPath || commitActionState !== "idle") return;
+      commitActionState = "committing";
       try {
           await GitService.commit(message, repoPath);
           if (push) {
@@ -184,20 +189,20 @@
           // Toast handled in service mostly, but here for double check
           throw e;
       } finally {
-          committing = false;
+          commitActionState = "idle";
       }
   }
 
   async function handleGenerateCommitMessage() {
-      if (!repoPath || stagedFiles.length === 0 || generatingCommitMessage) return;
-      generatingCommitMessage = true;
+      if (!repoPath || stagedFiles.length === 0 || commitActionState !== "idle") return;
+      commitActionState = "generatingMessage";
       try {
           commitMessage = await GitService.generateCommitMessage(repoPath);
           toast.success("Generated commit message from staged changes");
       } catch (e: any) {
           toast.error(`Generate message failed: ${e}`);
       } finally {
-          generatingCommitMessage = false;
+          commitActionState = "idle";
       }
   }
 

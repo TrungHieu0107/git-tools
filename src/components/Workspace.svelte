@@ -44,7 +44,7 @@
   let commitPanel = $state<any>(null);
   let selectedFile = $state<FileStatus | null>(null);
 
-  async function updateConflictStatus() {
+  async function handleConflictDetection() {
     if (!repoPath) {
         hasConflicts = false;
         return;
@@ -63,7 +63,7 @@
   // Load initial data when repoPath changes or component mounts
   $effect(() => {
      if (repoPath) {
-         updateConflictStatus();
+         handleConflictDetection();
          // Optionally load graph automatically?
          // loadGraph(false);
      }
@@ -117,7 +117,7 @@
         if (activeTab === 'graph') {
              loadGraph(false);
         }
-        updateConflictStatus();
+        handleConflictDetection();
     }
   });
 

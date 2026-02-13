@@ -4,7 +4,8 @@
   import { buildBranchTree, filterBranchTree, getAllFolderPaths, type BranchNode } from "../lib/branch-utils";
   import { confirm } from "../lib/confirmation.svelte";
   import { openCreateBranchDialog } from "../lib/create-branch-dialog.svelte";
-  import BranchContextMenu, { type BranchContextMenuState } from "./common/BranchContextMenu.svelte";
+  import BranchContextMenu from "./common/BranchContextMenu.svelte";
+  import type { BranchContextMenuState } from "./common/branch-context-menu-types";
 
   let { repoPath = undefined, isActive = false }: { repoPath?: string; isActive?: boolean } = $props();
 

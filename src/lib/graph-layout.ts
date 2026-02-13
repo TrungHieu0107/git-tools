@@ -1,3 +1,5 @@
+import { getColorForColumn } from "./graph-colors";
+
 export interface Commit {
   hash: string;
   parents: string[];
@@ -35,10 +37,6 @@ function escapeXml(value: string): string {
     .replaceAll("'", "&apos;");
 }
 
-/**
- * Build a deterministic inline avatar URI from author name.
- * Same author always gets the same avatar without network requests.
- */
 export function getAvatarUrl(authorName: string): string {
   const seed = authorName.trim() || "Unknown";
   const initials = escapeXml(toInitials(seed));
@@ -66,41 +64,27 @@ export function getAvatarUrl(authorName: string): string {
 }
 
 export interface GraphNode extends Commit {
-  x: number; // Stable column index (0, 1, 2...)
-  y: number; // Row index (0, 1, 2...)
+  x: number;
+  y: number;
   color: string;
 }
 
-/** A continuous vertical lane segment for a single column span. */
 export interface LanePath {
-  column: number; // Column index
-  rowStart: number; // First row of this lane segment
-  rowEnd: number; // Last row of this lane segment
-  color: string; // Lane color
+  column: number;
+  rowStart: number;
+  rowEnd: number;
+  color: string;
 }
 
-/** A curved connection between two different columns (merge/fork). */
 export interface ConnectionPath {
-  fromColumn: number; // Source column
-  fromRow: number; // Source row
-  toColumn: number; // Target column
-  toRow: number; // Target row
-  color: string; // Connection color
-  parentIndex: number; // 0 = first parent, >0 = merge parent
+  fromColumn: number;
+  fromRow: number;
+  toColumn: number;
+  toRow: number;
+  color: string;
+  parentIndex: number;
   lineStyle: "solid" | "dashed";
 }
-
-const PALETTE = [
-  "#4a90d9", // Blue
-  "#37a349", // Green
-  "#d4b44e", // Amber
-  "#e06860", // Red
-  "#a57ad9", // Purple
-  "#6aabdb", // Cyan
-  "#db904a", // Orange
-  "#b893db", // Lavender
-  "#49b856", // Mint
-];
 
 function isStashRef(ref: string): boolean {
   const normalized = ref.trim();
@@ -127,7 +111,6 @@ function normalizeStashSubject(subject: string): string {
 export function parseGitLog(output: string): Commit[] {
   if (!output.trim()) return [];
 
-  // Format: %H|%P|%d|%an|%cI|%s
   const parsed = output
     .split("\n")
     .filter((line) => line.trim())
@@ -163,9 +146,6 @@ export function parseGitLog(output: string): Commit[] {
       };
     });
 
-  // Stash entries are synthetic merge commits. Keep only the visible WIP commit
-  // and hide helper parents ("index on ...", "untracked files on ...") so stash
-  // is rendered as one commit.
   const stashHelperHashes = new Set<string>();
   for (const commit of parsed) {
     if (!commit.isStash) continue;
@@ -192,29 +172,11 @@ export function parseGitLog(output: string): Commit[] {
     });
 }
 
-export function calculateGraphLayout(commits: Commit[]): {
-  nodes: GraphNode[];
-  lanes: LanePath[];
-  connections: ConnectionPath[];
-} {
-  if (commits.length === 0) {
-    return { nodes: [], lanes: [], connections: [] };
-  }
-
+function assignColumns(commits: Commit[]): GraphNode[] {
   const nodes: GraphNode[] = [];
-
-  // hash -> lane column for commits that have not been rendered yet.
   const activeBranches = new Map<string, number>();
   const freeColumns: number[] = [];
-  const laneColors: string[] = [];
   let nextColumn = 0;
-
-  function getColor(columnIndex: number): string {
-    if (!laneColors[columnIndex]) {
-      laneColors[columnIndex] = PALETTE[columnIndex % PALETTE.length];
-    }
-    return laneColors[columnIndex];
-  }
 
   function takeColumn(): number {
     if (freeColumns.length > 0) {
@@ -227,14 +189,12 @@ export function calculateGraphLayout(commits: Commit[]): {
   }
 
   function releaseColumn(column: number): void {
-    // Keep the left-most lane stable for the primary history line.
     if (column === 0) return;
     if (!freeColumns.includes(column)) {
       freeColumns.push(column);
     }
   }
 
-  // Pass 1: assign each commit to a lane column.
   for (let i = 0; i < commits.length; i += 1) {
     const commit = commits[i];
     let column = activeBranches.get(commit.hash);
@@ -249,7 +209,7 @@ export function calculateGraphLayout(commits: Commit[]): {
       ...commit,
       x: column,
       y: i,
-      color: getColor(column),
+      color: getColorForColumn(column),
     });
 
     if (commit.parents.length === 0) {
@@ -265,10 +225,8 @@ export function calculateGraphLayout(commits: Commit[]): {
     } else if (firstParentColumn === column) {
       // Lane continuity already set.
     } else if (column === 0) {
-      // Keep the primary lane anchored on column 0.
       activeBranches.set(firstParent, 0);
     } else if (firstParentColumn !== column) {
-      // Current lane ended by merge into an existing lane.
       releaseColumn(column);
     }
 
@@ -276,12 +234,18 @@ export function calculateGraphLayout(commits: Commit[]): {
       if (activeBranches.has(parentHash)) continue;
       const parentColumn = takeColumn();
       activeBranches.set(parentHash, parentColumn);
-      getColor(parentColumn);
     }
   }
 
-  // Pass 2: build vertical lane segments and cross-lane connections.
+  return nodes;
+}
+
+function buildLanesAndConnections(
+  nodes: GraphNode[],
+  _commits: Commit[],
+): { lanes: LanePath[]; connections: ConnectionPath[] } {
   type LaneSegment = { start: number; end: number };
+
   const laneSegments = new Map<number, LaneSegment[]>();
   const connections: ConnectionPath[] = [];
   const nodeByHash = new Map<string, GraphNode>();
@@ -299,7 +263,6 @@ export function calculateGraphLayout(commits: Commit[]): {
   }
 
   for (const node of nodes) {
-    // Keep at least a point in the node lane.
     addLaneSegment(node.x, node.y, node.y);
 
     for (let parentIndex = 0; parentIndex < node.parents.length; parentIndex += 1) {
@@ -308,7 +271,6 @@ export function calculateGraphLayout(commits: Commit[]): {
       const isStashMainParent = node.isStash && parentIndex === 0;
 
       if (!parentNode) {
-        // Parent outside loaded range; continue the first-parent lane visually.
         if (parentIndex === 0) {
           addLaneSegment(node.x, node.y, node.y + 1);
         }
@@ -344,43 +306,85 @@ export function calculateGraphLayout(commits: Commit[]): {
         lineStyle: isStashMainParent ? "dashed" : "solid",
       });
 
-      // Anchor destination lane at parent row to avoid visual gaps.
       addLaneSegment(parentNode.x, parentNode.y, parentNode.y);
     }
   }
 
-  // Merge overlapping or touching vertical segments in each column.
   const lanes: LanePath[] = [];
   for (const [column, segments] of laneSegments.entries()) {
+    for (const segment of segments) {
+      lanes.push({
+        column,
+        rowStart: segment.start,
+        rowEnd: segment.end,
+        color: getColorForColumn(column),
+      });
+    }
+  }
+
+  return { lanes, connections };
+}
+
+function mergeOverlappingSegments(lanes: LanePath[]): LanePath[] {
+  const lanesByColumn = new Map<number, LanePath[]>();
+  for (const lane of lanes) {
+    const grouped = lanesByColumn.get(lane.column) ?? [];
+    grouped.push(lane);
+    lanesByColumn.set(lane.column, grouped);
+  }
+
+  const merged: LanePath[] = [];
+  for (const [column, segments] of lanesByColumn.entries()) {
     if (segments.length === 0) continue;
 
-    const sorted = [...segments].sort((a, b) => (a.start === b.start ? a.end - b.end : a.start - b.start));
-    let current = { ...sorted[0] };
+    const sorted = [...segments].sort((a, b) =>
+      a.rowStart === b.rowStart ? a.rowEnd - b.rowEnd : a.rowStart - b.rowStart,
+    );
+
+    let current = {
+      rowStart: sorted[0].rowStart,
+      rowEnd: sorted[0].rowEnd,
+    };
 
     for (let i = 1; i < sorted.length; i += 1) {
       const next = sorted[i];
-      if (next.start <= current.end + 1) {
-        current.end = Math.max(current.end, next.end);
+      if (next.rowStart <= current.rowEnd + 1) {
+        current.rowEnd = Math.max(current.rowEnd, next.rowEnd);
       } else {
-        lanes.push({
+        merged.push({
           column,
-          rowStart: current.start,
-          rowEnd: current.end,
-          color: getColor(column),
+          rowStart: current.rowStart,
+          rowEnd: current.rowEnd,
+          color: getColorForColumn(column),
         });
-        current = { ...next };
+        current = { rowStart: next.rowStart, rowEnd: next.rowEnd };
       }
     }
 
-    lanes.push({
+    merged.push({
       column,
-      rowStart: current.start,
-      rowEnd: current.end,
-      color: getColor(column),
+      rowStart: current.rowStart,
+      rowEnd: current.rowEnd,
+      color: getColorForColumn(column),
     });
   }
 
-  lanes.sort((a, b) => (a.column === b.column ? a.rowStart - b.rowStart : a.column - b.column));
+  merged.sort((a, b) => (a.column === b.column ? a.rowStart - b.rowStart : a.column - b.column));
+  return merged;
+}
+
+export function calculateGraphLayout(commits: Commit[]): {
+  nodes: GraphNode[];
+  lanes: LanePath[];
+  connections: ConnectionPath[];
+} {
+  if (commits.length === 0) {
+    return { nodes: [], lanes: [], connections: [] };
+  }
+
+  const nodes = assignColumns(commits);
+  const { lanes: rawLanes, connections } = buildLanesAndConnections(nodes, commits);
+  const lanes = mergeOverlappingSegments(rawLanes);
   connections.sort((a, b) => (a.fromRow === b.fromRow ? a.fromColumn - b.fromColumn : a.fromRow - b.fromRow));
 
   return { nodes, lanes, connections };

@@ -1,11 +1,5 @@
 <script lang="ts">
-  export type BranchContextMenuState = {
-    x: number;
-    y: number;
-    payload: unknown;
-    disableCheckout?: boolean;
-    disableMerge?: boolean;
-  };
+  import type { BranchContextMenuState } from "./branch-context-menu-types";
 
   interface Props {
     menu: BranchContextMenuState | null;

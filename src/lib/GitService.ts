@@ -1,8 +1,11 @@
-import { invoke } from "@tauri-apps/api/core";
-import { toast } from "./toast.svelte";
-import type { GitCommandResult } from "./types";
-import { triggerGraphReload } from "./stores/git-events";
 import type { DiffStageLineTarget } from "./diff";
+import type { CommitDiff, FileCommit, GitCommandResult } from "./types";
+import { RepositoryService } from "./services/RepositoryService";
+import { FileService } from "./services/FileService";
+import { CommitService } from "./services/CommitService";
+import { BranchService } from "./services/BranchService";
+import { ConflictService } from "./services/ConflictService";
+import { TerminalService } from "./services/TerminalService";
 
 export interface ConflictFile {
   base: string;
@@ -39,435 +42,247 @@ export interface AppSettings {
 }
 
 export class GitService {
-  // --- Settings Commands ---
-
   static async getSettings(): Promise<AppSettings> {
-    return invoke("cmd_get_settings");
+    return RepositoryService.getSettings();
   }
 
   static async setExcludedFiles(exclusions: string[]): Promise<AppSettings> {
-    return invoke("cmd_set_excluded_files", { exclusions });
+    return RepositoryService.setExcludedFiles(exclusions);
   }
 
   static async setRepoFilter(repoId: string, filter: string): Promise<AppSettings> {
-    return invoke("cmd_set_repo_filter", { repoId, filter });
+    return RepositoryService.setRepoFilter(repoId, filter);
   }
 
   static async setGeminiApiToken(token: string): Promise<AppSettings> {
-    return invoke("cmd_set_gemini_api_token", { token });
+    return RepositoryService.setGeminiApiToken(token);
   }
 
   static async setGeminiModel(model: string): Promise<AppSettings> {
-    return invoke("cmd_set_gemini_model", { model });
+    return RepositoryService.setGeminiModel(model);
   }
 
   static async getGeminiModels(token?: string): Promise<string[]> {
-    const trimmed = token?.trim();
-    return invoke("cmd_get_gemini_models", { token: trimmed ? trimmed : null });
+    return RepositoryService.getGeminiModels(token);
   }
 
   static async addRepo(name: string, path: string): Promise<AppSettings> {
-    return invoke("cmd_add_repo", { name, path });
+    return RepositoryService.addRepo(name, path);
   }
 
   static async removeRepo(id: string): Promise<AppSettings> {
-    return invoke("cmd_remove_repo", { id });
+    return RepositoryService.removeRepo(id);
   }
 
   static async setActiveRepo(id: string): Promise<AppSettings> {
-    return invoke("cmd_set_active_repo", { id });
+    return RepositoryService.setActiveRepo(id);
   }
 
   static async openRepo(id: string): Promise<AppSettings> {
-    return invoke("cmd_open_repo", { id });
+    return RepositoryService.openRepo(id);
   }
 
   static async closeRepo(id: string): Promise<AppSettings> {
-    return invoke("cmd_close_repo", { id });
+    return RepositoryService.closeRepo(id);
   }
 
   static async getActiveRepo(): Promise<RepoEntry | null> {
-    return invoke("cmd_get_active_repo");
+    return RepositoryService.getActiveRepo();
   }
 
-  // --- Git Commands (Context Aware) ---
-
-  /**
-   * Get list of conflicting files
-   */
   static async getConflicts(repoPath?: string): Promise<string[]> {
-    return invoke("cmd_get_conflicts", { repoPath });
+    return ConflictService.getConflicts(repoPath);
   }
 
-  /**
-   * Get conflict file details (base, ours, theirs)
-   */
   static async getConflictFile(path: string, repoPath?: string): Promise<ConflictFile> {
-    return invoke("cmd_get_conflict_file", { path, repoPath });
+    return ConflictService.getConflictFile(path, repoPath);
   }
 
-  /**
-   * Resolve a conflict by choosing "ours"
-   */
   static async resolveOurs(path: string, repoPath?: string): Promise<void> {
-    return invoke("cmd_resolve_ours", { path, repoPath });
+    return ConflictService.resolveOurs(path, repoPath);
   }
 
-  /**
-   * Resolve a conflict by choosing "theirs"
-   */
   static async resolveTheirs(path: string, repoPath?: string): Promise<void> {
-    return invoke("cmd_resolve_theirs", { path, repoPath });
+    return ConflictService.resolveTheirs(path, repoPath);
   }
 
-  /**
-   * Mark a file as resolved (git add)
-   */
   static async markResolved(path: string, repoPath?: string): Promise<void> {
-    return invoke("cmd_mark_resolved", { path, repoPath });
+    return ConflictService.markResolved(path, repoPath);
   }
 
-  /**
-   * Write content to a file (for manual conflict resolution)
-   */
   static async writeFile(path: string, content: string, repoPath?: string): Promise<void> {
-    return invoke("cmd_write_file", { path, content, repoPath });
+    return ConflictService.writeFile(path, content, repoPath);
   }
 
-  /**
-   * Check if the repo is in a conflict state (merge/rebase/etc AND unmerged files)
-   */
   static async checkConflictState(repoPath?: string): Promise<boolean> {
-    return invoke("cmd_check_conflict_state", { repoPath });
+    return ConflictService.checkConflictState(repoPath);
   }
 
   static async getStatusFiles(repoPath?: string): Promise<FileStatus[]> {
-    return invoke("cmd_get_status_files", { repoPath });
+    return FileService.getStatusFiles(repoPath);
   }
 
   static async generateCommitMessage(repoPath?: string): Promise<string> {
-    return invoke("cmd_generate_commit_message", { repoPath });
+    return CommitService.generateCommitMessage(repoPath);
   }
 
   static async getDiff(filePath: string, staged: boolean, repoPath?: string, encoding?: string): Promise<string> {
-    return invoke("cmd_get_diff_file", { filePath, staged, repoPath, encoding });
+    return FileService.getDiff(filePath, staged, repoPath, encoding);
   }
 
-  static async getFileBaseContent(filePath: string, staged: boolean, repoPath?: string, encoding?: string): Promise<string> {
-    return invoke("cmd_get_file_base_content", { filePath, staged, repoPath, encoding });
+  static async getFileBaseContent(
+    filePath: string,
+    staged: boolean,
+    repoPath?: string,
+    encoding?: string,
+  ): Promise<string> {
+    return FileService.getFileBaseContent(filePath, staged, repoPath, encoding);
   }
 
-  static async getFileModifiedContent(filePath: string, staged: boolean, repoPath?: string, encoding?: string): Promise<string> {
-    return invoke("cmd_get_file_modified_content", { filePath, staged, repoPath, encoding });
+  static async getFileModifiedContent(
+    filePath: string,
+    staged: boolean,
+    repoPath?: string,
+    encoding?: string,
+  ): Promise<string> {
+    return FileService.getFileModifiedContent(filePath, staged, repoPath, encoding);
   }
 
   static async stageFile(path: string, repoPath?: string): Promise<void> {
-    try {
-        await invoke("cmd_git_add", { path, repoPath });
-        toast.success(`Staged ${path}`);
-    } catch(e: any) {
-        toast.error(`Stage failed: ${e}`);
-        throw e;
-    }
+    return FileService.stageFile(path, repoPath);
   }
 
   static async unstageFile(path: string, repoPath?: string): Promise<void> {
-      try {
-        await invoke("cmd_git_unstage", { path, repoPath });
-        toast.success(`Unstaged ${path}`);
-    } catch(e: any) {
-        toast.error(`Unstage failed: ${e}`);
-        throw e;
-    }
+    return FileService.unstageFile(path, repoPath);
   }
 
   static async stageAll(repoPath?: string): Promise<void> {
-      try {
-          await invoke("cmd_git_add_all", { repoPath });
-          toast.success("Staged all files");
-      } catch (e: any) {
-          toast.error(`Stage all failed: ${e}`);
-          throw e;
-      }
+    return FileService.stageAll(repoPath);
   }
 
   static async unstageAll(repoPath?: string): Promise<void> {
-      try {
-          await invoke("cmd_git_unstage_all", { repoPath });
-          toast.success("Unstaged all files");
-      } catch (e: any) {
-          toast.error(`Unstage all failed: ${e}`);
-          throw e;
-      }
+    return FileService.unstageAll(repoPath);
   }
 
   static async stageLine(path: string, line: DiffStageLineTarget, repoPath?: string): Promise<void> {
-      try {
-          await invoke("cmd_git_stage_line", { path, line, repoPath });
-          toast.success("Staged selected line");
-      } catch (e: any) {
-          toast.error(`Stage line failed: ${e}`);
-          throw e;
-      }
+    return FileService.stageLine(path, line, repoPath);
   }
 
   static async unstageLine(path: string, line: DiffStageLineTarget, repoPath?: string): Promise<void> {
-      try {
-          await invoke("cmd_git_unstage_line", { path, line, repoPath });
-          toast.success("Unstaged selected line");
-      } catch (e: any) {
-          toast.error(`Unstage line failed: ${e}`);
-          throw e;
-      }
+    return FileService.unstageLine(path, line, repoPath);
   }
 
   static async discardChanges(files: FileStatus[], repoPath?: string): Promise<void> {
-      if (files.length === 0) return;
-      try {
-          await invoke("cmd_git_discard_changes", { files, repoPath });
-          if (files.length === 1) {
-              toast.success(`Discarded changes in ${files[0].path}`);
-          } else {
-              toast.success("Discarded all changes");
-          }
-      } catch (e: any) {
-          toast.error(`Discard failed: ${e}`);
-          throw e;
-      }
+    return FileService.discardChanges(files, repoPath);
   }
 
   static async stashFile(file: FileStatus, repoPath?: string): Promise<void> {
-      try {
-          await invoke("cmd_git_stash_file", { file, repoPath });
-          toast.success(`Stashed ${file.path}`);
-          triggerGraphReload();
-      } catch (e: any) {
-          toast.error(`Stash failed: ${e}`);
-          throw e;
-      }
+    return FileService.stashFile(file, repoPath);
   }
 
   static async stashAll(repoPath?: string): Promise<void> {
-      try {
-          await invoke("cmd_git_stash_all", { repoPath });
-          toast.success("Stashed all changes");
-          triggerGraphReload();
-      } catch (e: any) {
-          toast.error(`Stash all failed: ${e}`);
-          throw e;
-      }
+    return FileService.stashAll(repoPath);
   }
 
   static async openRepoFile(filePath: string, repoPath?: string): Promise<void> {
-      try {
-          await invoke("cmd_open_repo_file", { filePath, repoPath });
-      } catch (e: any) {
-          toast.error(`Open file failed: ${e}`);
-          throw e;
-      }
+    return FileService.openRepoFile(filePath, repoPath);
   }
 
-  // --- Branch Management ---
-
   static async getBranches(includeRemote = false, repoPath?: string): Promise<string[]> {
-    return invoke("cmd_get_git_branches", { includeRemote, repoPath });
+    return BranchService.getBranches(includeRemote, repoPath);
   }
 
   static async getCurrentBranch(repoPath?: string): Promise<string> {
-    return invoke("cmd_get_current_branch", { repoPath });
+    return BranchService.getCurrentBranch(repoPath);
   }
 
   static async switchBranch(branchName: string, repoPath?: string): Promise<GitCommandResult> {
-    try {
-      const res = await invoke<GitCommandResult>("cmd_git_switch_branch", { branchName, repoPath });
-      if (res.success) {
-          toast.success(`Switched to branch '${branchName}'`);
-          triggerGraphReload();
-      } else {
-          toast.error(`Failed to switch branch: ${res.stderr}`);
-      }
-      return res;
-    } catch (e: any) {
-      toast.error(`Failed to switch branch: ${e}`);
-      throw e;
-    }
+    return BranchService.switchBranch(branchName, repoPath);
   }
 
   static async checkout(branchName: string, repoPath?: string): Promise<GitCommandResult> {
-    try {
-      const res = await invoke<GitCommandResult>("cmd_git_checkout", { branch: branchName, repoPath });
-      if (res.success) {
-          toast.success(`Checked out branch '${branchName}'`);
-          triggerGraphReload();
-      } else {
-          toast.error(`Checkout failed: ${res.stderr}`);
-      }
-      return res;
-    } catch (e: any) {
-      toast.error(`Checkout failed: ${e}`);
-      throw e;
-    }
+    return BranchService.checkout(branchName, repoPath);
   }
 
   static async checkoutNew(name: string, startPoint: string, repoPath?: string): Promise<GitCommandResult> {
-    try {
-      const res = await invoke<GitCommandResult>("cmd_git_checkout_new_branch", { name, startPoint, repoPath });
-      if (res.success) {
-          toast.success(`Created branch '${name}'`);
-          triggerGraphReload();
-      } else {
-          toast.error(`Failed to create branch: ${res.stderr}`);
-      }
-      return res;
-    } catch (e: any) {
-      toast.error(`Failed to create branch: ${e}`);
-      throw e;
-    }
+    return BranchService.checkoutNew(name, startPoint, repoPath);
   }
 
   static async createBranch(name: string, base: string, repoPath?: string): Promise<GitCommandResult> {
-    try {
-      const res = await invoke<GitCommandResult>("cmd_git_create_branch", { name, base, repoPath });
-      if (res.success) {
-        toast.success(`Branch '${name}' created successfully`);
-      } else {
-        toast.error(`Failed to create branch: ${res.stderr}`);
-      }
-      return res;
-    } catch (e: any) {
-      toast.error(`Failed to create branch: ${e}`);
-      throw e;
-    }
+    return BranchService.createBranch(name, base, repoPath);
   }
 
   static async getCommitGraph(limit: number, repoPath?: string): Promise<string> {
-    return invoke("cmd_get_commit_graph", { limit, repoPath });
+    return BranchService.getCommitGraph(limit, repoPath);
   }
 
   static async merge(branch: string, repoPath?: string): Promise<GitCommandResult> {
-    try {
-      const res = await invoke<GitCommandResult>("cmd_git_merge", { branch, repoPath });
-      if (res.success) {
-          toast.success(`Merged '${branch}'`);
-          triggerGraphReload();
-      } else {
-          toast.error(`Merge failed: ${res.stderr}`);
-      }
-      return res;
-    } catch (e: any) {
-      toast.error(`Merge failed: ${e}`);
-      throw e;
-    }
+    return BranchService.merge(branch, repoPath);
   }
 
   static async fetch(repoPath?: string): Promise<GitCommandResult> {
-    try {
-      const res = await invoke<GitCommandResult>("cmd_git_fetch", { repoPath });
-      if (res.success) {
-          toast.success("Fetch completed");
-          triggerGraphReload();
-      } else {
-          toast.error(`Fetch failed: ${res.stderr}`);
-      }
-      return res;
-    } catch (e: any) {
-      toast.error(`Fetch failed: ${e}`);
-      throw e;
-    }
+    return BranchService.fetch(repoPath);
   }
 
   static async pull(repoPath?: string): Promise<GitCommandResult> {
-    try {
-      const res = await invoke<GitCommandResult>("cmd_git_pull", { repoPath });
-      if (res.success) {
-          toast.success("Pull completed");
-          triggerGraphReload();
-      } else {
-          toast.error(`Pull failed: ${res.stderr}`);
-      }
-      return res;
-    } catch (e: any) {
-      toast.error(`Pull failed: ${e}`);
-      throw e;
-    }
+    return BranchService.pull(repoPath);
   }
 
   static async push(repoPath?: string): Promise<GitCommandResult> {
-    try {
-      const res = await invoke<GitCommandResult>("cmd_git_push", { repoPath });
-      if (res.success) {
-          toast.success("Push completed");
-          triggerGraphReload();
-      } else {
-          toast.error(`Push failed: ${res.stderr}`);
-      }
-      return res;
-    } catch (e: any) {
-      toast.error(`Push failed: ${e}`);
-      throw e;
-    }
+    return BranchService.push(repoPath);
   }
 
   static async commit(message: string, repoPath?: string): Promise<GitCommandResult> {
-    try {
-      const res = await invoke<GitCommandResult>("cmd_git_commit", { message, repoPath });
-      if (res.success) {
-          toast.success("Commit successful");
-          triggerGraphReload();
-      } else {
-          toast.error(`Commit failed: ${res.stderr}`);
-      }
-      return res;
-    } catch (e: any) {
-      toast.error(`Commit failed: ${e}`);
-      throw e;
-    }
+    return CommitService.commit(message, repoPath);
   }
 
   static async getPendingCommitsCount(repoPath?: string): Promise<number> {
-    return invoke("cmd_get_pending_commits_count", { repoPath });
+    return CommitService.getPendingCommitsCount(repoPath);
   }
 
-  static async getFileHistory(filePath: string, limit = 100, repoPath?: string): Promise<import("./types").FileCommit[]> {
-    return invoke("cmd_get_file_history", { filePath, limit, repoPath });
+  static async getFileHistory(filePath: string, limit = 100, repoPath?: string): Promise<FileCommit[]> {
+    return CommitService.getFileHistory(filePath, limit, repoPath);
   }
 
   static async searchRepoFiles(pattern?: string, repoPath?: string): Promise<string[]> {
-    return invoke("cmd_search_repo_files", { pattern, repoPath });
+    return CommitService.searchRepoFiles(pattern, repoPath);
   }
 
   static async getCommitChangedFiles(commitHash: string, repoPath?: string): Promise<CommitChangedFile[]> {
-    try {
-      return await invoke<CommitChangedFile[]>("cmd_get_commit_changed_files", { commitHash, repoPath });
-    } catch (e: any) {
-      console.error("Failed to get changed files for commit", e);
-      throw e;
-    }
+    return CommitService.getCommitChangedFiles(commitHash, repoPath);
   }
 
   static async getCommitFileDiff(commitHash: string, filePath: string, repoPath?: string): Promise<GitCommandResult> {
-    return invoke("cmd_get_commit_file_diff", { commitHash, filePath, repoPath });
+    return CommitService.getCommitFileDiff(commitHash, filePath, repoPath);
   }
 
-  static async getCommitDiff(commitHash: string, repoPath?: string, filePath?: string, encoding?: string): Promise<import("./types").CommitDiff> {
-    return invoke("cmd_get_commit_diff", { commitHash, filePath, repoPath, encoding });
+  static async getCommitDiff(
+    commitHash: string,
+    repoPath?: string,
+    filePath?: string,
+    encoding?: string,
+  ): Promise<CommitDiff> {
+    return CommitService.getCommitDiff(commitHash, repoPath, filePath, encoding);
   }
 
-  static async getFileAtCommit(commitHash: string, filePath: string, repoPath?: string, encoding?: string): Promise<string> {
-    return invoke("cmd_get_file_at_commit", { commitHash, filePath, repoPath, encoding });
+  static async getFileAtCommit(
+    commitHash: string,
+    filePath: string,
+    repoPath?: string,
+    encoding?: string,
+  ): Promise<string> {
+    return CommitService.getFileAtCommit(commitHash, filePath, repoPath, encoding);
   }
-
-  // --- Terminal ---
 
   static async startTerminal(repoPath: string): Promise<void> {
-    return invoke("cmd_terminal_start", { repoPath });
+    return TerminalService.startTerminal(repoPath);
   }
 
   static async writeTerminal(repoPath: string, input: string): Promise<void> {
-    return invoke("cmd_terminal_write", { repoPath, input });
+    return TerminalService.writeTerminal(repoPath, input);
   }
 
   static async stopTerminal(repoPath: string): Promise<void> {
-    return invoke("cmd_terminal_stop", { repoPath });
+    return TerminalService.stopTerminal(repoPath);
   }
 }

@@ -4,11 +4,20 @@
   import { GitService, type CommitChangedFile } from "../lib/GitService";
   import { confirm } from "../lib/confirmation.svelte";
   import { toast } from "../lib/toast.svelte";
+  import { GRAPH_CONFIG } from "../lib/graph-config";
+  import {
+      chooseBaseContent,
+      buildCurvedConnectionPath,
+      getTreePath,
+      getBaseName,
+      formatPathLabel
+  } from "../lib/commit-graph-helpers";
   import ResizablePanel from "./resize/ResizablePanel.svelte";
   import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
   import DiffView from "./diff/DiffView.svelte";
   import DiffToolbar from "./diff/DiffToolbar.svelte";
-  import BranchContextMenu, { type BranchContextMenuState } from "./common/BranchContextMenu.svelte";
+  import BranchContextMenu from "./common/BranchContextMenu.svelte";
+  import type { BranchContextMenuState } from "./common/branch-context-menu-types";
   import FileChangeStatusBadge from "./common/FileChangeStatusBadge.svelte";
 
   interface Props {
@@ -22,31 +31,31 @@
 
   let { nodes = [], lanes = [], connections = [], repoPath, pendingPushCount = 0, onGraphReload }: Props = $props();
 
-  const ROW_HEIGHT = 32;
-  const COL_WIDTH = 32;
-  const STROKE_WIDTH = 2;
-  const PADDING_TOP = 8;
-  const PADDING_LEFT = 32;
-  const TOOLTIP_OFFSET_X = 14;
-  const TOOLTIP_OFFSET_Y = 12;
-  const TOOLTIP_MAX_WIDTH = 360;
-  const TOOLTIP_MAX_HEIGHT = 88;
-  const AVATAR_SIZE = 18;
+  const ROW_HEIGHT = GRAPH_CONFIG.ROW_HEIGHT;
+  const COL_WIDTH = GRAPH_CONFIG.COLUMN_WIDTH;
+  const STROKE_WIDTH = GRAPH_CONFIG.STROKE_WIDTH;
+  const PADDING_TOP = GRAPH_CONFIG.PADDING_TOP;
+  const PADDING_LEFT = GRAPH_CONFIG.PADDING_LEFT;
+  const TOOLTIP_OFFSET_X = GRAPH_CONFIG.TOOLTIP_OFFSET_X;
+  const TOOLTIP_OFFSET_Y = GRAPH_CONFIG.TOOLTIP_OFFSET_Y;
+  const TOOLTIP_MAX_WIDTH = GRAPH_CONFIG.TOOLTIP_MAX_WIDTH;
+  const TOOLTIP_MAX_HEIGHT = GRAPH_CONFIG.TOOLTIP_MAX_HEIGHT;
+  const AVATAR_SIZE = GRAPH_CONFIG.AVATAR_SIZE;
   const AVATAR_RADIUS = AVATAR_SIZE / 2;
-  const STASH_AVATAR_CORNER_RADIUS = 2;
-  const STASH_AVATAR_IMAGE_OPACITY = 0.58;
-  const STASH_AVATAR_BASE_OPACITY = 0.45;
-  const STASH_AVATAR_DASH = "3 2";
+  const STASH_AVATAR_CORNER_RADIUS = GRAPH_CONFIG.STASH_AVATAR_CORNER_RADIUS;
+  const STASH_AVATAR_IMAGE_OPACITY = GRAPH_CONFIG.STASH_AVATAR_IMAGE_OPACITY;
+  const STASH_AVATAR_BASE_OPACITY = GRAPH_CONFIG.STASH_AVATAR_BASE_OPACITY;
+  const STASH_AVATAR_DASH = GRAPH_CONFIG.STASH_AVATAR_DASH;
   const SVG_INSTANCE_ID = `graph-${Math.random().toString(36).slice(2, 9)}`;
   const AVATAR_CLIP_ID = `${SVG_INSTANCE_ID}-avatar-clip`;
   const AVATAR_STASH_CLIP_ID = `${SVG_INSTANCE_ID}-avatar-stash-clip`;
   const AVATAR_SHADOW_ID = `${SVG_INSTANCE_ID}-avatar-shadow`;
   const CHANGED_FILES_VIEW_MODE_KEY = "commit_graph_changed_files_view_mode";
-  const PATH_LABEL_MAX_LENGTH = 42;
-  const PATH_COLLAPSE_TOKEN = "....";
-  const CHANGED_FILE_CONTEXT_MENU_WIDTH = 190;
-  const CHANGED_FILE_CONTEXT_MENU_ITEM_HEIGHT = 32;
-  const CHANGED_FILE_CONTEXT_MENU_PADDING_Y = 4;
+  const PATH_LABEL_MAX_LENGTH = GRAPH_CONFIG.PATH_LABEL_MAX_LENGTH;
+  const PATH_COLLAPSE_TOKEN = GRAPH_CONFIG.PATH_COLLAPSE_TOKEN;
+  const CHANGED_FILE_CONTEXT_MENU_WIDTH = GRAPH_CONFIG.CHANGED_FILE_CONTEXT_MENU_WIDTH;
+  const CHANGED_FILE_CONTEXT_MENU_ITEM_HEIGHT = GRAPH_CONFIG.CHANGED_FILE_CONTEXT_MENU_ITEM_HEIGHT;
+  const CHANGED_FILE_CONTEXT_MENU_PADDING_Y = GRAPH_CONFIG.CHANGED_FILE_CONTEXT_MENU_PADDING_Y;
 
   const HEADER_BASE = "h-8 flex items-center bg-[#111827] border-b border-[#1e293b] shrink-0";
   
@@ -154,12 +163,6 @@
       changedFiles = [];
       closeChangedFileContextMenu();
       closeDiff();
-  }
-
-  function chooseBaseContent(parentContents: string[], modified: string): string {
-      if (parentContents.length === 0) return "";
-      const firstDifferent = parentContents.find((content) => content !== modified);
-      return firstDifferent ?? parentContents[0];
   }
 
   async function openDiff(file: string) {
@@ -387,58 +390,6 @@
       return node.refs.some((ref) => /^HEAD(\s*->|$)/.test(ref.trim()));
   }
 
-  function buildCurvedConnectionPath(
-      x1: number,
-      y1: number,
-      x2: number,
-      y2: number,
-      turnAtStart: boolean
-  ): string {
-      if (x1 === x2) {
-          return `M ${x1} ${y1} V ${y2}`;
-      }
-
-      if (y1 === y2) {
-          return `M ${x1} ${y1} H ${x2}`;
-      }
-
-      const dx = x2 > x1 ? 1 : -1;
-      const dy = y2 > y1 ? 1 : -1;
-      const horizontalGap = Math.abs(x2 - x1);
-      const verticalGap = Math.abs(y2 - y1);
-      const radius = Math.min(8, horizontalGap / 2, verticalGap);
-
-      if (radius < 0.5) {
-          return turnAtStart
-              ? `M ${x1} ${y1} H ${x2} V ${y2}`
-              : `M ${x1} ${y1} V ${y2} H ${x2}`;
-      }
-
-      if (turnAtStart) {
-          // Merge path: horizontal leaves source node at its center (y1),
-          // then turns into vertical lane toward target.
-          const xBeforeCorner = x2 - dx * radius;
-          const yAfterCorner = y1 + dy * radius;
-          return [
-              `M ${x1} ${y1}`,
-              `H ${xBeforeCorner}`,
-              `Q ${x2} ${y1} ${x2} ${yAfterCorner}`,
-              `V ${y2}`,
-          ].join(" ");
-      }
-
-      // First-parent/branch path: horizontal enters target node at its center (y2),
-      // after dropping vertically in source lane.
-      const yBeforeCorner = y2 - dy * radius;
-      const xAfterCorner = x1 + dx * radius;
-      return [
-          `M ${x1} ${y1}`,
-          `V ${yBeforeCorner}`,
-          `Q ${x1} ${y2} ${xAfterCorner} ${y2}`,
-          `H ${x2}`,
-      ].join(" ");
-  }
-
   // Vertical lane paths — one continuous line per column span
   let laneGeometry = $derived.by<PathGeometry[]>(() =>
       lanes.map((lane, idx) => ({
@@ -641,66 +592,6 @@
       hideCommitTooltip();
   }
 
-  function getTreePath(filePath: string): string {
-      const normalized = filePath.replaceAll("\\", "/");
-      const renameParts = normalized.split(" -> ");
-      return (renameParts[renameParts.length - 1] ?? normalized).trim();
-  }
-
-  function getBaseName(filePath: string): string {
-      const path = getTreePath(filePath);
-      const segments = path.split("/").filter(Boolean);
-      return segments.length > 0 ? segments[segments.length - 1] : path;
-  }
-
-  function collapseSinglePath(path: string, maxLength: number): string {
-      const normalized = path.replaceAll("\\", "/").trim();
-      if (normalized.length <= maxLength) return normalized;
-
-      const segments = normalized.split("/").filter(Boolean);
-      if (segments.length <= 1) {
-          return `...${normalized.slice(-Math.max(1, maxLength - 3))}`;
-      }
-
-      let first = segments[0];
-      let last = segments[segments.length - 1];
-      let candidate = `${first}/${PATH_COLLAPSE_TOKEN}/${last}`;
-
-      if (candidate.length > maxLength) {
-          const lastBudget = Math.max(10, maxLength - (first.length + PATH_COLLAPSE_TOKEN.length + 5));
-          if (last.length > lastBudget) {
-              last = `...${last.slice(-Math.max(1, lastBudget - 3))}`;
-          }
-          candidate = `${first}/${PATH_COLLAPSE_TOKEN}/${last}`;
-      }
-
-      if (candidate.length > maxLength) {
-          const firstBudget = Math.max(3, maxLength - (PATH_COLLAPSE_TOKEN.length + last.length + 5));
-          if (first.length > firstBudget) {
-              first = `${first.slice(0, Math.max(1, firstBudget - 3))}...`;
-          }
-          candidate = `${first}/${PATH_COLLAPSE_TOKEN}/${last}`;
-      }
-
-      if (candidate.length <= maxLength) return candidate;
-      return `...${normalized.slice(-Math.max(1, maxLength - 3))}`;
-  }
-
-  function formatPathLabel(path: string): string {
-      const normalized = path.replaceAll("\\", "/").trim();
-      const renameParts = normalized.split(" -> ").map((part) => part.trim()).filter(Boolean);
-
-      if (renameParts.length === 2) {
-          const leftBudget = Math.max(16, Math.floor((PATH_LABEL_MAX_LENGTH - 4) / 2));
-          const rightBudget = Math.max(16, PATH_LABEL_MAX_LENGTH - 4 - leftBudget);
-          const left = collapseSinglePath(renameParts[0], leftBudget);
-          const right = collapseSinglePath(renameParts[1], rightBudget);
-          return `${left} -> ${right}`;
-      }
-
-      return collapseSinglePath(normalized, PATH_LABEL_MAX_LENGTH);
-  }
-
   function buildChangedFilesTree(items: CommitChangedFile[]): ChangedFilesTreeDirectory {
       const root: ChangedFilesTreeDirectory = {
           name: "",
@@ -798,7 +689,7 @@
                   key: `file:${file.path}`,
                   depth: 0,
                   file,
-                  label: formatPathLabel(file.path),
+                  label: formatPathLabel(file.path, PATH_LABEL_MAX_LENGTH, PATH_COLLAPSE_TOKEN),
                   title: file.path
               }));
       }
