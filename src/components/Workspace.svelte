@@ -36,8 +36,12 @@
   let graphNodes = $state<GraphNode[]>([]);
   let graphLanes = $state<LanePath[]>([]);
   let graphConnections = $state<ConnectionPath[]>([]);
-  let commitCount = $state("50");
+  const INITIAL_GRAPH_COMMIT_LIMIT = 200;
+  const GRAPH_COMMIT_LOAD_STEP = 200;
+  let graphCommitLimit = $state(INITIAL_GRAPH_COMMIT_LIMIT);
+  let graphHasMoreCommits = $state(true);
   let graphLoading = $state(false);
+  let graphLoadingMore = $state(false);
   
   // Repo State
   let hasConflicts = $state(false);
@@ -67,13 +71,14 @@
   $effect(() => {
      if (repoPath) {
          handleConflictDetection();
-         // Optionally load graph automatically?
-         // loadGraph(false);
      }
   });
 
-  async function loadGraph(switchToGraph: any = true) {
+  async function loadGraph(options: { switchToGraph?: boolean; limit?: number } = {}) {
     if (!repoPath) return;
+    const switchToGraph = options.switchToGraph ?? true;
+    const requestedLimit = options.limit ?? graphCommitLimit;
+    const normalizedLimit = Math.max(1, Math.floor(requestedLimit));
     graphLoading = true;
     try {
       // Refresh pending count
@@ -83,12 +88,14 @@
           console.error("Failed to get pending count", e);
       }
 
-      const logOutput = await GitService.getCommitGraph(parseInt(commitCount), repoPath);
+      const logOutput = await GitService.getCommitGraph(normalizedLimit, repoPath);
       const commits = parseGitLog(logOutput);
       const layout = calculateGraphLayout(commits);
       graphNodes = layout.nodes;
       graphLanes = layout.lanes;
       graphConnections = layout.connections;
+      graphCommitLimit = normalizedLimit;
+      graphHasMoreCommits = commits.length >= normalizedLimit;
       
       if (switchToGraph !== false) {
           activeTab = "graph";
@@ -100,6 +107,24 @@
     } finally {
       graphLoading = false;
     }
+  }
+
+  async function handleLoadMoreCommits(): Promise<boolean> {
+      if (!repoPath || graphLoading || graphLoadingMore || !graphHasMoreCommits) {
+          return false;
+      }
+
+      graphLoadingMore = true;
+      const previousCount = graphNodes.length;
+      const nextLimit = graphCommitLimit + GRAPH_COMMIT_LOAD_STEP;
+
+      try {
+          await loadGraph({ switchToGraph: false, limit: nextLimit });
+      } finally {
+          graphLoadingMore = false;
+      }
+
+      return graphNodes.length > previousCount;
   }
 
   function setSelectedFilePath(path: string): void {
@@ -129,7 +154,7 @@
       pendingCommitFocusHash = commitHash;
       activeTab = "graph";
       if (graphNodes.length === 0 && !graphLoading) {
-          await loadGraph(false);
+          await loadGraph({ switchToGraph: false });
           return;
       }
       await focusPendingCommit();
@@ -141,7 +166,7 @@
   onMount(() => {
     // Initial Load?
     if (activeTab === 'graph') {
-        loadGraph(false);
+        loadGraph({ switchToGraph: false });
     }
     
     const unsub = graphReloadRequested.subscribe(v => reloadTrigger = v);
@@ -153,7 +178,7 @@
         // Reload graph if we are looking at it, or just strictly reload data
         // For now, reloading graph data is cheap enough
         if (activeTab === 'graph') {
-             loadGraph(false);
+             loadGraph({ switchToGraph: false });
         }
         handleConflictDetection();
     }
@@ -162,7 +187,7 @@
   // Auto-load graph when switching to the Graph tab
   $effect(() => {
     if (activeTab === 'graph' && repoPath && graphNodes.length === 0 && !graphLoading) {
-        loadGraph(false);
+        loadGraph({ switchToGraph: false });
     }
   });
 
@@ -238,31 +263,6 @@
              </div>
           </div>
 
-          <!-- Graph Section -->
-          <div class="space-y-2">
-              <label for="limit-{repoId}" class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-2">
-                {@html Icons.Network} Commit Graph
-              </label>
-              <div class="flex flex-wrap gap-2">
-                <input
-                    id="limit-{repoId}"
-                    type="number"
-                    bind:value={commitCount}
-                    class="w-20 sm:w-16 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1.5 text-[#c9d1d9] text-center outline-none focus:border-[#58a6ff] text-xs"
-                />
-                <button
-                    onclick={loadGraph}
-                    disabled={graphLoading}
-                    class="min-w-[132px] flex-1 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md shadow-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-[rgba(240,246,252,0.1)] text-xs"
-                >
-                    {#if graphLoading}
-                        <span>Loading...</span>
-                    {:else}
-                        <span>Load Graph</span>
-                    {/if}
-                </button>
-              </div>
-          </div>
       </div>
 
       <!-- Branch Explorer (Flexible) -->
@@ -331,7 +331,7 @@
          <div class="absolute inset-0 bg-[#0d1117] {activeTab === 'graph' ? 'z-10 visible' : 'z-0 invisible'}">
             {#if graphNodes.length === 0 && !graphLoading}
                 <div class="absolute inset-0 flex flex-col items-center justify-center text-[#484f58] select-none">
-                  <p class="text-sm">No graph loaded. Enter commit limit and click "Load Graph".</p>
+                  <p class="text-sm">No commits available to display.</p>
                 </div>
             {:else}
                 <CommitGraph
@@ -342,6 +342,9 @@
                   repoPath={repoPath}
                   pendingPushCount={pendingPushCount}
                   onGraphReload={loadGraph}
+                  onLoadMoreCommits={handleLoadMoreCommits}
+                  hasMoreCommits={graphHasMoreCommits}
+                  isLoadingMoreCommits={graphLoadingMore}
                   onNavigateToCommitPanel={() => activeTab = "commit"}
                   onShowHistory={handleShowFileHistory}
                   onShowBlame={handleShowFileBlame}

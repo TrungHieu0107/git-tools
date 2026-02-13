@@ -39,6 +39,9 @@
     repoPath?: string;
     pendingPushCount?: number;
     onGraphReload?: () => Promise<void>;
+    onLoadMoreCommits?: () => Promise<boolean>;
+    hasMoreCommits?: boolean;
+    isLoadingMoreCommits?: boolean;
     onNavigateToCommitPanel?: () => void;
     onShowHistory?: (filePath: string) => void;
     onShowBlame?: (filePath: string) => void;
@@ -51,6 +54,9 @@
       repoPath,
       pendingPushCount = 0,
       onGraphReload,
+      onLoadMoreCommits,
+      hasMoreCommits = true,
+      isLoadingMoreCommits = false,
       onNavigateToCommitPanel,
       onShowHistory,
       onShowBlame
@@ -86,6 +92,7 @@
   const CHANGED_FILE_CONTEXT_MENU_SEPARATOR_HEIGHT = 9;
   const CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS = "context-menu-item";
   const HEADER_BASE = "panel-header";
+  const LOAD_MORE_SCROLL_THRESHOLD_PX = 96;
   
   // -- State -- 
   interface Column {
@@ -457,6 +464,7 @@
   let hoveredBranchColor = $state<string | null>(null);
   let hoveredCommitHash = $state<string | null>(null);
   let graphViewportEl = $state<HTMLDivElement | null>(null);
+  let loadMoreRequestInFlight = $state(false);
   let branchContextMenu = $state<BranchContextMenuState | null>(null);
   let commitContextMenu = $state<CommitContextMenuState | null>(null);
   let stashCommitContextMenu = $state<StashCommitContextMenuState | null>(null);
@@ -755,6 +763,33 @@
 
   function hideCommitTooltip() {
       graphTooltip.visible = false;
+  }
+
+  async function maybeLoadMoreCommits(viewport: HTMLDivElement): Promise<void> {
+      if (!onLoadMoreCommits || loadMoreRequestInFlight || isLoadingMoreCommits || !hasMoreCommits) {
+          return;
+      }
+
+      const distanceToBottom = viewport.scrollHeight - (viewport.scrollTop + viewport.clientHeight);
+      if (distanceToBottom > LOAD_MORE_SCROLL_THRESHOLD_PX) {
+          return;
+      }
+
+      loadMoreRequestInFlight = true;
+      try {
+          await onLoadMoreCommits();
+      } catch (e) {
+          console.error("Failed to load older commits", e);
+      } finally {
+          loadMoreRequestInFlight = false;
+      }
+  }
+
+  function handleGraphViewportScroll(event: Event) {
+      hideCommitTooltip();
+      const target = event.currentTarget;
+      if (!(target instanceof HTMLDivElement)) return;
+      void maybeLoadMoreCommits(target);
   }
 
   function handleRowMouseEnter(event: MouseEvent, node: GraphNode) {
@@ -2106,7 +2141,7 @@
             {/each}
         </div>
 
-        <div class="flex-1 overflow-auto custom-scrollbar relative" bind:this={graphViewportEl} onscroll={hideCommitTooltip}>
+        <div class="flex-1 overflow-auto custom-scrollbar relative" bind:this={graphViewportEl} onscroll={handleGraphViewportScroll}>
             <div class="relative min-w-full" style="height: {totalRowCount * ROW_HEIGHT + PADDING_TOP}px;">
                 <!-- Background stripe rows -->
                 <div class="absolute top-0 left-0 w-full pt-[8px] z-[1] pointer-events-none">
@@ -2502,6 +2537,11 @@
                 </div>
 
             </div>
+            {#if isLoadingMoreCommits}
+                <div class="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded border border-[#30363d] bg-[#0f172a] px-3 py-1 text-[11px] text-[#8b949e]">
+                    Loading older commits...
+                </div>
+            {/if}
             <div class="absolute inset-0 z-50 pointer-events-none">
                 {#if graphTooltip.visible}
                     <div
