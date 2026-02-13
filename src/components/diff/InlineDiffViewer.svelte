@@ -1,14 +1,13 @@
 <script lang="ts">
   import {
     toInlineView,
-    type DiffResult,
     type DiffHunk,
     type InlineDiffLine,
     type DiffStageLineTarget,
     mapBackendHunksToInline,
     escapeHtml,
   } from "../../lib/diff";
-  import type { DiffHunk as BackendDiffHunk } from "../../lib/types";
+  import type { DiffViewerBaseProps } from "./diff-viewer-types";
   import { toast } from "../../lib/toast.svelte";
 
   type LineContextMenuState = {
@@ -23,14 +22,8 @@
   const CONTEXT_MENU_ITEM_HEIGHT = 32;
   const CONTEXT_MENU_PADDING_Y = 4;
 
-  interface Props {
-    diffResult?: DiffResult | null;
+  interface Props extends DiffViewerBaseProps {
     hunks?: DiffHunk[];
-    commitHunks?: BackendDiffHunk[];
-    canStageLine?: boolean;
-    onStageLine?: (line: DiffStageLineTarget) => void | Promise<void>;
-    canUnstageLine?: boolean;
-    onUnstageLine?: (line: DiffStageLineTarget) => void | Promise<void>;
   }
   let {
     diffResult,

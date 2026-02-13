@@ -692,20 +692,23 @@ pub async fn cmd_get_commit_graph(
     repo_path: Option<String>,
 ) -> Result<String, String> {
     let path = resolve_repo_path(&state, repo_path)?;
-    let limit_str = format!("--max-count={}", limit);
-    let args: Vec<String> = vec![
-        "log".into(),
-        limit_str,
-        "--all".into(),
-        "--pretty=format:%H|%P|%d|%an|%cI|%s".into(),
-        "--date=local".into(),
-    ];
+    let args = build_commit_graph_args(limit);
     let resp = state
         .git
         .run(Path::new(&path), &args, TIMEOUT_LOCAL)
         .await
         .map_err(|e| e.to_string())?;
     Ok(resp.stdout)
+}
+
+fn build_commit_graph_args(limit: usize) -> Vec<String> {
+    vec![
+        "log".to_string(),
+        format!("--max-count={}", limit),
+        "--all".to_string(),
+        "--pretty=format:%H|%P|%d|%an|%cI|%s".to_string(),
+        "--date=local".to_string(),
+    ]
 }
 
 // ---------------------------------------------------------------------------
@@ -734,95 +737,113 @@ pub struct BlameLine {
     pub content: String,
 }
 
-#[tauri::command]
-pub async fn cmd_get_status_files(
-    state: State<'_, AppState>,
+fn strip_surrounding_quotes(path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
+        trimmed[1..trimmed.len() - 1].to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn parse_untracked_status_line(line: &str) -> Option<FileStatus> {
+    if !line.starts_with("?? ") {
+        return None;
+    }
+    let path = strip_surrounding_quotes(&line[3..]);
+    if path.is_empty() {
+        return None;
+    }
+    Some(FileStatus {
+        path,
+        status: "??".to_string(),
+        staged: false,
+    })
+}
+
+fn parse_status_line(line: &str) -> Vec<FileStatus> {
+    if line.len() < 4 {
+        return parse_untracked_status_line(line).into_iter().collect();
+    }
+
+    let mut entries = Vec::new();
+    let chars: Vec<char> = line.chars().collect();
+    if chars.len() < 2 {
+        return entries;
+    }
+
+    let x = chars[0];
+    let y = chars[1];
+    let file_path = strip_surrounding_quotes(&line[3..]);
+    if file_path.is_empty() {
+        return entries;
+    }
+
+    if x == '?' && y == '?' {
+        entries.push(FileStatus {
+            path: file_path,
+            status: "??".to_string(),
+            staged: false,
+        });
+        return entries;
+    }
+
+    if x != ' ' && x != '?' {
+        entries.push(FileStatus {
+            path: file_path.clone(),
+            status: x.to_string(),
+            staged: true,
+        });
+    }
+    if y != ' ' {
+        entries.push(FileStatus {
+            path: file_path,
+            status: y.to_string(),
+            staged: false,
+        });
+    }
+    entries
+}
+
+fn parse_status_entries(output: &str) -> Vec<FileStatus> {
+    output.lines().flat_map(parse_status_line).collect()
+}
+
+fn filter_excluded_status_entries(entries: Vec<FileStatus>, exclusions: &[String]) -> Vec<FileStatus> {
+    entries
+        .into_iter()
+        .filter(|entry| !is_excluded(&entry.path, exclusions))
+        .collect()
+}
+
+fn load_exclusion_patterns(state: &State<'_, AppState>) -> Result<Vec<String>, String> {
+    let settings = state.settings.lock().map_err(|e| e.to_string())?;
+    Ok(settings.excluded_files.clone())
+}
+
+async fn fetch_raw_status_output(
+    state: &State<'_, AppState>,
     repo_path: Option<String>,
-) -> Result<Vec<FileStatus>, String> {
-    let path = resolve_repo_path(&state, repo_path)?;
+) -> Result<String, String> {
+    let path = resolve_repo_path(state, repo_path)?;
     let args = vec!["status".to_string(), "--porcelain".to_string()];
     let resp = state
         .git
         .run(Path::new(&path), &args, TIMEOUT_LOCAL)
         .await
         .map_err(|e| e.to_string())?;
+    Ok(resp.stdout)
+}
 
-    let exclusions = {
-        let settings = state.settings.lock().map_err(|e| e.to_string())?;
-        settings.excluded_files.clone()
-    };
-
-    let mut results = Vec::new();
-
-    for line in resp.stdout.lines() {
-        if line.len() < 4 {
-            // "?? file" is 3+chars but usually safe.
-            if line.starts_with("?? ") {
-                let mut path = line[3..].trim().to_string();
-                if path.starts_with('"') && path.ends_with('"') {
-                    path = path[1..path.len() - 1].to_string();
-                }
-
-                if is_excluded(&path, &exclusions) {
-                    continue;
-                }
-                results.push(FileStatus {
-                    path,
-                    status: "??".to_string(),
-                    staged: false,
-                });
-            }
-            continue;
-        }
-
-        let chars: Vec<char> = line.chars().collect();
-        if chars.len() < 2 {
-            continue;
-        }
-
-        let x = chars[0];
-        let y = chars[1];
-        let mut file_path = line[3..].trim().to_string();
-
-        if file_path.starts_with('"') && file_path.ends_with('"') {
-            file_path = file_path[1..file_path.len() - 1].to_string();
-        }
-
-        if is_excluded(&file_path, &exclusions) {
-            continue;
-        }
-
-        // Untracked files are represented as "?? <path>" in porcelain output.
-        // Handle this before the generic X/Y parsing so status is normalized.
-        if x == '?' && y == '?' {
-            results.push(FileStatus {
-                path: file_path,
-                status: "??".to_string(),
-                staged: false,
-            });
-            continue;
-        }
-
-        // Staged status (X)
-        if x != ' ' && x != '?' {
-            results.push(FileStatus {
-                path: file_path.clone(),
-                status: x.to_string(),
-                staged: true,
-            });
-        }
-
-        // Unstaged status (Y)
-        if y != ' ' {
-            results.push(FileStatus {
-                path: file_path.clone(),
-                status: y.to_string(),
-                staged: false,
-            });
-        }
-    }
-
-    Ok(results)
+#[tauri::command]
+pub async fn cmd_get_status_files(
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<Vec<FileStatus>, String> {
+    let raw_output = fetch_raw_status_output(&state, repo_path).await?;
+    let exclusions = load_exclusion_patterns(&state)?;
+    let entries = parse_status_entries(&raw_output);
+    Ok(filter_excluded_status_entries(entries, &exclusions))
 }
 
 #[tauri::command]
@@ -2288,131 +2309,277 @@ pub async fn cmd_get_file_at_commit(
     ))
 }
 
+fn parse_diff_file_path(line: &str) -> String {
+    if let Some(idx) = line.find(" b/") {
+        return line[idx + 3..].trim().to_string();
+    }
+    line.split_whitespace().last().unwrap_or("").to_string()
+}
+
+fn parse_hunk_header(line: &str) -> Option<(u32, u32)> {
+    if !line.starts_with("@@") {
+        return None;
+    }
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    if parts.len() < 3 {
+        return None;
+    }
+    let old_ln = parts[1][1..]
+        .split(',')
+        .next()
+        .unwrap_or("0")
+        .parse()
+        .unwrap_or(0);
+    let new_ln = parts[2][1..]
+        .split(',')
+        .next()
+        .unwrap_or("0")
+        .parse()
+        .unwrap_or(0);
+    Some((old_ln, new_ln))
+}
+
+fn parse_hunk_line(line: &str, old_ln: &mut u32, new_ln: &mut u32) -> Option<DiffLine> {
+    if line.starts_with('+') {
+        let parsed = DiffLine {
+            type_: DiffLineType::Add,
+            content: line[1..].to_string(),
+            old_line_number: None,
+            new_line_number: Some(*new_ln),
+        };
+        *new_ln += 1;
+        return Some(parsed);
+    }
+    if line.starts_with('-') {
+        let parsed = DiffLine {
+            type_: DiffLineType::Remove,
+            content: line[1..].to_string(),
+            old_line_number: Some(*old_ln),
+            new_line_number: None,
+        };
+        *old_ln += 1;
+        return Some(parsed);
+    }
+    if line.starts_with(' ') {
+        let parsed = DiffLine {
+            type_: DiffLineType::Context,
+            content: line[1..].to_string(),
+            old_line_number: Some(*old_ln),
+            new_line_number: Some(*new_ln),
+        };
+        *old_ln += 1;
+        *new_ln += 1;
+        return Some(parsed);
+    }
+    None
+}
+
+fn push_hunk_if_present(file: &mut DiffFile, current_hunk: &mut Option<DiffHunk>) {
+    if let Some(hunk) = current_hunk.take() {
+        file.hunks.push(hunk);
+    }
+}
+
+fn flush_current_file(
+    files: &mut Vec<DiffFile>,
+    current_file: &mut Option<DiffFile>,
+    current_hunk: &mut Option<DiffHunk>,
+) {
+    if let Some(mut file) = current_file.take() {
+        push_hunk_if_present(&mut file, current_hunk);
+        files.push(file);
+    }
+}
+
 fn parse_diff_output(stdout: &str) -> Vec<DiffFile> {
     let mut files = Vec::new();
     let mut current_file: Option<DiffFile> = None;
     let mut current_hunk: Option<DiffHunk> = None;
-
     let mut old_ln: u32 = 0;
     let mut new_ln: u32 = 0;
 
     for line in stdout.lines() {
         if line.starts_with("diff --git") {
-            if let Some(mut f) = current_file.take() {
-                if let Some(h) = current_hunk.take() {
-                    f.hunks.push(h);
-                }
-                files.push(f);
-            }
-            // diff --git a/path b/path
-            // Parse path from " b/" to end
-            let path = if let Some(idx) = line.find(" b/") {
-                line[idx + 3..].trim().to_string()
-            } else {
-                // Fallback
-                line.split_whitespace().last().unwrap_or("").to_string()
-            };
-
+            flush_current_file(&mut files, &mut current_file, &mut current_hunk);
             current_file = Some(DiffFile {
-                path,
+                path: parse_diff_file_path(line),
                 status: "M".to_string(),
                 hunks: Vec::new(),
             });
-            current_hunk = None;
             continue;
         }
 
-        if let Some(ref mut file) = current_file {
-            if line.starts_with("new file mode") {
-                file.status = "A".to_string();
-            } else if line.starts_with("deleted file mode") {
-                file.status = "D".to_string();
-            } else if line.starts_with("rename from") {
-                file.status = "R".to_string();
-            } else if line.starts_with("index")
-                || line.starts_with("---")
-                || line.starts_with("+++")
-            {
-                // Skip headers
-                continue;
-            } else if line.starts_with("Binary files") {
-                // Handle binary - for now just leave hunks empty, maybe status is impacted
-            } else if line.starts_with("@@") {
-                // Push previous hunk
-                if let Some(h) = current_hunk.take() {
-                    file.hunks.push(h);
-                }
+        let Some(file) = current_file.as_mut() else {
+            continue;
+        };
 
-                // Parse ranges: @@ -old,len +new,len @@
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 3 {
-                    // -old,len
-                    let old_part = &parts[1][1..];
-                    old_ln = old_part
-                        .split(',')
-                        .next()
-                        .unwrap_or("0")
-                        .parse()
-                        .unwrap_or(0);
+        if line.starts_with("new file mode") {
+            file.status = "A".to_string();
+            continue;
+        }
+        if line.starts_with("deleted file mode") {
+            file.status = "D".to_string();
+            continue;
+        }
+        if line.starts_with("rename from") {
+            file.status = "R".to_string();
+            continue;
+        }
+        if line.starts_with("index")
+            || line.starts_with("---")
+            || line.starts_with("+++")
+            || line.starts_with("Binary files")
+        {
+            continue;
+        }
 
-                    // +new,len
-                    let new_part = &parts[2][1..];
-                    new_ln = new_part
-                        .split(',')
-                        .next()
-                        .unwrap_or("0")
-                        .parse()
-                        .unwrap_or(0);
+        if let Some((old_start, new_start)) = parse_hunk_header(line) {
+            push_hunk_if_present(file, &mut current_hunk);
+            old_ln = old_start;
+            new_ln = new_start;
+            current_hunk = Some(DiffHunk {
+                id: Uuid::new_v4().to_string(),
+                old_start,
+                new_start,
+                lines: Vec::new(),
+            });
+            continue;
+        }
 
-                    current_hunk = Some(DiffHunk {
-                        id: Uuid::new_v4().to_string(),
-                        old_start: old_ln,
-                        new_start: new_ln,
-                        lines: Vec::new(),
-                    });
-                }
-            } else if let Some(ref mut hunk) = current_hunk {
-                if line.starts_with('+') {
-                    hunk.lines.push(DiffLine {
-                        type_: DiffLineType::Add,
-                        content: line[1..].to_string(),
-                        old_line_number: None,
-                        new_line_number: Some(new_ln),
-                    });
-                    new_ln += 1;
-                } else if line.starts_with('-') {
-                    // Removed line
-                    hunk.lines.push(DiffLine {
-                        type_: DiffLineType::Remove,
-                        content: line[1..].to_string(),
-                        old_line_number: Some(old_ln),
-                        new_line_number: None,
-                    });
-                    old_ln += 1;
-                } else if line.starts_with(' ') {
-                    // Context line
-                    hunk.lines.push(DiffLine {
-                        type_: DiffLineType::Context,
-                        content: line[1..].to_string(),
-                        old_line_number: Some(old_ln),
-                        new_line_number: Some(new_ln),
-                    });
-                    old_ln += 1;
-                    new_ln += 1;
-                }
+        if let Some(hunk) = current_hunk.as_mut() {
+            if let Some(parsed_line) = parse_hunk_line(line, &mut old_ln, &mut new_ln) {
+                hunk.lines.push(parsed_line);
             }
         }
     }
 
-    // Flush last
-    if let Some(mut f) = current_file.take() {
-        if let Some(h) = current_hunk.take() {
-            f.hunks.push(h);
-        }
-        files.push(f);
+    flush_current_file(&mut files, &mut current_file, &mut current_hunk);
+    files
+}
+
+fn normalize_diff_tree_status(raw: &str) -> String {
+    let s = raw.trim();
+    if s == "??" {
+        return "??".to_string();
+    }
+    match s.chars().next() {
+        Some('A') => "A".to_string(),
+        Some('M') => "M".to_string(),
+        Some('D') => "D".to_string(),
+        Some('R') => "R".to_string(),
+        Some('C') => "C".to_string(),
+        Some('T') => "T".to_string(),
+        Some('U') => "U".to_string(),
+        _ => "M".to_string(),
+    }
+}
+
+fn status_priority(status: &str) -> u8 {
+    match status {
+        "U" => 70,
+        "D" => 60,
+        "A" => 50,
+        "R" => 40,
+        "C" => 35,
+        "M" => 30,
+        "T" => 20,
+        "??" => 10,
+        _ => 0,
+    }
+}
+
+fn parse_diff_tree_line(line: &str) -> Option<(String, String)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
     }
 
-    files
+    let parts: Vec<&str> = trimmed.split('\t').collect();
+    if parts.len() < 2 {
+        return None;
+    }
+
+    let status = normalize_diff_tree_status(parts[0]);
+    let file_path = if parts.len() >= 3 {
+        parts[2].trim()
+    } else {
+        parts[1].trim()
+    };
+    if file_path.is_empty() {
+        return None;
+    }
+    Some((file_path.to_string(), status))
+}
+
+fn merge_changed_file_status(
+    ordered_paths: &mut Vec<String>,
+    by_path_status: &mut HashMap<String, String>,
+    file_path: String,
+    normalized_status: String,
+) {
+    if let Some(existing_status) = by_path_status.get(&file_path) {
+        if status_priority(&normalized_status) > status_priority(existing_status) {
+            by_path_status.insert(file_path, normalized_status);
+        }
+        return;
+    }
+    ordered_paths.push(file_path.clone());
+    by_path_status.insert(file_path, normalized_status);
+}
+
+fn parse_commit_changed_files_output(stdout: &str) -> Vec<CommitChangedFile> {
+    let mut ordered_paths: Vec<String> = Vec::new();
+    let mut by_path_status: HashMap<String, String> = HashMap::new();
+
+    for line in stdout.lines() {
+        let Some((file_path, normalized_status)) = parse_diff_tree_line(line) else {
+            continue;
+        };
+        merge_changed_file_status(
+            &mut ordered_paths,
+            &mut by_path_status,
+            file_path,
+            normalized_status,
+        );
+    }
+
+    ordered_paths
+        .into_iter()
+        .map(|path| CommitChangedFile {
+            status: by_path_status
+                .remove(&path)
+                .unwrap_or_else(|| "M".to_string()),
+            path,
+        })
+        .collect()
+}
+
+fn fetch_commit_changed_files_output(
+    state: &State<'_, AppState>,
+    repo_path: Option<String>,
+    commit_hash: &str,
+) -> Result<String, String> {
+    let path = resolve_repo_path(state, repo_path)?;
+    let args = vec![
+        "diff-tree".to_string(),
+        "--no-commit-id".to_string(),
+        "--name-status".to_string(),
+        "-r".to_string(),
+        "-m".to_string(),
+        "--root".to_string(),
+        commit_hash.to_string(),
+    ];
+
+    let mut command = std::process::Command::new(state.git.binary_path());
+    command.args(&args).current_dir(&path);
+    hide_console_window(&mut command);
+
+    let output = command.output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("git diff-tree failed: {}", stderr));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 #[tauri::command]
@@ -2421,121 +2588,8 @@ pub async fn cmd_get_commit_changed_files(
     commit_hash: String,
     repo_path: Option<String>,
 ) -> Result<Vec<CommitChangedFile>, String> {
-    let path = resolve_repo_path(&state, repo_path)?;
-
-    // Include:
-    // - merge commits (-m): list files changed against each parent
-    // - root commit (--root): list files introduced by the initial commit
-    // Then deduplicate to return a clean file list + normalized status for the UI.
-    // git diff-tree --no-commit-id --name-status -r -m --root <commit_hash>
-    let args = vec![
-        "diff-tree".to_string(),
-        "--no-commit-id".to_string(),
-        "--name-status".to_string(),
-        "-r".to_string(),
-        "-m".to_string(),
-        "--root".to_string(),
-        commit_hash,
-    ];
-
-    let mut command = std::process::Command::new(state.git.binary_path());
-    command.args(&args).current_dir(&path);
-    hide_console_window(&mut command);
-
-    let output = command.output().map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git diff-tree failed: {}", stderr));
-    }
-
-    fn normalize_diff_tree_status(raw: &str) -> String {
-        let s = raw.trim();
-        if s == "??" {
-            return "??".to_string();
-        }
-        match s.chars().next() {
-            Some('A') => "A".to_string(),
-            Some('M') => "M".to_string(),
-            Some('D') => "D".to_string(),
-            Some('R') => "R".to_string(), // rename (R100, R090...)
-            Some('C') => "C".to_string(), // copy (C100...)
-            Some('T') => "T".to_string(), // type change
-            Some('U') => "U".to_string(), // unmerged
-            _ => "M".to_string(),
-        }
-    }
-
-    fn status_priority(status: &str) -> u8 {
-        match status {
-            "U" => 70,
-            "D" => 60,
-            "A" => 50,
-            "R" => 40,
-            "C" => 35,
-            "M" => 30,
-            "T" => 20,
-            "??" => 10,
-            _ => 0,
-        }
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-
-    // Keep insertion order stable while allowing us to merge duplicate rows from merge commits.
-    let mut ordered_paths: Vec<String> = Vec::new();
-    let mut by_path_status: HashMap<String, String> = HashMap::new();
-
-    for line in stdout.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        // --name-status output:
-        // M\tpath
-        // A\tpath
-        // D\tpath
-        // R100\told\tnew
-        // C100\told\tnew
-        let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() < 2 {
-            continue;
-        }
-
-        let normalized_status = normalize_diff_tree_status(parts[0]);
-        let file_path = if parts.len() >= 3 {
-            parts[2].trim()
-        } else {
-            parts[1].trim()
-        };
-
-        if file_path.is_empty() {
-            continue;
-        }
-
-        let file_path = file_path.to_string();
-        if let Some(existing_status) = by_path_status.get(&file_path) {
-            if status_priority(&normalized_status) > status_priority(existing_status) {
-                by_path_status.insert(file_path, normalized_status);
-            }
-        } else {
-            ordered_paths.push(file_path.clone());
-            by_path_status.insert(file_path, normalized_status);
-        }
-    }
-
-    let files = ordered_paths
-        .into_iter()
-        .map(|path| CommitChangedFile {
-            status: by_path_status
-                .remove(&path)
-                .unwrap_or_else(|| "M".to_string()),
-            path,
-        })
-        .collect();
-
-    Ok(files)
+    let stdout = fetch_commit_changed_files_output(&state, repo_path, &commit_hash)?;
+    Ok(parse_commit_changed_files_output(&stdout))
 }
 
 #[tauri::command]
