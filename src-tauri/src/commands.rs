@@ -128,6 +128,10 @@ fn split_rename_path(path: &str) -> Option<(String, String)> {
     Some((old_path.to_string(), new_path.to_string()))
 }
 
+fn is_untracked_status(status: &str) -> bool {
+    matches!(status.trim(), "??" | "?")
+}
+
 // ---------------------------------------------------------------------------
 // Settings Commands
 // ---------------------------------------------------------------------------
@@ -675,6 +679,17 @@ pub async fn cmd_get_status_files(
             continue;
         }
 
+        // Untracked files are represented as "?? <path>" in porcelain output.
+        // Handle this before the generic X/Y parsing so status is normalized.
+        if x == '?' && y == '?' {
+            results.push(FileStatus {
+                path: file_path,
+                status: "??".to_string(),
+                staged: false,
+            });
+            continue;
+        }
+
         // Staged status (X)
         if x != ' ' && x != '?' {
             results.push(FileStatus {
@@ -825,7 +840,7 @@ pub async fn cmd_git_discard_changes(
             continue;
         }
 
-        if file.status.trim() == "??" {
+        if is_untracked_status(&file.status) {
             untracked_paths.insert(path);
             continue;
         }
@@ -900,7 +915,7 @@ pub async fn cmd_git_stash_file(
         ));
     }
 
-    let include_untracked = file.status.trim() == "??";
+    let include_untracked = is_untracked_status(&file.status);
     let stash_message = format!("stash {}", stash_path);
 
     let mut args: Vec<String> = vec!["stash".into(), "push".into(), "-m".into(), stash_message];
