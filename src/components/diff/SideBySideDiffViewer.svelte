@@ -9,7 +9,6 @@
   } from "../../lib/diff";
   import type { DiffHunk as BackendDiffHunk } from "../../lib/types";
   import { toast } from "../../lib/toast.svelte";
-  import ResizablePanes from "../resize/ResizablePanes.svelte";
 
   type LineContextMenuState = {
     visible: boolean;
@@ -49,6 +48,12 @@
     onUnstageLine,
   }: Props = $props();
 
+  const EMPTY_LINE: DiffLine = {
+    content: "",
+    type: "equal",
+    lineNumber: null,
+  };
+
   let effectiveHunks = $derived.by<DiffHunk[] | null>(() => {
     if (commitHunks.length > 0) {
       return mapBackendHunksToSideBySide(commitHunks);
@@ -65,10 +70,6 @@
     return map;
   });
 
-  let leftPanel: HTMLDivElement | undefined = $state();
-  let rightPanel: HTMLDivElement | undefined = $state();
-  let syncing = false;
-
   let lineContextMenu = $state<LineContextMenuState>({
     visible: false,
     x: 0,
@@ -76,20 +77,6 @@
     copyText: "",
     stageTarget: null,
   });
-
-  function handleScroll(source: "left" | "right") {
-    if (syncing) return;
-    syncing = true;
-    const from = source === "left" ? leftPanel : rightPanel;
-    const to = source === "left" ? rightPanel : leftPanel;
-    if (from && to) {
-      to.scrollTop = from.scrollTop;
-      to.scrollLeft = from.scrollLeft;
-    }
-    requestAnimationFrame(() => {
-      syncing = false;
-    });
-  }
 
   function getRowClass(line: DiffLine, side: "left" | "right"): string {
     switch (line.type) {
@@ -233,6 +220,18 @@
     return buildStageTarget(line, counterpart, side) !== null;
   }
 
+  function getSideCellClass(
+    line: DiffLine,
+    counterpart: DiffLine | null,
+    side: "left" | "right"
+  ): string {
+    const classes = [getRowClass(line, side)];
+    if (canUnstageLine && isLineActionable(line, counterpart, side)) {
+      classes.push("cursor-pointer");
+    }
+    return classes.join(" ");
+  }
+
   async function handleLineClick(
     line: DiffLine,
     counterpart: DiffLine | null,
@@ -252,171 +251,134 @@
 
 <svelte:window onmousedown={handleWindowMouseDown} onkeydown={handleWindowKeydown} />
 
-<div class="flex-1 overflow-hidden bg-[#0d1117] relative flex flex-col" class:h-full={!autoHeight} class:h-auto={autoHeight} class:overflow-visible={autoHeight}>
+<div
+  class="flex-1 overflow-hidden bg-[#0d1117] relative flex flex-col"
+  class:h-full={!autoHeight}
+  class:h-auto={autoHeight}
+  class:overflow-visible={autoHeight}
+>
   {#if (!diffResult && !effectiveHunks && !isTooLarge) || (effectiveHunks && effectiveHunks.length === 0 && !diffResult)}
-    <div
-      class="flex items-center justify-center p-8 text-[#8b949e] text-sm italic flex-1"
-    >
+    <div class="flex items-center justify-center p-8 text-[#8b949e] text-sm italic flex-1">
       No diff content
     </div>
   {:else if isTooLarge && !effectiveHunks}
-    <div
-      class="flex items-center justify-center p-8 text-[#8b949e] text-sm italic flex-1"
-    >
+    <div class="flex items-center justify-center p-8 text-[#8b949e] text-sm italic flex-1">
       File too large for side-by-side diff view
     </div>
   {:else if diffResult || effectiveHunks}
-    <div class="flex shrink-0 border-b border-[#30363d] text-[10px] uppercase tracking-wider text-[#8b949e] font-semibold">
-      <div class="flex-1 px-3 py-1 bg-[#161b22] border-r border-[#30363d]">
-        Base (HEAD)
-      </div>
-      <div class="flex-1 px-3 py-1 bg-[#161b22]">Modified</div>
+    <div
+      class="flex-1 min-h-0 custom-scrollbar"
+      class:overflow-auto={!autoHeight}
+      class:overflow-visible={autoHeight}
+    >
+      <table class="w-full table-fixed text-xs font-mono border-collapse">
+        <colgroup>
+          <col class="w-10" />
+          <col class="diff-content-col" />
+          <col class="w-px" />
+          <col class="w-10" />
+          <col class="diff-content-col" />
+        </colgroup>
+        <thead class="text-[10px] uppercase tracking-wider text-[#8b949e] font-semibold">
+          <tr>
+            <th class="sticky top-0 z-10 bg-[#161b22] border-b border-[#30363d] p-0"></th>
+            <th class="sticky top-0 z-10 px-3 py-1 bg-[#161b22] border-b border-[#30363d] text-left">
+              Base (HEAD)
+            </th>
+            <th class="sticky top-0 z-10 bg-[#30363d] border-b border-[#30363d] p-0"></th>
+            <th class="sticky top-0 z-10 bg-[#161b22] border-b border-[#30363d] p-0"></th>
+            <th class="sticky top-0 z-10 px-3 py-1 bg-[#161b22] border-b border-[#30363d] text-left">
+              Modified
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {#if effectiveHunks && effectiveHunks.length > 0}
+            {#each effectiveHunks as hunk, hunkIdx}
+              {#if hunkIdx > 0}
+                <tr>
+                  <td colspan="5" class="h-6 bg-[#161b22] border-y border-[#30363d]/50">
+                    <div class="flex items-center justify-center">
+                      <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
+                      <span class="px-2 text-[9px] text-[#484f58] select-none">&ctdot;</span>
+                      <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
+                    </div>
+                  </td>
+                </tr>
+              {/if}
+              {#each hunk.lines as pair, lineIdx}
+                <tr data-hunk-id={lineIdx === 0 ? hunk.id : undefined}>
+                  <td
+                    class={`${getSideCellClass(pair.left, pair.right, "left")} w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top`}
+                    onclick={() => void handleLineClick(pair.left, pair.right, "left")}
+                    oncontextmenu={(event) => handleLineContextMenu(event, pair.left, pair.right, "left")}
+                  >
+                    {pair.left.lineNumber ?? ""}
+                  </td>
+                  <td
+                    class={`${getSideCellClass(pair.left, pair.right, "left")} pl-2 pr-2 whitespace-pre-wrap break-words align-top`}
+                    onclick={() => void handleLineClick(pair.left, pair.right, "left")}
+                    oncontextmenu={(event) => handleLineContextMenu(event, pair.left, pair.right, "left")}
+                  >
+                    {@html escapeHtml(pair.left.content)}
+                  </td>
+                  <td class="w-px bg-[#30363d] p-0 align-top"></td>
+                  <td
+                    class={`${getSideCellClass(pair.right, pair.left, "right")} w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top`}
+                    onclick={() => void handleLineClick(pair.right, pair.left, "right")}
+                    oncontextmenu={(event) => handleLineContextMenu(event, pair.right, pair.left, "right")}
+                  >
+                    {pair.right.lineNumber ?? ""}
+                  </td>
+                  <td
+                    class={`${getSideCellClass(pair.right, pair.left, "right")} pl-2 pr-2 whitespace-pre-wrap break-words align-top`}
+                    onclick={() => void handleLineClick(pair.right, pair.left, "right")}
+                    oncontextmenu={(event) => handleLineContextMenu(event, pair.right, pair.left, "right")}
+                  >
+                    {@html escapeHtml(pair.right.content)}
+                  </td>
+                </tr>
+              {/each}
+            {/each}
+          {:else if diffResult}
+            {#each diffResult.left as line, i}
+              {@const rightLine = diffResult.right[i] ?? EMPTY_LINE}
+              <tr data-hunk-id={hunkStartMap.get(i) ?? undefined}>
+                <td
+                  class={`${getSideCellClass(line, rightLine, "left")} w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top`}
+                  onclick={() => void handleLineClick(line, rightLine, "left")}
+                  oncontextmenu={(event) => handleLineContextMenu(event, line, rightLine, "left")}
+                >
+                  {line.lineNumber ?? ""}
+                </td>
+                <td
+                  class={`${getSideCellClass(line, rightLine, "left")} pl-2 pr-2 whitespace-pre-wrap break-words align-top`}
+                  onclick={() => void handleLineClick(line, rightLine, "left")}
+                  oncontextmenu={(event) => handleLineContextMenu(event, line, rightLine, "left")}
+                >
+                  {@html escapeHtml(line.content)}
+                </td>
+                <td class="w-px bg-[#30363d] p-0 align-top"></td>
+                <td
+                  class={`${getSideCellClass(rightLine, line, "right")} w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top`}
+                  onclick={() => void handleLineClick(rightLine, line, "right")}
+                  oncontextmenu={(event) => handleLineContextMenu(event, rightLine, line, "right")}
+                >
+                  {rightLine.lineNumber ?? ""}
+                </td>
+                <td
+                  class={`${getSideCellClass(rightLine, line, "right")} pl-2 pr-2 whitespace-pre-wrap break-words align-top`}
+                  onclick={() => void handleLineClick(rightLine, line, "right")}
+                  oncontextmenu={(event) => handleLineContextMenu(event, rightLine, line, "right")}
+                >
+                  {@html escapeHtml(rightLine.content)}
+                </td>
+              </tr>
+            {/each}
+          {/if}
+        </tbody>
+      </table>
     </div>
-    {#if effectiveHunks && effectiveHunks.length > 0}
-      <ResizablePanes initialLeftPercent={50} minLeftPercent={25} maxLeftPercent={75}>
-        {#snippet leftContent()}
-          <div
-            class="h-full overflow-auto custom-scrollbar border-r border-[#30363d]"
-            bind:this={leftPanel}
-            class:overflow-visible={autoHeight}
-            onscroll={() => handleScroll("left")}
-          >
-            <table class="w-full text-xs font-mono border-collapse">
-              <tbody>
-                {#each effectiveHunks as hunk, hunkIdx}
-                  {#if hunkIdx > 0}
-                    <tr>
-                      <td colspan="2" class="h-6 bg-[#161b22] border-y border-[#30363d]/50">
-                        <div class="flex items-center justify-center">
-                          <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
-                          <span class="px-2 text-[9px] text-[#484f58] select-none">&ctdot;</span>
-                          <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
-                        </div>
-                      </td>
-                    </tr>
-                  {/if}
-                  {#each hunk.lines as pair, lineIdx}
-                    <tr
-                      class={`${getRowClass(pair.left, "left")} ${canUnstageLine && isLineActionable(pair.left, pair.right, "left") ? "cursor-pointer" : ""}`}
-                      data-hunk-id={lineIdx === 0 ? hunk.id : undefined}
-                      onclick={() => void handleLineClick(pair.left, pair.right, "left")}
-                      oncontextmenu={(event) => handleLineContextMenu(event, pair.left, pair.right, "left")}
-                    >
-                      <td class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top">
-                        {pair.left.lineNumber ?? ""}
-                      </td>
-                      <td class="pl-2 whitespace-pre align-top">{@html escapeHtml(pair.left.content)}</td>
-                    </tr>
-                  {/each}
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/snippet}
-
-        {#snippet rightContent()}
-          <div
-            class="h-full overflow-auto custom-scrollbar"
-            bind:this={rightPanel}
-            class:overflow-visible={autoHeight}
-            onscroll={() => handleScroll("right")}
-          >
-            <table class="w-full text-xs font-mono border-collapse">
-              <tbody>
-                {#each effectiveHunks as hunk, hunkIdx}
-                  {#if hunkIdx > 0}
-                    <tr>
-                      <td colspan="2" class="h-6 bg-[#161b22] border-y border-[#30363d]/50">
-                        <div class="flex items-center justify-center">
-                          <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
-                          <span class="px-2 text-[9px] text-[#484f58] select-none">&ctdot;</span>
-                          <div class="flex-1 border-t border-dashed border-[#30363d]"></div>
-                        </div>
-                      </td>
-                    </tr>
-                  {/if}
-                  {#each hunk.lines as pair, lineIdx}
-                    <tr
-                      class={`${getRowClass(pair.right, "right")} ${canUnstageLine && isLineActionable(pair.right, pair.left, "right") ? "cursor-pointer" : ""}`}
-                      data-hunk-id={lineIdx === 0 ? hunk.id : undefined}
-                      onclick={() => void handleLineClick(pair.right, pair.left, "right")}
-                      oncontextmenu={(event) => handleLineContextMenu(event, pair.right, pair.left, "right")}
-                    >
-                      <td class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top">
-                        {pair.right.lineNumber ?? ""}
-                      </td>
-                      <td class="pl-2 whitespace-pre align-top">{@html escapeHtml(pair.right.content)}</td>
-                    </tr>
-                  {/each}
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/snippet}
-      </ResizablePanes>
-    {:else if diffResult}
-      <ResizablePanes initialLeftPercent={50} minLeftPercent={25} maxLeftPercent={75}>
-        {#snippet leftContent()}
-          <div
-            class="h-full overflow-auto custom-scrollbar border-r border-[#30363d]"
-            bind:this={leftPanel}
-            onscroll={() => handleScroll("left")}
-          >
-            <table class="w-full text-xs font-mono border-collapse">
-              <tbody>
-                {#each diffResult.left as line, i}
-                  <tr
-                    class={`${getRowClass(line, "left")} ${canUnstageLine && isLineActionable(line, diffResult.right[i] ?? null, "left") ? "cursor-pointer" : ""}`}
-                    data-hunk-id={hunkStartMap.get(i) ?? undefined}
-                    onclick={() => void handleLineClick(line, diffResult.right[i] ?? null, "left")}
-                    oncontextmenu={(event) => handleLineContextMenu(event, line, diffResult.right[i] ?? null, "left")}
-                  >
-                    <td
-                      class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top"
-                    >
-                      {line.lineNumber ?? ""}
-                    </td>
-                    <td class="pl-2 whitespace-pre align-top"
-                      >{@html escapeHtml(line.content)}</td
-                    >
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/snippet}
-
-        {#snippet rightContent()}
-          <div
-            class="h-full overflow-auto custom-scrollbar"
-            bind:this={rightPanel}
-            onscroll={() => handleScroll("right")}
-          >
-            <table class="w-full text-xs font-mono border-collapse">
-              <tbody>
-                {#each diffResult.right as line, i}
-                  <tr
-                    class={`${getRowClass(line, "right")} ${canUnstageLine && isLineActionable(line, diffResult.left[i] ?? null, "right") ? "cursor-pointer" : ""}`}
-                    data-hunk-id={hunkStartMap.get(i) ?? undefined}
-                    onclick={() => void handleLineClick(line, diffResult.left[i] ?? null, "right")}
-                    oncontextmenu={(event) => handleLineContextMenu(event, line, diffResult.left[i] ?? null, "right")}
-                  >
-                    <td
-                      class="w-10 text-right pr-2 select-none text-[#484f58] border-r border-[#30363d]/50 align-top"
-                    >
-                      {line.lineNumber ?? ""}
-                    </td>
-                    <td class="pl-2 whitespace-pre align-top"
-                      >{@html escapeHtml(line.content)}</td
-                    >
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/snippet}
-      </ResizablePanes>
-    {/if}
   {/if}
 </div>
 
@@ -460,6 +422,10 @@
 {/if}
 
 <style>
+  .diff-content-col {
+    width: calc((100% - 81px) / 2);
+  }
+
   .custom-scrollbar::-webkit-scrollbar {
     width: 10px;
     height: 10px;
