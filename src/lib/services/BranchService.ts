@@ -157,6 +157,54 @@ export class BranchService {
     return invoke("cmd_create_patch_from_commit", { commitHash, repoPath });
   }
 
+  static async applyStash(commitHash: string, repoPath?: string): Promise<GitCommandResult> {
+    return executeGitCommand(
+      "cmd_git_apply_stash",
+      { commitHash, repoPath },
+      `Applied stash ${commitHash.slice(0, 8)}`,
+      "Apply stash failed",
+      { reloadGraph: true },
+    );
+  }
+
+  static async popStash(commitHash: string, repoPath?: string): Promise<GitCommandResult> {
+    return executeGitCommand(
+      "cmd_git_pop_stash",
+      { commitHash, repoPath },
+      `Popped stash ${commitHash.slice(0, 8)}`,
+      "Pop stash failed",
+      { reloadGraph: true },
+    );
+  }
+
+  static async deleteStash(commitHash: string, repoPath?: string): Promise<GitCommandResult> {
+    return executeGitCommand(
+      "cmd_git_delete_stash",
+      { commitHash, repoPath },
+      `Deleted stash ${commitHash.slice(0, 8)}`,
+      "Delete stash failed",
+      { reloadGraph: true },
+    );
+  }
+
+  static async editStashMessage(
+    commitHash: string,
+    message: string,
+    repoPath?: string,
+  ): Promise<GitCommandResult> {
+    return executeGitCommand(
+      "cmd_git_edit_stash_message",
+      { commitHash, message, repoPath },
+      `Updated stash message (${commitHash.slice(0, 8)})`,
+      "Edit stash message failed",
+      { reloadGraph: true },
+    );
+  }
+
+  static async createPatchFromStash(commitHash: string, repoPath?: string): Promise<string> {
+    return invoke("cmd_create_patch_from_stash", { commitHash, repoPath });
+  }
+
   private static async checkoutBranch(
     mode: CheckoutMode,
     branchName: string,

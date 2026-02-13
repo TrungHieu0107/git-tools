@@ -297,6 +297,30 @@ export class GitService {
     return BranchService.createPatchFromCommit(commitHash, repoPath);
   }
 
+  static async applyStash(commitHash: string, repoPath?: string): Promise<GitCommandResult> {
+    return BranchService.applyStash(commitHash, repoPath);
+  }
+
+  static async popStash(commitHash: string, repoPath?: string): Promise<GitCommandResult> {
+    return BranchService.popStash(commitHash, repoPath);
+  }
+
+  static async deleteStash(commitHash: string, repoPath?: string): Promise<GitCommandResult> {
+    return BranchService.deleteStash(commitHash, repoPath);
+  }
+
+  static async editStashMessage(
+    commitHash: string,
+    message: string,
+    repoPath?: string,
+  ): Promise<GitCommandResult> {
+    return BranchService.editStashMessage(commitHash, message, repoPath);
+  }
+
+  static async createPatchFromStash(commitHash: string, repoPath?: string): Promise<string> {
+    return BranchService.createPatchFromStash(commitHash, repoPath);
+  }
+
   static async commit(message: string, repoPath?: string): Promise<GitCommandResult> {
     return CommitService.commit(message, repoPath);
   }

@@ -18,12 +18,17 @@
   import DiffView from "./diff/DiffView.svelte";
   import DiffToolbar from "./diff/DiffToolbar.svelte";
   import CommitContextMenu from "./common/CommitContextMenu.svelte";
+  import StashCommitContextMenu from "./common/StashCommitContextMenu.svelte";
   import BranchContextMenu from "./common/BranchContextMenu.svelte";
   import type { BranchContextMenuState } from "./common/branch-context-menu-types";
   import type {
       CommitContextMenuAction,
       CommitContextMenuState
   } from "./common/commit-context-menu-types";
+  import type {
+      StashCommitContextMenuAction,
+      StashCommitContextMenuState
+  } from "./common/stash-commit-context-menu-types";
   import FileChangeStatusBadge from "./common/FileChangeStatusBadge.svelte";
 
   interface Props {
@@ -317,6 +322,7 @@
   let graphViewportEl = $state<HTMLDivElement | null>(null);
   let branchContextMenu = $state<BranchContextMenuState | null>(null);
   let commitContextMenu = $state<CommitContextMenuState | null>(null);
+  let stashCommitContextMenu = $state<StashCommitContextMenuState | null>(null);
 
   type GraphTooltip = {
       visible: boolean;
@@ -541,6 +547,7 @@
   function handleCommitRowClick(node: GraphNode) {
       closeBranchContextMenu();
       closeCommitContextMenu();
+      closeStashCommitContextMenu();
       closeChangedFileContextMenu();
       void selectCommit(node);
   }
@@ -783,6 +790,7 @@
       };
       branchContextMenu = null;
       commitContextMenu = null;
+      stashCommitContextMenu = null;
   }
 
   async function handleOpenChangedFile(): Promise<void> {
@@ -974,13 +982,29 @@
       commitContextMenu = null;
   }
 
+  function closeStashCommitContextMenu() {
+      stashCommitContextMenu = null;
+  }
+
   function handleCommitRowContextMenu(event: MouseEvent, node: GraphNode) {
       event.preventDefault();
       event.stopPropagation();
 
-      const parsedRefs = parseCommitRefsForContextMenu(node.refs);
       closeChangedFileContextMenu();
       closeBranchContextMenu();
+      closeCommitContextMenu();
+      closeStashCommitContextMenu();
+
+      if (node.isStash) {
+          stashCommitContextMenu = {
+              x: event.clientX,
+              y: event.clientY,
+              node
+          };
+          return;
+      }
+
+      const parsedRefs = parseCommitRefsForContextMenu(node.refs);
 
       commitContextMenu = {
           x: event.clientX,
@@ -1321,6 +1345,99 @@
       }
   }
 
+  async function handleStashCommitContextAction(
+      action: StashCommitContextMenuAction,
+      menu: StashCommitContextMenuState
+  ) {
+      if (!repoPath) return;
+      const shortHash = menu.node.hash.slice(0, 8);
+
+      try {
+          switch (action.type) {
+              case "apply-stash": {
+                  const res = await GitService.applyStash(menu.node.hash, repoPath);
+                  if (res.success) {
+                      const hasConflicts = await GitService.checkConflictState(repoPath).catch(() => false);
+                      if (hasConflicts) {
+                          toast.error("Stash applied with conflicts. Open the Conflicts tab to resolve.");
+                      }
+                  }
+                  return;
+              }
+              case "pop-stash": {
+                  const confirmed = await confirm({
+                      title: "Pop Stash",
+                      message: `Pop stash <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${shortHash}</span>?<br/><br/>This applies changes and removes the stash entry.`,
+                      isHtmlMessage: true,
+                      confirmLabel: "Pop Stash",
+                      cancelLabel: "Cancel"
+                  });
+                  if (!confirmed) return;
+
+                  const res = await GitService.popStash(menu.node.hash, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                      const hasConflicts = await GitService.checkConflictState(repoPath).catch(() => false);
+                      if (hasConflicts) {
+                          toast.error("Stash popped with conflicts. Open the Conflicts tab to resolve.");
+                      }
+                  }
+                  return;
+              }
+              case "delete-stash": {
+                  const confirmed = await confirm({
+                      title: "Delete Stash",
+                      message: `Delete stash <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${shortHash}</span>?`,
+                      isHtmlMessage: true,
+                      confirmLabel: "Delete Stash",
+                      cancelLabel: "Cancel"
+                  });
+                  if (!confirmed) return;
+
+                  const res = await GitService.deleteStash(menu.node.hash, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                  }
+                  return;
+              }
+              case "edit-stash-message": {
+                  const messageInput = await prompt({
+                      title: "Edit stash message",
+                      message: `Update message for stash <code>${shortHash}</code>:`,
+                      isHtmlMessage: true,
+                      defaultValue: menu.node.subject,
+                      placeholder: "Stash message",
+                      confirmLabel: "Save",
+                      cancelLabel: "Cancel"
+                  });
+
+                  const newMessage = messageInput?.trim() ?? "";
+                  if (!newMessage) return;
+
+                  const res = await GitService.editStashMessage(menu.node.hash, newMessage, repoPath);
+                  if (res.success) {
+                      await onGraphReload?.();
+                  }
+                  return;
+              }
+              case "share-stash-cloud-patch": {
+                  const patch = await GitService.createPatchFromStash(menu.node.hash, repoPath);
+                  if (!patch.trim()) {
+                      toast.error("No patch content available for this stash");
+                      return;
+                  }
+                  await navigator.clipboard.writeText(patch);
+                  toast.success(`Cloud Patch not configured, copied stash patch ${shortHash} instead`);
+                  return;
+              }
+              case "hide":
+                  return;
+          }
+      } catch (e) {
+          console.error("Stash context menu action failed", e);
+      }
+  }
+
   let isBranchCheckoutLoading = $state(false);
 
   function canCheckoutFromBadge(badge: RefBadge): boolean {
@@ -1351,6 +1468,7 @@
       if (!canCheckoutFromBadge(badge)) return;
       closeChangedFileContextMenu();
       closeCommitContextMenu();
+      closeStashCommitContextMenu();
       branchContextMenu = {
           x: event.clientX,
           y: event.clientY,
@@ -2190,6 +2308,12 @@
   menu={commitContextMenu}
   onClose={closeCommitContextMenu}
   onAction={handleCommitContextAction}
+/>
+
+<StashCommitContextMenu
+  menu={stashCommitContextMenu}
+  onClose={closeStashCommitContextMenu}
+  onAction={handleStashCommitContextAction}
 />
 
 <style>

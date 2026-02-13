@@ -140,6 +140,52 @@ fn resolve_file_target_path(raw_path: &str) -> String {
     }
 }
 
+async fn resolve_stash_ref_by_commit_hash(
+    state: &State<'_, AppState>,
+    repo_path: &str,
+    commit_hash: &str,
+) -> Result<String, String> {
+    let target_hash = commit_hash.trim().to_lowercase();
+    if target_hash.is_empty() {
+        return Err("No stash commit hash provided".to_string());
+    }
+
+    let args = vec![
+        "stash".to_string(),
+        "list".to_string(),
+        "--format=%gd|%H".to_string(),
+    ];
+
+    let resp = state
+        .git
+        .run(Path::new(repo_path), &args, TIMEOUT_QUICK)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    for line in resp.stdout.lines() {
+        let entry = line.trim();
+        if entry.is_empty() {
+            continue;
+        }
+
+        let mut parts = entry.splitn(2, '|');
+        let stash_ref = parts.next().unwrap_or("").trim();
+        let stash_hash = parts.next().unwrap_or("").trim().to_lowercase();
+        if stash_ref.is_empty() || stash_hash.is_empty() {
+            continue;
+        }
+
+        if stash_hash == target_hash || stash_hash.starts_with(&target_hash) {
+            return Ok(stash_ref.to_string());
+        }
+    }
+
+    Err(format!(
+        "Stash entry not found for commit {}",
+        commit_hash.trim()
+    ))
+}
+
 #[cfg(target_os = "windows")]
 fn quote_windows_arg(value: &str) -> String {
     let escaped = value.replace('"', "\\\"");
@@ -1023,6 +1069,157 @@ pub async fn cmd_git_stash_all(
     app.emit("git-event", json!({ "type": "change" }))
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn cmd_git_apply_stash(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    commit_hash: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let stash_ref = resolve_stash_ref_by_commit_hash(&state, &r_path, &commit_hash).await?;
+
+    let args = vec!["stash".to_string(), "apply".to_string(), stash_ref];
+    let resp = state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+
+    Ok(map_git_result(resp, GitCommandType::Other))
+}
+
+#[tauri::command]
+pub async fn cmd_git_pop_stash(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    commit_hash: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let stash_ref = resolve_stash_ref_by_commit_hash(&state, &r_path, &commit_hash).await?;
+
+    let args = vec!["stash".to_string(), "pop".to_string(), stash_ref];
+    let resp = state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+
+    Ok(map_git_result(resp, GitCommandType::Other))
+}
+
+#[tauri::command]
+pub async fn cmd_git_delete_stash(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    commit_hash: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let stash_ref = resolve_stash_ref_by_commit_hash(&state, &r_path, &commit_hash).await?;
+
+    let args = vec!["stash".to_string(), "drop".to_string(), stash_ref];
+    let resp = state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+
+    Ok(map_git_result(resp, GitCommandType::Other))
+}
+
+#[tauri::command]
+pub async fn cmd_git_edit_stash_message(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    commit_hash: String,
+    message: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let stash_ref = resolve_stash_ref_by_commit_hash(&state, &r_path, &commit_hash).await?;
+
+    let new_message = message.trim();
+    if new_message.is_empty() {
+        return Err("Stash message cannot be empty".to_string());
+    }
+
+    // Resolve object id before dropping so we can restore with a new message.
+    let rev_parse_args = vec!["rev-parse".to_string(), stash_ref.clone()];
+    let rev_parse_resp = state
+        .git
+        .run(Path::new(&r_path), &rev_parse_args, TIMEOUT_QUICK)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let stash_object_id = rev_parse_resp.stdout.trim();
+    if stash_object_id.is_empty() {
+        return Err("Unable to resolve stash object id".to_string());
+    }
+
+    let drop_args = vec!["stash".to_string(), "drop".to_string(), stash_ref];
+    let drop_resp = state
+        .git
+        .run(Path::new(&r_path), &drop_args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+    if drop_resp.exit_code != 0 {
+        return Ok(map_git_result(drop_resp, GitCommandType::Other));
+    }
+
+    let store_args = vec![
+        "stash".to_string(),
+        "store".to_string(),
+        "-m".to_string(),
+        new_message.to_string(),
+        stash_object_id.to_string(),
+    ];
+    let store_resp = state
+        .git
+        .run(Path::new(&r_path), &store_args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    app.emit("git-event", json!({ "type": "change" }))
+        .map_err(|e| e.to_string())?;
+
+    Ok(map_git_result(store_resp, GitCommandType::Other))
+}
+
+#[tauri::command]
+pub async fn cmd_create_patch_from_stash(
+    state: State<'_, AppState>,
+    commit_hash: String,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let r_path = resolve_repo_path(&state, repo_path)?;
+    let stash_ref = resolve_stash_ref_by_commit_hash(&state, &r_path, &commit_hash).await?;
+
+    let args = vec![
+        "stash".to_string(),
+        "show".to_string(),
+        "-p".to_string(),
+        stash_ref,
+    ];
+    let resp = state
+        .git
+        .run(Path::new(&r_path), &args, TIMEOUT_LOCAL)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(resp.stdout)
 }
 
 #[tauri::command]
