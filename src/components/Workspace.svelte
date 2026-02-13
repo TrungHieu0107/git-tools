@@ -342,6 +342,7 @@
                   repoPath={repoPath}
                   pendingPushCount={pendingPushCount}
                   onGraphReload={loadGraph}
+                  onNavigateToCommitPanel={() => activeTab = "commit"}
                 />
             {/if}
          </div>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getAvatarUrl, type GraphNode, type LanePath, type ConnectionPath } from "../lib/graph-layout";
   import { onMount } from "svelte";
-  import { GitService, type CommitChangedFile } from "../lib/GitService";
+  import { GitService, type CommitChangedFile, type FileStatus } from "../lib/GitService";
   import { confirm } from "../lib/confirmation.svelte";
   import { prompt } from "../lib/prompt.svelte";
   import { toast } from "../lib/toast.svelte";
@@ -38,9 +38,10 @@
     repoPath?: string;
     pendingPushCount?: number;
     onGraphReload?: () => Promise<void>;
+    onNavigateToCommitPanel?: () => void;
   }
 
-  let { nodes = [], lanes = [], connections = [], repoPath, pendingPushCount = 0, onGraphReload }: Props = $props();
+  let { nodes = [], lanes = [], connections = [], repoPath, pendingPushCount = 0, onGraphReload, onNavigateToCommitPanel }: Props = $props();
 
   const ROW_HEIGHT = GRAPH_CONFIG.ROW_HEIGHT;
   const COL_WIDTH = GRAPH_CONFIG.COLUMN_WIDTH;
@@ -111,10 +112,28 @@
 
   // Selection & Details
   let selectedCommit = $state<GraphNode | null>(null);
+  let isWipRowSelected = $state(false);
   let changedFiles = $state<CommitChangedFile[]>([]);
   let isLoadingFiles = $state(false);
   let changedFilesViewMode = $state<"tree" | "path">("path");
   let changedFilesCollapsedDirs = $state<Set<string>>(new Set());
+
+  type WipSummary = {
+      files: CommitChangedFile[];
+      stagedCount: number;
+      unstagedCount: number;
+      totalCount: number;
+  };
+
+  const EMPTY_WIP_SUMMARY: WipSummary = {
+      files: [],
+      stagedCount: 0,
+      unstagedCount: 0,
+      totalCount: 0
+  };
+
+  let wipSummary = $state<WipSummary>(EMPTY_WIP_SUMMARY);
+  let hasWipRow = $state(true);
 
   // Diff View State
   let leftPanelMode = $state<'graph' | 'diff'>('graph');
@@ -141,10 +160,78 @@
       return extractHunks(diffResult, 3);
   });
 
+  function summarizeWorkingChanges(statusFiles: FileStatus[]): WipSummary {
+      type AggregatedEntry = {
+          path: string;
+          stagedStatus: string | null;
+          unstagedStatus: string | null;
+      };
+
+      const byPath = new Map<string, AggregatedEntry>();
+      const stagedPaths = new Set<string>();
+      const unstagedPaths = new Set<string>();
+
+      for (const file of statusFiles) {
+          const rawPath = file.path.trim();
+          if (!rawPath) continue;
+          const key = rawPath.toLowerCase();
+          const existing = byPath.get(key) ?? {
+              path: rawPath,
+              stagedStatus: null,
+              unstagedStatus: null
+          };
+
+          if (file.staged) {
+              existing.stagedStatus = file.status;
+              stagedPaths.add(key);
+          } else {
+              existing.unstagedStatus = file.status;
+              unstagedPaths.add(key);
+          }
+          byPath.set(key, existing);
+      }
+
+      const files: CommitChangedFile[] = [...byPath.values()]
+          .map((entry) => ({
+              path: entry.path,
+              status: entry.unstagedStatus ?? entry.stagedStatus ?? "M"
+          }))
+          .sort((a, b) => a.path.localeCompare(b.path));
+
+      return {
+          files,
+          stagedCount: stagedPaths.size,
+          unstagedCount: unstagedPaths.size,
+          totalCount: files.length
+      };
+  }
+
+  async function loadWipSummary(): Promise<void> {
+      if (!repoPath) {
+          wipSummary = EMPTY_WIP_SUMMARY;
+          if (isWipRowSelected) {
+              changedFiles = [];
+          }
+          return;
+      }
+
+      try {
+          const statusFiles = await GitService.getStatusFiles(repoPath);
+          const summary = summarizeWorkingChanges(statusFiles);
+          wipSummary = summary;
+          if (isWipRowSelected) {
+              changedFiles = summary.files;
+          }
+      } catch (e) {
+          console.error("Failed to load working changes for graph WIP row", e);
+      }
+  }
+
   async function selectCommit(node: GraphNode) {
-      if (selectedCommit?.hash === node.hash) return;
+      if (selectedCommit?.hash === node.hash && !isWipRowSelected) return;
       
       selectedCommit = node;
+      isWipRowSelected = false;
       changedFiles = [];
       changedFilesCollapsedDirs = new Set();
       closeChangedFileContextMenu();
@@ -170,6 +257,19 @@
       }
   }
 
+  function selectWipRow() {
+      isWipRowSelected = true;
+      selectedCommit = null;
+      changedFiles = wipSummary.files;
+      changedFilesCollapsedDirs = new Set();
+      closeChangedFileContextMenu();
+      closeBranchContextMenu();
+      closeCommitContextMenu();
+      closeStashCommitContextMenu();
+      closeDiff();
+      void loadWipSummary();
+  }
+
   export async function focusCommit(hash: string): Promise<boolean> {
       const normalized = hash.trim().toLowerCase();
       if (!normalized) return false;
@@ -186,6 +286,7 @@
 
   function closeDetails() {
       selectedCommit = null;
+      isWipRowSelected = false;
       changedFiles = [];
       closeChangedFileContextMenu();
       closeDiff();
@@ -272,6 +373,12 @@
 
   $effect(() => {
       localStorage.setItem(CHANGED_FILES_VIEW_MODE_KEY, changedFilesViewMode);
+  });
+
+  $effect(() => {
+      repoPath;
+      nodes;
+      void loadWipSummary();
   });
 
 
@@ -397,13 +504,16 @@
       }
       return offset;
   });
+  let graphRowOffset = $derived(hasWipRow ? 1 : 0);
+  let totalRowCount = $derived(nodes.length + graphRowOffset);
+  let rowIndexes = $derived(Array.from({ length: totalRowCount }, (_, index) => index));
 
   function columnToX(columnIndex: number) {
       return columnIndex * COL_WIDTH;
   }
 
   function rowToY(rowIndex: number) {
-      return rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
+      return (rowIndex + graphRowOffset) * ROW_HEIGHT + ROW_HEIGHT / 2;
   }
 
   function nodeRenderX(node: GraphNode) {
@@ -448,6 +558,11 @@
   );
 
   let currentHeadNode = $derived(nodes.find((node) => isHeadCommit(node)) ?? null);
+  let wipRowGraphX = $derived.by(() => {
+      if (currentHeadNode) return columnToX(currentHeadNode.x);
+      if (nodes.length > 0) return columnToX(nodes[0].x);
+      return columnToX(0);
+  });
 
   function getCurrentBranchFromRefs(refs: string[]): string | null {
       for (const rawRef of refs) {
@@ -557,6 +672,17 @@
           event.preventDefault();
           handleCommitRowClick(node);
       }
+  }
+
+  function handleWipRowKeydown(event: KeyboardEvent) {
+      if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectWipRow();
+      }
+  }
+
+  function navigateToCommitPanel() {
+      onNavigateToCommitPanel?.();
   }
 
   function getRowCellHighlightClass(nodeHash: string, columnId: string): string {
@@ -748,6 +874,7 @@
   function handleChangedFileKeydown(event: KeyboardEvent, filePath: string): void {
       if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
+          if (isWipRowSelected) return;
           closeChangedFileContextMenu();
           void openDiff(filePath);
       }
@@ -1816,12 +1943,12 @@
         </div>
 
         <div class="flex-1 overflow-auto custom-scrollbar relative" bind:this={graphViewportEl} onscroll={hideCommitTooltip}>
-            <div class="relative min-w-full" style="height: {nodes.length * ROW_HEIGHT + PADDING_TOP}px;">
+            <div class="relative min-w-full" style="height: {totalRowCount * ROW_HEIGHT + PADDING_TOP}px;">
                 <!-- Background stripe rows -->
                 <div class="absolute top-0 left-0 w-full pt-[8px] z-[1] pointer-events-none">
-                    {#each nodes as node (node.hash)}
+                    {#each rowIndexes as rowIndex (rowIndex)}
                         <div
-                            class="border-b border-[#1e293b]/15 {node.y % 2 === 0 ? 'bg-[#0f172a]' : 'bg-[#111b2f]/55'}"
+                            class="border-b border-[#1e293b]/15 {rowIndex % 2 === 0 ? 'bg-[#0f172a]' : 'bg-[#111b2f]/55'}"
                             style="height: {ROW_HEIGHT}px;"
                         ></div>
                     {/each}
@@ -1905,6 +2032,27 @@
                                 {/each}
                             </g>
                             <g class="nodes">
+                                {#if hasWipRow}
+                                    <g class="graph-node" transform={`translate(${wipRowGraphX}, ${ROW_HEIGHT / 2})`}>
+                                        <g filter={`url(#${AVATAR_SHADOW_ID})`}>
+                                            <circle
+                                                cx="0"
+                                                cy="0"
+                                                r={AVATAR_RADIUS + 1}
+                                                fill="#0f172a"
+                                                stroke="#58a6ff"
+                                                stroke-width="2"
+                                                stroke-dasharray="2 2"
+                                            />
+                                            <circle
+                                                cx="0"
+                                                cy="0"
+                                                r={2}
+                                                fill="#58a6ff"
+                                            />
+                                        </g>
+                                    </g>
+                                {/if}
                                 {#each nodes as node (node.hash)}
                                     {@const cx = nodeRenderX(node)}
                                     {@const cy = nodeRenderY(node)}
@@ -2038,6 +2186,59 @@
 
                 <!-- Rows Container -->
                 <div class="absolute top-0 left-0 w-full pt-[8px] z-10">
+                {#if hasWipRow}
+                    {@const isWipHoveredRow = hoveredCommitHash === "__wip__"}
+                    <div
+                        class="border-b border-[#1e293b]/20 transition-colors text-xs items-center group cursor-pointer
+                               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4a90d9]/70 focus-visible:ring-inset
+                               {isWipHoveredRow ? 'row-hover' : ''} {isWipRowSelected ? 'row-selected' : ''}"
+                        style="display: grid; grid-template-columns: {gridTemplate}; height: {ROW_HEIGHT}px;"
+                        onclick={selectWipRow}
+                        onmouseenter={() => {
+                            hoveredCommitHash = "__wip__";
+                            hoveredBranchColor = currentHeadNode?.color ?? null;
+                            hideCommitTooltip();
+                        }}
+                        onmouseleave={handleRowMouseLeave}
+                        onfocus={() => {
+                            hoveredCommitHash = "__wip__";
+                            hoveredBranchColor = currentHeadNode?.color ?? null;
+                            hideCommitTooltip();
+                        }}
+                        onblur={handleRowBlur}
+                        role="button"
+                        tabindex="0"
+                        aria-label="Select working tree changes"
+                        onkeydown={handleWipRowKeydown}
+                    >
+                        {#each visibleColumns as col}
+                        {#if col.id === "graph"}
+                            <div class="pointer-events-none"></div>
+                        {:else if col.id === "branch"}
+                            <div class="pl-3 pr-2 flex items-center gap-1.5 graph-row-info-cell">
+                                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 bg-cyan-900/40 text-cyan-300 border-cyan-700/50">
+                                    WIP
+                                </span>
+                            </div>
+                        {:else if col.id === "message"}
+                            <div class="pl-4 pr-4 flex items-center min-w-0 graph-row-info-cell">
+                                <div class="w-full h-6 rounded border border-[#245d84]/60 bg-[#0b2942]/65 flex items-center gap-3 px-2 overflow-hidden">
+                                    <span class="text-[11px] font-mono text-[#79c0ff] shrink-0">// WIP</span>
+                                    <span class="text-[10px] text-[#3fb950] shrink-0">+{wipSummary.stagedCount} staged</span>
+                                    <span class="text-[10px] text-[#f2cc60] shrink-0">+{wipSummary.unstagedCount} unstaged</span>
+                                    <span class="text-[10px] text-[#8b949e] truncate">{wipSummary.totalCount} changed file(s)</span>
+                                </div>
+                            </div>
+                        {:else if col.id === "hash"}
+                            <div class="pl-4 font-mono text-[#8b949e] opacity-70 truncate graph-row-info-cell">WIP</div>
+                        {:else if col.id === "author"}
+                            <div class="pl-4 truncate text-[#8b949e] opacity-70 graph-row-info-cell">Working Tree</div>
+                        {:else if col.id === "date"}
+                            <div class="pl-4 text-[#8b949e] opacity-70 font-mono truncate graph-row-info-cell">Now</div>
+                        {/if}
+                        {/each}
+                    </div>
+                {/if}
                 {#each nodes as node (node.hash)}
                     {@const isCurrentHead = currentHeadNode?.hash === node.hash}
                     {@const isHoveredRow = hoveredCommitHash === node.hash}
@@ -2152,12 +2353,12 @@
   </div>
 
   <!-- Commit Details Panel -->
-  {#if selectedCommit}
+  {#if selectedCommit || isWipRowSelected}
       <ResizablePanel side="left" initialSize={320} minSize={200} maxSize={600}>
           <div class="h-full flex flex-col bg-[#0f172a] border-l border-[#1e293b]">
               <!-- Header -->
               <div class="{HEADER_BASE} justify-between px-2">
-                  <span class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider">Commit Details</span>
+                  <span class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider">{isWipRowSelected ? "Working Changes" : "Commit Details"}</span>
                   <button class="text-[#8b949e] hover:text-white p-1 rounded" onclick={closeDetails} title="Close">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                   </button>
@@ -2166,26 +2367,58 @@
               <div class="flex-1 overflow-auto p-3 custom-scrollbar">
                   <!-- Metadata -->
                   <div class="mb-4 space-y-2">
-                       <div class="select-text font-mono text-[10px] text-[#8b949e] bg-[#111827] p-1.5 rounded border border-[#1e293b]">
-                           {selectedCommit.hash}
-                       </div>
-                       
-                       <div class="text-sm font-medium text-[#c9d1d9] leading-tight select-text py-1">
-                           {selectedCommit.subject}
-                       </div>
-                       
-                       <div class="flex items-center gap-2 text-xs text-[#8b949e]">
-                           <div class="flex items-center gap-1 overflow-hidden" title={selectedCommit.author}>
-                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>
-                               <span class="truncate">{selectedCommit.author}</span>
+                       {#if isWipRowSelected}
+                           <div class="select-text font-mono text-[10px] text-[#8b949e] bg-[#111827] p-1.5 rounded border border-[#1e293b]">
+                               // WIP
                            </div>
-                           <span>•</span>
-                           <span title={selectedCommit.date}>
-                               {new Date(selectedCommit.date).toLocaleString()}
-                           </span>
-                       </div>
+
+                           <div class="text-sm font-medium text-[#c9d1d9] leading-tight py-1">
+                               Uncommitted working tree changes
+                           </div>
+
+                           <div class="flex items-center gap-2 text-[11px]">
+                               <span class="px-2 py-0.5 rounded border border-emerald-700/50 bg-emerald-900/30 text-emerald-300">
+                                   +{wipSummary.stagedCount} staged
+                               </span>
+                               <span class="px-2 py-0.5 rounded border border-amber-700/50 bg-amber-900/30 text-amber-300">
+                                   +{wipSummary.unstagedCount} unstaged
+                               </span>
+                               <span class="text-[#8b949e]">{wipSummary.totalCount} file(s)</span>
+                           </div>
+
+                           {#if onNavigateToCommitPanel}
+                               <div class="pt-1">
+                                   <button
+                                       type="button"
+                                       class="px-3 py-1.5 text-xs font-medium text-white bg-[#1f6feb] hover:bg-[#388bfd] rounded border border-[rgba(240,246,252,0.1)] transition-colors"
+                                       onclick={navigateToCommitPanel}
+                                   >
+                                       Go to Commit panel
+                                   </button>
+                               </div>
+                           {/if}
+                       {:else if selectedCommit}
+                           <div class="select-text font-mono text-[10px] text-[#8b949e] bg-[#111827] p-1.5 rounded border border-[#1e293b]">
+                               {selectedCommit.hash}
+                           </div>
+                           
+                           <div class="text-sm font-medium text-[#c9d1d9] leading-tight select-text py-1">
+                               {selectedCommit.subject}
+                           </div>
+                           
+                           <div class="flex items-center gap-2 text-xs text-[#8b949e]">
+                               <div class="flex items-center gap-1 overflow-hidden" title={selectedCommit.author}>
+                                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>
+                                   <span class="truncate">{selectedCommit.author}</span>
+                               </div>
+                               <span>|</span>
+                               <span title={selectedCommit.date}>
+                                   {new Date(selectedCommit.date).toLocaleString()}
+                               </span>
+                           </div>
+                       {/if}
                   </div>
-                  
+
                   <!-- Changes -->
                   <div class="mt-4">
                       <div class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-2 flex justify-between items-center">
@@ -2245,7 +2478,11 @@
                                           class="flex items-start gap-2 py-1 px-1 hover:bg-[#111827] rounded text-xs group cursor-pointer {selectedDiffFile === row.file.path ? 'bg-[#1e293b] text-white' : ''}" 
                                           style={`padding-left: ${4 + row.depth * 12}px;`}
                                           title={row.title}
-                                          onclick={() => { closeChangedFileContextMenu(); void openDiff(row.file.path); }}
+                                          onclick={() => {
+                                              closeChangedFileContextMenu();
+                                              if (isWipRowSelected) return;
+                                              void openDiff(row.file.path);
+                                          }}
                                           oncontextmenu={(e) => handleChangedFileContextMenu(e, row.file)}
                                           role="button"
                                           tabindex="0"
@@ -2260,7 +2497,9 @@
                               {/each}
                           </div>
                       {:else}
-                          <div class="text-xs text-[#8b949e] italic text-center py-4">No changes found</div>
+                          <div class="text-xs text-[#8b949e] italic text-center py-4">
+                              {isWipRowSelected ? "Working tree is clean" : "No changes found"}
+                          </div>
                       {/if}
                   </div>
               </div>
@@ -2454,3 +2693,4 @@
     background: #334155;
   }
 </style>
+
