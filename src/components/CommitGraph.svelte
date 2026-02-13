@@ -1942,8 +1942,8 @@
                  onEncodingChange={handleEncodingChange}
              >
                 {#snippet header(toolbarProps)}
-                    <div class="{HEADER_BASE} px-2 justify-between">
-                        <div class="flex items-center gap-2 overflow-hidden flex-1 mr-4">
+                    <div class="{HEADER_BASE} px-2 justify-between gap-2 flex-wrap">
+                        <div class="flex items-center gap-2 overflow-hidden flex-1 mr-4 max-[900px]:mr-0 max-[900px]:w-full">
                             <button 
                                 class="text-xs text-[#8b949e] hover:text-[#c9d1d9] flex items-center gap-1 hover:bg-[#1e293b] px-2 py-0.5 rounded transition-colors shrink-0"
                                 onclick={closeDiff}
@@ -1956,7 +1956,7 @@
                         </div>
 
                         <!-- Diff Toolbar -->
-                        <div class="shrink-0">
+                        <div class="shrink-0 max-[900px]:w-full">
                                 <DiffToolbar 
                                 viewMode={toolbarProps.viewMode}
                                 onViewModeChange={toolbarProps.onViewModeChange}
@@ -1975,9 +1975,9 @@
         {/if}
 
         <!-- Toolbar / Menu -->
-        <div class="{HEADER_BASE} px-2 relative justify-center">
-            <div class="absolute left-2 top-1/2 -translate-y-1/2 min-w-0 max-w-[44%]">
-                <div class="inline-flex items-center gap-1.5 max-w-full px-2 py-1 rounded border border-[#1e293b] bg-[#0f172a]/80">
+        <div class="{HEADER_BASE} px-2 relative justify-center flex-wrap gap-2 max-[1100px]:justify-start">
+            <div class="absolute left-2 top-1/2 -translate-y-1/2 min-w-0 max-w-[44%] max-[1100px]:static max-[1100px]:translate-y-0 max-[1100px]:max-w-full max-[1100px]:order-1">
+                <div class="inline-flex flex-wrap items-center gap-1.5 max-w-full px-2 py-1 rounded border border-[#1e293b] bg-[#0f172a]/80">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <line x1="6" y1="3" x2="6" y2="15"></line>
                         <circle cx="18" cy="6" r="3"></circle>
@@ -1985,7 +1985,7 @@
                         <path d="M18 9a9 9 0 0 1-9 9"></path>
                     </svg>
                     <span class="text-[10px] uppercase tracking-wider text-[#8b949e] shrink-0">Current</span>
-                    <div class="relative min-w-[126px] max-w-[240px]">
+                    <div class="relative min-w-0 sm:min-w-[126px] max-w-[240px] flex-1">
                         <select
                             class="branch-switch-select w-full rounded bg-[#0d1526] border border-[#1e293b] text-xs font-mono text-[#c9d1d9] pl-2 pr-6 py-0.5 focus:outline-none focus:ring-1 focus:ring-[#4a90d9] disabled:opacity-60"
                             value={currentBranchName}
@@ -2011,7 +2011,7 @@
                 </div>
             </div>
             <!-- Actions -->
-            <div class="flex items-center gap-1">
+            <div class="flex flex-wrap items-center gap-1 max-[1100px]:order-2">
                 <button 
                     class="text-xs text-[#8b949e] hover:text-white px-2 py-1 rounded hover:bg-[#1e293b] flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     onclick={handlePull}
@@ -2057,7 +2057,7 @@
             </div>
 
             {#if leftPanelMode === 'graph'}
-                <div class="absolute right-2 top-1/2 -translate-y-1/2 z-50">
+                <div class="absolute right-2 top-1/2 -translate-y-1/2 z-50 max-[1100px]:static max-[1100px]:translate-y-0 max-[1100px]:order-3">
                     <button  
                         onclick={() => showMenu = !showMenu}
                         class="text-xs text-[#8b949e] hover:text-[#c9d1d9] px-2 py-1 rounded hover:bg-[#1e293b] flex items-center gap-1 transition-colors"

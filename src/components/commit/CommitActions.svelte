@@ -121,18 +121,18 @@
   </label>
 
   <div class="rounded border border-[#30363d] bg-[#161b22] overflow-hidden">
-    <div class="flex items-center gap-2 px-2.5 py-2">
+    <div class="flex flex-wrap items-center gap-2 px-2.5 py-2">
       <input
         value={summary}
         oninput={handleSummaryInput}
         placeholder="Commit summary"
-        class="flex-1 bg-transparent text-[13px] leading-none text-[#c9d1d9] placeholder-[#8b949e] outline-none"
+        class="flex-1 min-w-[180px] bg-transparent text-[13px] leading-none text-[#c9d1d9] placeholder-[#8b949e] outline-none"
         disabled={busy || generating}
       />
       <span class="text-[13px] leading-none {summaryTooLong ? 'text-[#f85149]' : 'text-[#8b949e]'}">{summary.length}</span>
       <button
         type="button"
-        class="h-10 w-10 rounded-md border border-[#3f4b63] bg-[linear-gradient(145deg,#2a2f3d_0%,#1f2735_100%)] text-[#c6d6f7] hover:border-[#5c6f96] hover:bg-[linear-gradient(145deg,#323b52_0%,#263247_100%)] hover:text-[#e5eeff] hover:shadow-[0_6px_14px_rgba(18,32,64,0.45)] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center justify-center transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#79c0ff]"
+        class="h-10 w-10 shrink-0 rounded-md border border-[#3f4b63] bg-[linear-gradient(145deg,#2a2f3d_0%,#1f2735_100%)] text-[#c6d6f7] hover:border-[#5c6f96] hover:bg-[linear-gradient(145deg,#323b52_0%,#263247_100%)] hover:text-[#e5eeff] hover:shadow-[0_6px_14px_rgba(18,32,64,0.45)] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center justify-center transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#79c0ff]"
         disabled={!canGenerate}
         onclick={handleGenerate}
         title="Generate commit message"
@@ -160,7 +160,7 @@
     ></textarea>
   </div>
 
-  <div class="flex items-center gap-2">
+  <div class="flex flex-wrap items-center gap-2">
     <button
       type="button"
       class="inline-flex items-center gap-1.5 h-7 px-1 text-[12px] text-[#8b949e] hover:text-[#c9d1d9] transition-colors focus:outline-none"
@@ -183,7 +183,7 @@
 
     <button
       type="button"
-      class="ml-auto h-7 px-3 rounded-sm border border-[#5b2ea4] bg-[#261444] text-[#d0c0ff] text-[12px] font-semibold hover:bg-[#2f1755] disabled:opacity-45 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1.5 focus:outline-none"
+      class="ml-auto max-[420px]:ml-0 h-7 px-3 rounded-sm border border-[#5b2ea4] bg-[#261444] text-[#d0c0ff] text-[12px] font-semibold hover:bg-[#2f1755] disabled:opacity-45 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1.5 focus:outline-none"
       disabled={!canGenerate}
       onclick={handleGenerate}
     >
@@ -209,7 +209,7 @@
   {/if}
 
   <button
-    class={commitButtonClass}
+    class={`${commitButtonClass} text-center break-words`}
     disabled={!canCommit}
     onclick={handleCommit}
   >

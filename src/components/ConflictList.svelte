@@ -34,7 +34,7 @@
   }
 </script>
 
-<div class="flex flex-col h-full bg-gray-900 border-r border-gray-800 w-64">
+<div class="flex flex-col h-full bg-gray-900 border-r border-gray-800 w-64 max-[900px]:w-full max-[900px]:border-r-0 max-[900px]:border-b">
     <!-- Header -->
     <div class="flex items-center justify-between p-4 border-b border-gray-800">
         <h2 class="text-sm font-semibold text-gray-200">Changes</h2>

@@ -199,7 +199,7 @@
   };
 </script>
 
-<div class="h-full w-full flex overflow-hidden font-sans text-sm selection:bg-[#1f6feb] selection:text-white bg-[#0d1117] text-[#c9d1d9]" class:hidden={!isActive}>
+<div class="h-full w-full min-w-0 flex overflow-auto font-sans text-sm selection:bg-[#1f6feb] selection:text-white bg-[#0d1117] text-[#c9d1d9]" class:hidden={!isActive}>
   <!-- Left Sidebar (Resizable) -->
   <ResizablePanel initialSize={288} minSize={220} maxSize={450} side="right">
     <aside class="w-full h-full bg-[#161b22] border-r border-[#30363d] flex flex-col shrink-0 z-10">
@@ -243,17 +243,17 @@
               <label for="limit-{repoId}" class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider flex items-center gap-2">
                 {@html Icons.Network} Commit Graph
               </label>
-              <div class="flex gap-2">
+              <div class="flex flex-wrap gap-2">
                 <input
                     id="limit-{repoId}"
                     type="number"
                     bind:value={commitCount}
-                    class="w-16 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1.5 text-[#c9d1d9] text-center outline-none focus:border-[#58a6ff] text-xs"
+                    class="w-20 sm:w-16 bg-[#0d1117] border border-[#30363d] rounded-md px-2 py-1.5 text-[#c9d1d9] text-center outline-none focus:border-[#58a6ff] text-xs"
                 />
                 <button
                     onclick={loadGraph}
                     disabled={graphLoading}
-                    class="flex-1 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md shadow-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-[rgba(240,246,252,0.1)] text-xs"
+                    class="min-w-[132px] flex-1 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md shadow-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-[rgba(240,246,252,0.1)] text-xs"
                 >
                     {#if graphLoading}
                         <span>Loading...</span>
@@ -276,41 +276,41 @@
   <!-- Right Panel - Content -->
   <div class="flex-1 flex flex-col min-w-0 bg-[#0d1117] relative">
       <!-- Tabs Header -->
-      <div class="h-12 border-b border-[#30363d] flex items-center px-2 bg-[#161b22] gap-1">
+      <div class="min-h-12 border-b border-[#30363d] flex flex-wrap items-center px-2 py-1 bg-[#161b22] gap-1 overflow-x-auto">
         <button 
            onclick={() => activeTab = "graph"}
-           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'graph' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+           class="shrink-0 px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'graph' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
         >
            {@html Icons.Network} Graph
         </button>
         <button 
            onclick={() => activeTab = "terminal"}
-           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'terminal' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+           class="shrink-0 px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'terminal' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
         >
            {@html Icons.Terminal} Terminal
         </button>
         <button 
            onclick={() => activeTab = "commit"}
-           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'commit' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+           class="shrink-0 px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'commit' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
         >
            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><line x1="1.05" y1="12" x2="7" y2="12"></line><line x1="17.01" y1="12" x2="22.96" y2="12"></line></svg> Commit
         </button>
         <button 
            onclick={() => activeTab = "history"}
-           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'history' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+           class="shrink-0 px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'history' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
         >
            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> History
         </button>
         <button 
            onclick={() => activeTab = "blame"}
-           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'blame' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+           class="shrink-0 px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'blame' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
         >
            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg> Blame
         </button>
         <div class="flex-1"></div>
         <button 
            onclick={() => activeTab = "settings"}
-           class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'settings' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
+           class="shrink-0 px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'settings' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
            title="Repository Settings"
         >
            {@html Icons.Settings}

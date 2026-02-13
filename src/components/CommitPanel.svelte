@@ -544,12 +544,12 @@
   );
 </script>
 
-<div class="flex h-full w-full bg-[#0d1117] overflow-hidden text-[#c9d1d9]">
+<div class="flex h-full w-full bg-[#0d1117] overflow-hidden text-[#c9d1d9] max-[1024px]:flex-col">
     <!-- Left Sidebar -->
-    <div class="w-1/3 min-w-[300px] max-w-[450px] flex flex-col border-r border-[#30363d] bg-[#161b22]">
-        <div class="h-9 px-3 border-b border-[#30363d] bg-[#21262d] flex items-center justify-between shrink-0">
+    <div class="w-1/3 min-w-[300px] max-w-[450px] flex flex-col border-r border-[#30363d] bg-[#161b22] max-[1024px]:w-full max-[1024px]:min-w-0 max-[1024px]:max-w-none max-[1024px]:h-[52%] max-[1024px]:border-r-0 max-[1024px]:border-b">
+        <div class="h-9 px-3 border-b border-[#30363d] bg-[#21262d] flex items-center justify-between shrink-0 gap-2">
             <span class="text-[11px] uppercase tracking-wider font-semibold text-[#8b949e]">Files View</span>
-            <div class="inline-flex rounded border border-[#30363d] overflow-hidden">
+            <div class="inline-flex shrink-0 rounded border border-[#30363d] overflow-hidden">
                 <button
                     type="button"
                     class="px-2.5 py-1 text-[11px] font-medium transition-colors {fileViewMode === 'tree' ? 'bg-[#30363d] text-white' : 'bg-[#161b22] text-[#8b949e] hover:text-[#c9d1d9]'}"
@@ -667,7 +667,7 @@
     </div>
 
     <!-- Right Content: Diff -->
-    <div class="flex-1 flex flex-col bg-[#0d1117] overflow-hidden">
+    <div class="flex-1 flex flex-col bg-[#0d1117] overflow-hidden max-[1024px]:h-[48%]">
         {#if !selectedFile}
              <div class="flex-1 flex items-center justify-center text-[#8b949e] text-sm select-none">
                  Select a file to view diff
@@ -687,9 +687,9 @@
              >
                 {#snippet header(toolbarProps)}
                     <!-- File header bar -->
-                    <div class="h-8 px-3 flex items-center gap-2 border-b border-[#30363d] bg-[#161b22] shrink-0">
+                    <div class="h-8 px-3 flex items-center gap-2 border-b border-[#30363d] bg-[#161b22] shrink-0 min-w-0">
                         <FileChangeStatusBadge status={selectedFile.status} compact={true} showCode={true} className="shrink-0" />
-                        <span class="text-xs font-mono text-[#8b949e]">{selectedFile.path}</span>
+                        <span class="text-xs font-mono text-[#8b949e] truncate min-w-0" title={selectedFile.path}>{selectedFile.path}</span>
                         <span class="text-[10px] px-1.5 py-0.5 rounded border border-[#30363d] text-[#8b949e]">
                             {selectedFile.staged ? 'STAGED' : 'UNSTAGED'}
                         </span>

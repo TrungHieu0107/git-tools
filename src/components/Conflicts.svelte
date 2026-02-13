@@ -50,12 +50,12 @@
 
 <div class="flex flex-col h-full bg-gray-950">
     <!-- Top Banner -->
-    <div class="bg-amber-900/30 border-b border-amber-800 p-2 flex justify-between items-center px-4">
+    <div class="bg-amber-900/30 border-b border-amber-800 p-2 px-4 flex flex-wrap justify-between items-center gap-2">
         <div class="flex items-center gap-2 text-amber-200 text-sm">
             <span>⚠️</span>
             <span class="font-medium">You are in the middle of a merge/rebase</span>
         </div>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap gap-2">
             <button class="px-3 py-1 text-xs font-medium bg-amber-700 text-white rounded hover:bg-amber-600" onclick={continueOp}>
                 Continue
             </button>
@@ -65,16 +65,16 @@
         </div>
     </div>
 
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-1 overflow-hidden max-[900px]:flex-col">
         <!-- List Pane -->
-        <div class="h-full">
+        <div class="h-full max-[900px]:h-[42%]">
             {#key reloadTrigger} <!-- Simple way to force reload list -->
                 <ConflictList {repoPath} on:select={handleSelect} />
             {/key}
         </div>
 
         <!-- Editor Pane -->
-        <div class="flex-1 h-full border-l border-gray-800">
+        <div class="flex-1 h-full border-l border-gray-800 max-[900px]:border-l-0 max-[900px]:border-t">
             <ConflictEditor 
                 {repoPath} 
                 filePath={selectedFile} 

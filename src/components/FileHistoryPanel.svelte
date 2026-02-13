@@ -247,10 +247,10 @@
 
 <div class="flex flex-col h-full bg-[#0d1117] text-[#c9d1d9] overflow-hidden">
   <!-- Header -->
-  <div class="px-4 py-2 border-b border-[#30363d] bg-[#161b22] shrink-0 flex items-center justify-between">
-    <div class="font-semibold text-sm truncate flex items-center gap-2">
+  <div class="px-4 py-2 border-b border-[#30363d] bg-[#161b22] shrink-0 flex items-center justify-between gap-2 min-w-0">
+    <div class="font-semibold text-sm truncate flex items-center gap-2 min-w-0">
       {#if filePath}
-        History: <span class="text-[#58a6ff]">{filePath}</span>
+        History: <span class="text-[#58a6ff] truncate min-w-0" title={filePath}>{filePath}</span>
       {:else}
         File History
       {/if}
@@ -344,7 +344,7 @@
   </div>
 
   <!-- Main Content: Two-column layout -->
-  <div class="flex-1 flex min-h-0 overflow-hidden">
+  <div class="flex-1 flex min-h-0 overflow-hidden max-[1024px]:flex-col">
     {#if !filePath}
       <div class="flex-1 flex flex-col items-center justify-center text-[#8b949e] p-8 text-center">
         <svg class="w-12 h-12 mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -362,7 +362,7 @@
       </div>
     {:else}
       <!-- Left Column: Commit List -->
-      <div class="w-80 min-w-[280px] max-w-[360px] shrink-0 border-r border-[#30363d] flex flex-col overflow-hidden bg-[#0d1117]">
+      <div class="w-80 min-w-[280px] max-w-[360px] shrink-0 border-r border-[#30363d] flex flex-col overflow-hidden bg-[#0d1117] max-[1024px]:w-full max-[1024px]:min-w-0 max-[1024px]:max-w-none max-[1024px]:h-[42%] max-[1024px]:border-r-0 max-[1024px]:border-b">
         <div class="flex-1 overflow-auto custom-scrollbar relative">
           {#if loading}
             <div class="absolute inset-0 flex items-center justify-center bg-[#0d1117]/50 z-10">
@@ -413,7 +413,7 @@
       </div>
 
       <!-- Right Column: Diff View -->
-      <div class="flex-1 overflow-hidden flex flex-col bg-[#0d1117]">
+      <div class="flex-1 overflow-hidden flex flex-col bg-[#0d1117] max-[1024px]:h-[58%]">
         {#if selectedCommitHash}
           <DiffView 
               {diffResult}
@@ -425,7 +425,7 @@
           >
             {#snippet header(toolbarProps)}
                 <!-- Toolbar -->
-                <div class="bg-[#161b22] border-b border-[#30363d] px-4 py-2 flex items-center justify-between shrink-0">
+                <div class="bg-[#161b22] border-b border-[#30363d] px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
                     <div class="text-xs font-mono text-[#8b949e]">
                     Commit {selectedCommitHash?.substring(0, 7)}
                     </div>

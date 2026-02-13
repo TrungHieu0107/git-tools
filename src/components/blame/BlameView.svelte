@@ -74,10 +74,10 @@
 </script>
 
 <div class="flex h-full flex-col bg-[#0d1117] text-[#c9d1d9] overflow-hidden">
-  <div class="px-4 py-2 border-b border-[#30363d] bg-[#161b22] shrink-0 flex items-center justify-between">
-    <div class="font-semibold text-sm truncate">
+  <div class="px-4 py-2 border-b border-[#30363d] bg-[#161b22] shrink-0 flex items-center justify-between gap-2 min-w-0">
+    <div class="font-semibold text-sm truncate min-w-0">
       {#if filePath}
-        Blame: <span class="text-[#58a6ff]">{filePath}</span>
+        Blame: <span class="text-[#58a6ff] truncate min-w-0" title={filePath}>{filePath}</span>
       {:else}
         File Blame
       {/if}

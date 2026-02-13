@@ -59,7 +59,7 @@
 
 <div
     bind:this={containerEl}
-    class="relative flex shrink-0"
+    class="relative flex shrink-0 max-w-full"
     style="width: {size}px;"
 >
     <!-- Content slot -->

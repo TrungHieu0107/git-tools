@@ -776,7 +776,7 @@
                         <span class="truncate flex-1" title={row.title}>{row.label}</span>
                         
                         <button 
-                            class="opacity-0 group-hover:opacity-100 p-1 hover:bg-[#30363d] rounded text-[#8b949e] hover:text-white transition-opacity"
+                            class="opacity-100 md:opacity-0 md:group-hover:opacity-100 p-1 hover:bg-[#30363d] rounded text-[#8b949e] hover:text-white transition-opacity"
                             onclick={(e) => { e.stopPropagation(); closeFileContextMenu(); onAction(row.file); }}
                             title={actionLabel}
                         >

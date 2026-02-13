@@ -105,13 +105,13 @@
             Error: {error}
         </div>
     {:else if isEditing}
-        <div class="flex flex-col flex-1 p-4">
+        <div class="flex flex-col flex-1 p-3 sm:p-4 min-w-0">
             <h3 class="mb-2 text-lg font-semibold">Manual Resolution: {filePath}</h3>
             <textarea 
                 class="flex-1 w-full p-4 mb-4 font-mono text-sm text-gray-200 bg-gray-800 border border-gray-700 rounded resize-none focus:outline-none focus:border-blue-500"
                 bind:value={manualContent}
             ></textarea>
-            <div class="flex gap-4">
+            <div class="flex flex-wrap gap-3">
                 <button 
                     class="px-4 py-2 font-medium text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50"
                     onclick={saveManual}
@@ -130,9 +130,9 @@
     {:else if conflictFile}
         <div class="flex flex-col h-full">
             <!-- Toolbar -->
-            <div class="flex justify-between items-center p-4 border-b border-gray-800 bg-gray-900">
-                <h3 class="font-medium truncate" title={filePath}>{filePath}</h3>
-                <div class="flex gap-2">
+            <div class="flex flex-wrap justify-between items-center gap-2 p-3 sm:p-4 border-b border-gray-800 bg-gray-900">
+                <h3 class="font-medium truncate min-w-0" title={filePath}>{filePath}</h3>
+                <div class="flex flex-wrap gap-2">
                      <button class="px-3 py-1.5 text-xs font-medium bg-green-900 text-green-100 rounded hover:bg-green-800 border border-green-700" onclick={resolveOurs}>
                         Accept Ours (Curr)
                      </button>
@@ -149,7 +149,7 @@
             </div>
 
             <!-- Content Columns -->
-            <div class="flex-1 grid grid-cols-2 divide-x divide-gray-800 overflow-hidden">
+            <div class="flex-1 grid grid-cols-2 divide-x divide-gray-800 overflow-hidden max-[900px]:grid-cols-1 max-[900px]:divide-x-0 max-[900px]:divide-y">
                 <!-- OURS -->
                 <div class="flex flex-col overflow-hidden">
                     <div class="p-2 text-xs font-bold text-center text-green-400 bg-green-900/10 border-b border-gray-800">

@@ -65,9 +65,9 @@
   }
 </script>
 
-<div class="flex h-full bg-gray-950 text-gray-200">
+<div class="flex h-full bg-gray-950 text-gray-200 max-[900px]:flex-col">
     <!-- Sidebar: Command List -->
-    <div class="w-64 border-r border-gray-800 bg-gray-900 flex flex-col">
+    <div class="w-64 border-r border-gray-800 bg-gray-900 flex flex-col max-[900px]:w-full max-[900px]:max-h-[36%] max-[900px]:border-r-0 max-[900px]:border-b">
         <div class="p-4 border-b border-gray-800 font-bold text-gray-400 uppercase text-xs tracking-wider">
             Git Commands
         </div>
@@ -91,7 +91,7 @@
             </div>
         {:else if selectedCommand}
             <!-- Command Header & Input -->
-            <div class="p-6 border-b border-gray-800 bg-gray-900/50">
+            <div class="p-4 sm:p-6 border-b border-gray-800 bg-gray-900/50">
                 <h2 class="text-xl font-bold mb-2 flex items-center gap-2">
                     {selectedCommand.name}
                     {#if loading}
@@ -100,9 +100,9 @@
                 </h2>
                 <p class="text-sm text-gray-500 mb-4">{selectedCommand.description}</p>
 
-                <div class="flex gap-4 items-start">
+                <div class="flex flex-wrap gap-3 items-start">
                     {#if selectedCommand.needsInput}
-                        <div class="flex-1">
+                        <div class="flex-1 min-w-[220px]">
                             <input 
                                 type="text" 
                                 class="w-full bg-gray-950 border border-gray-700 rounded px-4 py-2 text-sm focus:border-blue-500 focus:outline-none"
@@ -113,7 +113,7 @@
                         </div>
                     {/if}
                     <button 
-                        class="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-900/20"
+                        class="shrink-0 px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium text-sm flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-blue-900/20"
                         onclick={runCommand}
                         disabled={loading || (selectedCommand.needsInput && !commandInput)}
                     >
@@ -128,10 +128,10 @@
             </div>
 
             <!-- Output Area -->
-            <div class="flex-1 flex flex-col min-h-0 bg-gray-950 p-6">
-                <div class="flex items-center justify-between mb-2">
+            <div class="flex-1 flex flex-col min-h-0 bg-gray-950 p-4 sm:p-6">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
                      <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Output / Console</span>
-                     <div class="flex gap-2">
+                     <div class="flex flex-wrap gap-2">
                          <button class="text-xs px-2 py-1 text-gray-500 hover:text-gray-300" onclick={copyOutput} title="Copy Output">📋 Copy</button>
                          <button class="text-xs px-2 py-1 text-gray-500 hover:text-red-400" onclick={clearOutput} title="Clear Output">🧹 Clear</button>
                      </div>

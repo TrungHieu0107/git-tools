@@ -28,11 +28,11 @@
 
 {#if state.isOpen}
   <!-- Backdrop -->
-  <div class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-start justify-center pt-10" role="presentation">
+  <div class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center sm:items-start justify-center p-4 sm:pt-10" role="presentation">
       <!-- Modal Container - Centered, Compact -->
       <div 
           class="bg-[#161b22] border border-[#30363d] rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-200 flex flex-col"
-          style="width: 420px; max-width: 90vw;" 
+          style="width: min(420px, 100%);" 
           role="dialog"
       >
           <!-- Header -->
@@ -53,7 +53,7 @@
                   {/if}
               </div>
 
-              <div class="flex justify-end gap-2 pt-1">
+              <div class="flex flex-wrap justify-end gap-2 pt-1">
                    <button 
                       class="px-3 py-1.5 text-xs font-medium text-[#c9d1d9] hover:text-white bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded transition-colors"
                       onclick={handleCancel}

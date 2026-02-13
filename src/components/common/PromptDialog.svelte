@@ -43,7 +43,7 @@
 
 {#if promptState.isOpen}
   <div
-    class="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-start justify-center pt-10"
+    class="fixed inset-0 z-[110] bg-black/60 backdrop-blur-sm flex items-center sm:items-start justify-center p-4 sm:pt-10"
     role="presentation"
     onmousedown={(event) => {
       if (event.target === event.currentTarget) {
@@ -53,7 +53,7 @@
   >
     <div
       class="bg-[#161b22] border border-[#30363d] rounded-lg shadow-2xl overflow-hidden animate-in fade-in slide-in-from-top-4 duration-200 flex flex-col"
-      style="width: 480px; max-width: 90vw;"
+      style="width: min(480px, 100%);"
       role="dialog"
       aria-label={promptState.options.title}
     >
@@ -99,7 +99,7 @@
         />
       </div>
 
-      <div class="px-4 py-3 border-t border-[#30363d] bg-[#0d1117] flex justify-end gap-2">
+      <div class="px-4 py-3 border-t border-[#30363d] bg-[#0d1117] flex flex-wrap justify-end gap-2">
         <button
           class="px-3 py-1.5 text-xs font-medium text-[#c9d1d9] hover:text-white bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded transition-colors"
           onclick={handleCancel}

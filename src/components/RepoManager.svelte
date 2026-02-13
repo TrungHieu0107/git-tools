@@ -94,7 +94,7 @@
   }
 </script>
 
-<div class="flex flex-col h-full bg-gray-950 text-gray-200 p-8">
+<div class="flex flex-col h-full bg-gray-950 text-gray-200 p-4 sm:p-8 overflow-auto">
     <div class="max-w-3xl mx-auto w-full">
         <h1 class="text-2xl font-bold mb-6 flex items-center gap-3">
             <span>📚</span>
@@ -114,8 +114,8 @@
                     </button>
                 {/if}
             </div>
-            <div class="flex gap-4 items-end">
-                <div class="flex-1">
+            <div class="flex flex-wrap gap-4 items-end">
+                <div class="w-full sm:flex-1">
                     <label class="block text-xs text-gray-500 mb-1">Name</label>
                     <input 
                         type="text" 
@@ -124,7 +124,7 @@
                         bind:value={newRepoName}
                     />
                 </div>
-                <div class="flex-[2]">
+                <div class="w-full sm:flex-[2]">
                     <label class="block text-xs text-gray-500 mb-1">Path</label>
                     <div class="flex gap-2">
                         <input 
@@ -143,7 +143,7 @@
                     </div>
                 </div>
                 <button 
-                    class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium text-sm flex items-center gap-2 disabled:opacity-50"
+                    class="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50"
                     onclick={addRepo}
                     disabled={adding || !newRepoName || !newRepoPath}
                 >
@@ -169,22 +169,22 @@
             {#if settings && settings.repos.length > 0}
                 <ul class="divide-y divide-gray-800">
                     {#each settings.repos as repo (repo.id)}
-                        <li class="p-4 flex items-center justify-between hover:bg-gray-800/50 transition-colors {settings.active_repo_id === repo.id ? 'bg-blue-900/10' : ''}">
-                            <div class="flex items-center gap-4">
+                        <li class="p-4 flex flex-wrap items-center justify-between gap-3 hover:bg-gray-800/50 transition-colors {settings.active_repo_id === repo.id ? 'bg-blue-900/10' : ''}">
+                            <div class="flex items-center gap-4 min-w-0">
                                 <div class="w-10 h-10 rounded-full flex items-center justify-center bg-gray-800 text-lg">
                                     📁
                                 </div>
-                                <div>
+                                <div class="min-w-0">
                                     <div class="font-medium text-gray-200 flex items-center gap-2">
                                         {repo.name}
                                         {#if settings.active_repo_id === repo.id}
                                             <span class="px-2 py-0.5 rounded-full bg-green-900/50 text-green-400 text-[10px] font-bold border border-green-900">ACTIVE</span>
                                         {/if}
                                     </div>
-                                    <div class="text-sm text-gray-500 font-mono">{repo.path}</div>
+                                    <div class="text-sm text-gray-500 font-mono break-all">{repo.path}</div>
                                 </div>
                             </div>
-                            <div class="flex items-center gap-3">
+                            <div class="flex flex-wrap items-center gap-3">
                                 {#if settings.active_repo_id !== repo.id}
                                     <button 
                                         class="px-3 py-1.5 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700"

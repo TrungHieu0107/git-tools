@@ -19,10 +19,10 @@
   }
 </script>
 
-<div class="flex h-12 bg-[#0d1117] border-b border-[#30363d] select-none overflow-hidden shrink-0">
+<div class="flex h-12 min-w-0 bg-[#0d1117] border-b border-[#30363d] select-none overflow-hidden shrink-0">
   <!-- Tabs Container -->
   <div 
-    class="flex-1 flex custom-scrollbar items-end px-2 gap-1"
+    class="flex-1 min-w-0 flex custom-scrollbar overflow-x-auto overflow-y-hidden items-end px-2 gap-1"
     onwheel={handleWheel}
     role="tablist"
     tabindex="0"
@@ -30,7 +30,7 @@
   >
     {#each openRepos as repo (repo.id)}
       <div 
-        class="group relative flex items-center h-9 max-w-[200px] min-w-[120px] rounded-t-md px-3 border-t border-l border-r border-transparent cursor-pointer transition-colors
+        class="group relative shrink-0 flex items-center h-9 max-w-[220px] min-w-[120px] rounded-t-md px-3 border-t border-l border-r border-transparent cursor-pointer transition-colors
                {activeRepoId === repo.id 
                  ? 'bg-[#161b22] border-[#30363d] text-[#c9d1d9] z-10' 
                  : 'bg-[#0d1117] hover:bg-[#161b22]/50 text-[#8b949e] hover:text-[#c9d1d9]'}"
@@ -58,7 +58,7 @@
 
         <!-- Close Button -->
         <button
-          class="ml-1 p-0.5 rounded-md text-[#8b949e] opacity-0 group-hover:opacity-100 hover:bg-[#30363d] hover:text-white transition-all focus:opacity-100"
+          class="ml-1 p-0.5 rounded-md text-[#8b949e] opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-[#30363d] hover:text-white transition-all focus:opacity-100"
           onclick={(e) => {
             e.stopPropagation();
             onClose(repo.id);
@@ -78,7 +78,7 @@
 
   <!-- Add Button / Repo Manager -->
   <button
-    class="flex items-center justify-center w-10 h-full text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#161b22] transition-colors border-l border-[#30363d]"
+    class="shrink-0 flex items-center justify-center w-10 h-full text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#161b22] transition-colors border-l border-[#30363d]"
     onclick={onAdd}
     title="Open Repository Manager"
   >

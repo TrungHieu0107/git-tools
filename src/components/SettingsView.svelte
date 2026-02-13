@@ -156,7 +156,7 @@
       </div>
   {/if}
 
-  <div class="max-w-2xl">
+  <div class="max-w-2xl w-full">
     <div class="mb-8">
       <h3 class="text-sm font-semibold uppercase text-[#8b949e] mb-2 tracking-wider">Gemini Commit Message</h3>
       <p class="text-xs text-[#8b949e] mb-4 leading-relaxed">
@@ -164,8 +164,8 @@
         Token is stored locally in this app settings file.
       </p>
 
-      <div class="flex gap-2 items-center">
-        <div class="flex-1">
+      <div class="flex flex-wrap gap-2 items-center">
+        <div class="flex-1 min-w-[220px]">
           <input
             type="password"
             bind:value={geminiToken}
@@ -177,14 +177,14 @@
         <button
           onclick={saveGeminiToken}
           disabled={savingGeminiToken}
-          class="px-4 py-2 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 disabled:hover:bg-[#238636] text-white rounded-md text-xs font-bold border border-[rgba(240,246,252,0.1)] transition-all shadow-sm active:scale-[0.98]"
+          class="shrink-0 px-4 py-2 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 disabled:hover:bg-[#238636] text-white rounded-md text-xs font-bold border border-[rgba(240,246,252,0.1)] transition-all shadow-sm active:scale-[0.98]"
         >
           {savingGeminiToken ? 'Saving...' : 'Save Token'}
         </button>
         <button
           onclick={clearGeminiToken}
           disabled={savingGeminiToken || !settings?.gemini_api_token}
-          class="px-4 py-2 bg-[#21262d] hover:bg-[#30363d] disabled:opacity-50 text-[#c9d1d9] rounded-md text-xs font-bold border border-[#30363d] transition-all"
+          class="shrink-0 px-4 py-2 bg-[#21262d] hover:bg-[#30363d] disabled:opacity-50 text-[#c9d1d9] rounded-md text-xs font-bold border border-[#30363d] transition-all"
         >
           Clear
         </button>
@@ -199,13 +199,13 @@
       {#if settings?.gemini_api_token}
         <div class="mt-4">
           <label for="gemini-model" class="text-xs text-[#8b949e] block mb-1.5">Gemini model</label>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <select
               id="gemini-model"
               bind:value={geminiModel}
               onchange={saveGeminiModel}
               disabled={savingGeminiModel || savingGeminiToken || loadingGeminiModels || geminiModelOptions.length === 0}
-              class="bg-[#0d1117] border border-[#30363d] px-3 py-2 rounded-md text-xs outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] transition-all min-w-[220px]"
+              class="w-full sm:w-auto bg-[#0d1117] border border-[#30363d] px-3 py-2 rounded-md text-xs outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] transition-all min-w-0 sm:min-w-[220px]"
             >
               {#if geminiModelOptions.length === 0}
                 <option value="" disabled>
@@ -256,7 +256,7 @@
                     <span class="flex-1 font-mono text-xs text-[#c9d1d9]">{exc}</span>
                     <button 
                         onclick={() => removeExclusion(i)} 
-                        class="text-[#8b949e] hover:text-[#f85149] opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded"
+                        class="text-[#8b949e] hover:text-[#f85149] opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity p-1 rounded"
                         title="Remove exclusion"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -267,8 +267,8 @@
     </div>
 
     <!-- Add -->
-    <div class="flex gap-2 items-center">
-      <div class="flex-1 relative">
+    <div class="flex flex-wrap gap-2 items-center">
+      <div class="flex-1 min-w-[220px] relative">
          <input 
             type="text" 
             bind:value={newExclusion} 
@@ -280,7 +280,7 @@
       <button 
          onclick={addExclusion}
          disabled={!newExclusion.trim()}
-         class="px-4 py-2 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 disabled:hover:bg-[#238636] text-white rounded-md text-xs font-bold border border-[rgba(240,246,252,0.1)] transition-all shadow-sm active:scale-[0.98]"
+         class="w-full sm:w-auto px-4 py-2 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 disabled:hover:bg-[#238636] text-white rounded-md text-xs font-bold border border-[rgba(240,246,252,0.1)] transition-all shadow-sm active:scale-[0.98]"
       >
         Add Pattern
       </button>

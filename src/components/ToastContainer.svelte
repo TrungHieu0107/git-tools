@@ -10,10 +10,10 @@
   };
 </script>
 
-<div class="fixed bottom-4 right-4 flex flex-col gap-2 z-[9999] pointer-events-none">
+<div class="fixed bottom-4 right-4 left-4 sm:left-auto flex flex-col gap-2 z-[9999] pointer-events-none items-stretch sm:items-end">
   {#each toast.toasts as t (t.id)}
     <div
-      class="pointer-events-auto min-w-[300px] max-w-[400px] rounded-md shadow-lg border border-[#30363d] overflow-hidden flex items-start gap-3 p-3 text-sm
+      class="pointer-events-auto w-full sm:min-w-[300px] sm:max-w-[400px] rounded-md shadow-lg border border-[#30363d] overflow-hidden flex items-start gap-3 p-3 text-sm
           {t.type === 'success' ? 'bg-[#0d1117] text-[#3fb950] border-[#2ea043]/30' : 
            t.type === 'error' ? 'bg-[#0d1117] text-[#f85149] border-[#da3633]/30' : 
            'bg-[#0d1117] text-[#58a6ff] border-[#1f6feb]/30'}"
@@ -34,7 +34,7 @@
           {t.message}
       </div>
       <button 
-        class="text-[#8b949e] hover:text-[#c9d1d9] transition-colors -mt-1 -mr-1 p-1 rounded hover:bg-[#21262d]"
+        class="shrink-0 text-[#8b949e] hover:text-[#c9d1d9] transition-colors -mt-1 -mr-1 p-1 rounded hover:bg-[#21262d]"
         onclick={() => toast.remove(t.id)}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
