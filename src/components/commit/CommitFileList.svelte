@@ -47,12 +47,15 @@
 
   const PATH_LABEL_MAX_LENGTH = 42;
   const PATH_COLLAPSE_TOKEN = "....";
-  const CONTEXT_MENU_WIDTH = 260;
-  const IGNORE_SUBMENU_WIDTH = 220;
+  const MENU_CHAR_WIDTH_PX = 6.2;
+  const MENU_MIN_WIDTH = 150;
+  const MENU_HORIZONTAL_PADDING_PX = 34;
   const CONTEXT_MENU_ITEM_HEIGHT = 32;
   const CONTEXT_MENU_SEPARATOR_HEIGHT = 9;
   const CONTEXT_MENU_PADDING_Y = 4;
   const MIN_HEADER_TITLE_WIDTH = 96;
+  const CONTEXT_MENU_ITEM_CLASS = "w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors";
+  const CONTEXT_MENU_ITEM_FLEX_CLASS = `${CONTEXT_MENU_ITEM_CLASS} flex items-center justify-between`;
 
   interface Props {
       title: string;
@@ -375,6 +378,14 @@
       closeIgnoreSubmenu();
   }
 
+  function getMenuWidthFromLabels(labels: string[], extraPadding = 0): number {
+      const longest = labels.reduce((max, label) => Math.max(max, label.length), 0);
+      return Math.max(
+          MENU_MIN_WIDTH,
+          Math.ceil(longest * MENU_CHAR_WIDTH_PX + MENU_HORIZONTAL_PADDING_PX + extraPadding)
+      );
+  }
+
   function countGroupItems(flags: boolean[]): number {
       return flags.reduce((total, value) => total + (value ? 1 : 0), 0);
   }
@@ -387,6 +398,36 @@
       const group5 = countGroupItems([!!onEditFile, !!onDeleteFile]);
       return [group1, group2, group3, group4, group5].filter((count) => count > 0);
   }
+
+  let contextMenuWidth = $derived.by<number>(() => {
+      const labels: string[] = [];
+
+      labels.push(actionLabel);
+      if (onDiscard) labels.push("Discard changes");
+      if (onIgnore) labels.push("Ignore");
+      if (onStash) labels.push("Stash file");
+
+      if (onShowHistory) labels.push("File History");
+      if (onShowBlame) labels.push("File Blame");
+
+      if (onOpenInDiffTool) labels.push("Open in external diff tool");
+      if (onOpenInEditor) labels.push("Open in external editor");
+      if (onOpenFile) labels.push("Open file in default program");
+      if (onShowInFolder) labels.push("Show in folder");
+
+      labels.push("Copy file path");
+      if (onCreatePatch) labels.push("Create patch from changes");
+
+      if (onEditFile) labels.push("Edit file");
+      if (onDeleteFile) labels.push("Delete file");
+
+      // Extra room for the Ignore row arrow icon.
+      return getMenuWidthFromLabels(labels, onIgnore ? 12 : 0);
+  });
+
+  let ignoreSubmenuWidth = $derived.by<number>(() =>
+      getMenuWidthFromLabels(["Ignore this file", "Ignore by extension", "Ignore parent folder"])
+  );
 
   function getContextMenuHeight(): number {
       const groups = getContextMenuGroups();
@@ -401,7 +442,7 @@
 
   function getContextMenuPosition(clientX: number, clientY: number): { x: number; y: number } {
       const menuHeight = getContextMenuHeight();
-      const maxX = Math.max(8, window.innerWidth - CONTEXT_MENU_WIDTH - 8);
+      const maxX = Math.max(8, window.innerWidth - contextMenuWidth - 8);
       const maxY = Math.max(8, window.innerHeight - menuHeight - 8);
       return {
           x: Math.min(Math.max(8, clientX), maxX),
@@ -530,7 +571,7 @@
 
       const rect = target.getBoundingClientRect();
       const submenuHeight = CONTEXT_MENU_ITEM_HEIGHT * 3 + CONTEXT_MENU_PADDING_Y * 2;
-      const maxX = Math.max(8, window.innerWidth - IGNORE_SUBMENU_WIDTH - 8);
+      const maxX = Math.max(8, window.innerWidth - ignoreSubmenuWidth - 8);
       const maxY = Math.max(8, window.innerHeight - submenuHeight - 8);
 
       ignoreSubmenu = {
@@ -754,14 +795,14 @@
 
 {#if fileContextMenu.visible}
     <div
-        class="file-context-menu fixed z-[120] min-w-[260px] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl py-1"
-        style={`left: ${fileContextMenu.x}px; top: ${fileContextMenu.y}px;`}
+        class="file-context-menu fixed z-[120] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl py-1"
+        style={`left: ${fileContextMenu.x}px; top: ${fileContextMenu.y}px; width: ${contextMenuWidth}px;`}
         role="menu"
     >
         {#if showContextGroup1}
             <button
                 type="button"
-                class="w-full text-left px-3 py-2 text-xs text-[#58a6ff] hover:bg-[#1f2f45] hover:text-[#79c0ff] transition-colors"
+                class={CONTEXT_MENU_ITEM_CLASS}
                 onclick={handleStageFromContextMenu}
                 onmouseenter={closeIgnoreSubmenu}
                 role="menuitem"
@@ -771,7 +812,7 @@
             {#if onDiscard}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#f85149] hover:bg-[#3b1f2c] hover:text-[#ff7b72] transition-colors"
+                    class={CONTEXT_MENU_ITEM_CLASS}
                     onclick={handleDiscardThisFile}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
@@ -782,7 +823,7 @@
             {#if onIgnore}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors flex items-center justify-between"
+                    class={CONTEXT_MENU_ITEM_FLEX_CLASS}
                     onclick={handleOpenIgnoreSubmenu}
                     onmouseenter={handleOpenIgnoreSubmenu}
                     role="menuitem"
@@ -794,7 +835,7 @@
             {#if onStash}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#58a6ff] hover:bg-[#1f2f45] hover:text-[#79c0ff] transition-colors"
+                    class={CONTEXT_MENU_ITEM_CLASS}
                     onclick={handleStashThisFile}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
@@ -812,7 +853,7 @@
             {#if onShowHistory}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    class={CONTEXT_MENU_ITEM_CLASS}
                     onclick={handleShowHistory}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
@@ -823,7 +864,7 @@
             {#if onShowBlame}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    class={CONTEXT_MENU_ITEM_CLASS}
                     onclick={handleShowBlame}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
@@ -841,7 +882,7 @@
             {#if onOpenInDiffTool}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    class={CONTEXT_MENU_ITEM_CLASS}
                     onclick={handleOpenInDiffTool}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
@@ -852,7 +893,7 @@
             {#if onOpenInEditor}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    class={CONTEXT_MENU_ITEM_CLASS}
                     onclick={handleOpenInEditor}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
@@ -863,7 +904,7 @@
             {#if onOpenFile}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    class={CONTEXT_MENU_ITEM_CLASS}
                     onclick={handleOpenThisFile}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
@@ -874,7 +915,7 @@
             {#if onShowInFolder}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    class={CONTEXT_MENU_ITEM_CLASS}
                     onclick={handleShowInFolder}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
@@ -891,7 +932,7 @@
         {#if showContextGroup4}
             <button
                 type="button"
-                class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                class={CONTEXT_MENU_ITEM_CLASS}
                 onclick={() => void handleCopyFilePath()}
                 onmouseenter={closeIgnoreSubmenu}
                 role="menuitem"
@@ -901,7 +942,7 @@
             {#if onCreatePatch}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    class={CONTEXT_MENU_ITEM_CLASS}
                     onclick={handleCreatePatch}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
@@ -919,7 +960,7 @@
             {#if onEditFile}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+                    class={CONTEXT_MENU_ITEM_CLASS}
                     onclick={handleEditFile}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
@@ -930,7 +971,7 @@
             {#if onDeleteFile}
                 <button
                     type="button"
-                    class="w-full text-left px-3 py-2 text-xs text-[#f85149] hover:bg-[#3b1f2c] hover:text-[#ff7b72] transition-colors"
+                    class={CONTEXT_MENU_ITEM_CLASS}
                     onclick={handleDeleteFile}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
@@ -944,13 +985,13 @@
 
 {#if fileContextMenu.visible && ignoreSubmenu.visible && onIgnore}
     <div
-        class="file-ignore-submenu fixed z-[130] min-w-[220px] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl py-1"
-        style={`left: ${ignoreSubmenu.x}px; top: ${ignoreSubmenu.y}px;`}
+        class="file-ignore-submenu fixed z-[130] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl py-1"
+        style={`left: ${ignoreSubmenu.x}px; top: ${ignoreSubmenu.y}px; width: ${ignoreSubmenuWidth}px;`}
         role="menu"
     >
         <button
             type="button"
-            class="w-full text-left px-3 py-2 text-xs text-[#c9d1d9] hover:bg-[#21262d] hover:text-white transition-colors"
+            class={CONTEXT_MENU_ITEM_CLASS}
             onclick={() => handleIgnorePattern(currentIgnoreFilePattern)}
             role="menuitem"
         >
@@ -958,7 +999,7 @@
         </button>
         <button
             type="button"
-            class="w-full text-left px-3 py-2 text-xs transition-colors {currentIgnoreExtensionPattern ? 'text-[#c9d1d9] hover:bg-[#21262d] hover:text-white' : 'text-[#6e7681] cursor-not-allowed'}"
+            class="{CONTEXT_MENU_ITEM_CLASS} {!currentIgnoreExtensionPattern ? 'opacity-45 cursor-not-allowed' : ''}"
             onclick={() => currentIgnoreExtensionPattern && handleIgnorePattern(currentIgnoreExtensionPattern)}
             disabled={!currentIgnoreExtensionPattern}
             role="menuitem"
@@ -967,7 +1008,7 @@
         </button>
         <button
             type="button"
-            class="w-full text-left px-3 py-2 text-xs transition-colors {currentIgnoreParentFolderPattern ? 'text-[#c9d1d9] hover:bg-[#21262d] hover:text-white' : 'text-[#6e7681] cursor-not-allowed'}"
+            class="{CONTEXT_MENU_ITEM_CLASS} {!currentIgnoreParentFolderPattern ? 'opacity-45 cursor-not-allowed' : ''}"
             onclick={() => currentIgnoreParentFolderPattern && handleIgnorePattern(currentIgnoreParentFolderPattern)}
             disabled={!currentIgnoreParentFolderPattern}
             role="menuitem"
