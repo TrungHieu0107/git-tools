@@ -153,6 +153,10 @@ export class GitService {
     return CommitService.generateCommitMessage(repoPath);
   }
 
+  static async getDefaultAiPrompt(): Promise<string> {
+    return CommitService.getDefaultAiPrompt();
+  }
+
   static async getDiff(filePath: string, staged: boolean, repoPath?: string, encoding?: string): Promise<string> {
     return FileService.getDiff(filePath, staged, repoPath, encoding);
   }

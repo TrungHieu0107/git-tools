@@ -58,6 +58,7 @@ fn main() {
             commands::cmd_git_fetch,
             commands::cmd_git_commit,
             commands::cmd_generate_commit_message,
+            commands::cmd_get_default_ai_prompt,
             commands::cmd_git_add_all,
             commands::cmd_git_checkout,
             commands::cmd_git_branch_list,

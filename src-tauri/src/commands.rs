@@ -425,6 +425,11 @@ pub async fn cmd_get_gemini_models(
     ai_commands::cmd_get_gemini_models_impl(state, token).await
 }
 
+#[tauri::command]
+pub fn cmd_get_default_ai_prompt() -> String {
+    ai_commands::cmd_get_default_ai_prompt_impl()
+}
+
 // ---------------------------------------------------------------------------
 // Generic async git command
 // ---------------------------------------------------------------------------

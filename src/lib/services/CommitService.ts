@@ -8,6 +8,10 @@ export class CommitService {
     return invoke("cmd_generate_commit_message", { repoPath });
   }
 
+  static async getDefaultAiPrompt(): Promise<string> {
+    return invoke("cmd_get_default_ai_prompt");
+  }
+
   static async commit(message: string, repoPath?: string): Promise<GitCommandResult> {
     return executeGitCommand(
       "cmd_git_commit",

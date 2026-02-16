@@ -141,6 +141,10 @@ fn build_gemini_prompt(
     prompt
 }
 
+pub fn cmd_get_default_ai_prompt_impl() -> String {
+    get_default_expert_prompt()
+}
+
 fn get_default_expert_prompt() -> String {
     String::from(
         "You are a Senior Software Engineer with expertise in writing high-quality Git commit messages.\n\

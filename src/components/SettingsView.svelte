@@ -20,6 +20,7 @@
 
   let globalPrompt = $state("");
   let repoPrompt = $state("");
+  let defaultAiPrompt = $state("");
   let savingGlobalPrompt = $state(false);
   let savingRepoPrompt = $state(false);
   let promptSaveError = $state("");
@@ -79,7 +80,11 @@
 
   onMount(async () => {
     try {
-        const loaded = await GitService.getSettings();
+        const [loaded, defaultPrompt] = await Promise.all([
+            GitService.getSettings(),
+            GitService.getDefaultAiPrompt()
+        ]);
+        defaultAiPrompt = defaultPrompt;
         applyLoadedSettings(loaded);
         if (loaded.gemini_api_token) {
           await loadGeminiModels(loaded.gemini_api_token);
@@ -280,7 +285,7 @@
         </div>
         <textarea
           bind:value={globalPrompt}
-          placeholder="Leave empty to use the system default expert prompt..."
+          placeholder={defaultAiPrompt || "Loading default prompt..."}
           class="w-full h-32 bg-[#0d1117] border border-[#30363d] p-3 rounded-md text-xs font-mono outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] placeholder-[#484f58] transition-all"
         ></textarea>
         <div class="mt-2 flex justify-end gap-2">
@@ -312,7 +317,7 @@
           </div>
           <textarea
             bind:value={repoPrompt}
-            placeholder="Customize prompt for this repo only..."
+            placeholder={defaultAiPrompt || "Loading default prompt..."}
             class="w-full h-32 bg-[#0d1117] border border-[#30363d] p-3 rounded-md text-xs font-mono outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] placeholder-[#484f58] transition-all"
           ></textarea>
           <div class="mt-3 flex justify-end gap-2">
