@@ -405,6 +405,8 @@
   }
 
   async function handleWipCommitSuccess() {
+      closeDiff();
+      closeDetails();
       await onGraphReload?.();
       await loadWipSummary();
   }
@@ -2299,6 +2301,22 @@
                                     />
                                 {/each}
                             </g>
+                            <!-- WIP connection line from HEAD commit to WIP row -->
+                            {#if hasWipRow && currentHeadNode}
+                                {@const headX = nodeRenderX(currentHeadNode)}
+                                {@const headY = nodeRenderY(currentHeadNode)}
+                                {@const wipY = ROW_HEIGHT / 2}
+                                <path
+                                    class="graph-edge"
+                                    d={`M ${wipRowGraphX} ${wipY} V ${headY}`}
+                                    fill="none"
+                                    stroke={currentHeadNode.color}
+                                    stroke-width={STROKE_WIDTH}
+                                    stroke-linecap="round"
+                                    stroke-dasharray="4 3"
+                                    opacity={hoveredBranchColor && currentHeadNode.color !== hoveredBranchColor ? 0.26 : 0.65}
+                                />
+                            {/if}
                             <g class="nodes">
                                 {#if hasWipRow}
                                     <g class="graph-node" transform={`translate(${wipRowGraphX}, ${ROW_HEIGHT / 2})`}>
