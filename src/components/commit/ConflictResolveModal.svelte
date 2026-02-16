@@ -624,9 +624,8 @@
                   {@const isConflict = row.conflictIndex !== undefined}
                   {@const isFirst = isConflict && row.conflictLineIndex === 0}
                   {@const selected = isConflict && row.conflictLineIndex !== undefined && isLineSelected("ours", row.conflictIndex!, row.conflictLineIndex!)}
-                  {@const order = isConflict && row.conflictLineIndex !== undefined ? getSelectionOrder("ours", row.conflictIndex!, row.conflictLineIndex!) : null}
                   <div
-                    class="grid grid-cols-[28px_48px_1fr] {isConflict ? 'border-l-2 border-l-[#36a9da] cursor-pointer hover:bg-[#14485c]/90' : ''} {selected ? 'bg-[#14485c]/35 opacity-60' : isConflict ? 'bg-[#14485c]/60' : ''}"
+                    class="grid grid-cols-[24px_48px_1fr] {isConflict ? 'bg-[#14485c]/60 border-l-2 border-l-[#36a9da] cursor-pointer hover:bg-[#14485c]/90' : ''}"
                     data-conflict-start={isFirst ? row.conflictIndex : undefined}
                     onclick={() => {
                       if (isConflict && row.conflictIndex !== undefined && row.conflictLineIndex !== undefined) {
@@ -637,8 +636,11 @@
                     tabindex={isConflict ? 0 : undefined}
                   >
                     <div class="flex items-center justify-center">
-                      {#if order !== null}
-                        <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#36a9da] text-[9px] font-bold text-white px-1 leading-none">#{order}</span>
+                      {#if selected}
+                        <svg class="w-4 h-4 text-green-400" viewBox="0 0 20 20" fill="none">
+                          <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
+                          <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
                       {/if}
                     </div>
                     <div class="px-1 text-right text-[#7d8590] select-none text-xs">{row.lineNo}</div>
@@ -667,9 +669,8 @@
                   {@const isConflict = row.conflictIndex !== undefined}
                   {@const isFirst = isConflict && row.conflictLineIndex === 0}
                   {@const selected = isConflict && row.conflictLineIndex !== undefined && isLineSelected("theirs", row.conflictIndex!, row.conflictLineIndex!)}
-                  {@const order = isConflict && row.conflictLineIndex !== undefined ? getSelectionOrder("theirs", row.conflictIndex!, row.conflictLineIndex!) : null}
                   <div
-                    class="grid grid-cols-[28px_48px_1fr] {isConflict ? 'border-l-2 border-l-[#f3cc47] cursor-pointer hover:bg-[#584e22]/90' : ''} {selected ? 'bg-[#584e22]/35 opacity-60' : isConflict ? 'bg-[#584e22]/60' : ''}"
+                    class="grid grid-cols-[24px_48px_1fr] {isConflict ? 'bg-[#584e22]/60 border-l-2 border-l-[#f3cc47] cursor-pointer hover:bg-[#584e22]/90' : ''}"
                     data-conflict-start={isFirst ? row.conflictIndex : undefined}
                     onclick={() => {
                       if (isConflict && row.conflictIndex !== undefined && row.conflictLineIndex !== undefined) {
@@ -680,8 +681,11 @@
                     tabindex={isConflict ? 0 : undefined}
                   >
                     <div class="flex items-center justify-center">
-                      {#if order !== null}
-                        <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#f3cc47] text-[9px] font-bold text-[#2b2200] px-1 leading-none">#{order}</span>
+                      {#if selected}
+                        <svg class="w-4 h-4 text-green-400" viewBox="0 0 20 20" fill="none">
+                          <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
+                          <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
                       {/if}
                     </div>
                     <div class="px-1 text-right text-[#7d8590] select-none text-xs">{row.lineNo}</div>
@@ -722,21 +726,11 @@
             </div>
             <button
               type="button"
-              class="px-2.5 py-1 text-[11px] font-medium rounded border border-[#30363d] text-[#c9d1d9] bg-[#21262d] hover:bg-[#30363d] hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              onclick={() => undoLastSelection(activeConflictIndex)}
-              disabled={getStack(activeConflictIndex).length === 0}
-              title="Undo last selected line"
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              class="px-2.5 py-1 text-[11px] font-medium rounded border border-[#30363d] text-[#c9d1d9] bg-[#21262d] hover:bg-[#30363d] hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              class="px-2.5 py-1 text-[11px] font-medium rounded border border-[#30363d] text-[#c9d1d9] bg-[#21262d] hover:bg-[#30363d] hover:text-white transition-colors"
               onclick={() => resetConflict(activeConflictIndex)}
-              disabled={getStack(activeConflictIndex).length === 0}
-              title="Clear all selections for this conflict block"
+              title="Reset current conflict resolution"
             >
-              Clear
+              Reset
             </button>
           </div>
 
@@ -753,26 +747,35 @@
               </div>
             {/if}
 
-            {#each fullOutputRows as row, outputIdx (`output-${row.lineNo}`)}
+            {#each fullOutputRows as row (`output-${row.lineNo}`)}
               {@const isConflict = row.conflictIndex !== undefined}
               {@const isFirst = isConflict && row.conflictLineIndex === 0}
               {@const isOurs = row.sourceSide === "ours"}
               {@const isTheirs = row.sourceSide === "theirs"}
-              {@const outputOrder = isConflict && (isOurs || isTheirs) ? row.conflictLineIndex !== undefined ? row.conflictLineIndex + 1 : null : null}
               <div
-                class="grid grid-cols-[28px_48px_1fr] {isTheirs ? 'bg-[#584e22]/60 border-l-2 border-l-[#f3cc47]' : isOurs ? 'bg-[#14485c]/60 border-l-2 border-l-[#36a9da]' : isConflict ? 'bg-[#21262d]/40' : ''}"
+                class="grid grid-cols-[24px_48px_1fr] {isTheirs ? 'bg-[#584e22]/60 border-l-2 border-l-[#f3cc47]' : isOurs ? 'bg-[#14485c]/60 border-l-2 border-l-[#36a9da]' : isConflict ? 'bg-[#21262d]/40' : ''}"
                 data-conflict-start={isFirst ? row.conflictIndex : undefined}
               >
                 <div class="flex items-center justify-center">
                   {#if isTheirs}
-                    <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#f3cc47] text-[9px] font-bold text-[#2b2200] px-1 leading-none">B</span>
+                    <span class="text-[10px] font-bold text-[#ffe38b]">B</span>
                   {:else if isOurs}
-                    <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#36a9da] text-[9px] font-bold text-white px-1 leading-none">A</span>
+                    <span class="text-[10px] font-bold text-[#9ee7ff]">A</span>
                   {/if}
                 </div>
                 <div class="px-1 text-right text-[#7d8590] select-none text-xs">{row.lineNo}</div>
                 <div class="pr-3 pl-2 whitespace-pre overflow-hidden text-ellipsis {isTheirs ? 'text-[#fff3bf]' : isOurs ? 'text-[#d5f5ff]' : 'text-[#d2d9e7]'}">
+                {#if isConflict && (isOurs || isTheirs)}
+                  <span class="inline-flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5 text-green-400 shrink-0 inline" viewBox="0 0 20 20" fill="none">
+                      <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
+                      <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    {row.text || " "}
+                  </span>
+                {:else}
                   {row.text || " "}
+                {/if}
                 </div>
               </div>
             {/each}
