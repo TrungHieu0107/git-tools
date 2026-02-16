@@ -399,6 +399,25 @@ pub fn cmd_set_gemini_model(
 }
 
 #[tauri::command]
+pub fn cmd_set_global_commit_prompt(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    prompt: String,
+) -> Result<AppSettings, String> {
+    settings_commands::cmd_set_global_commit_prompt_impl(app_handle, state, prompt)
+}
+
+#[tauri::command]
+pub fn cmd_set_repo_commit_prompt(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    repo_path: String,
+    prompt: String,
+) -> Result<AppSettings, String> {
+    settings_commands::cmd_set_repo_commit_prompt_impl(app_handle, state, repo_path, prompt)
+}
+
+#[tauri::command]
 pub async fn cmd_get_gemini_models(
     state: State<'_, AppState>,
     token: Option<String>,

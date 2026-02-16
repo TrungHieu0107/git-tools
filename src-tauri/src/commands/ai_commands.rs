@@ -104,8 +104,45 @@ async fn fetch_commit_context(
     })
 }
 
-fn build_gemini_prompt(file_summary: &str, diff_patch: &str, diff_was_truncated: bool) -> String {
-    let mut prompt = String::from(
+fn build_gemini_prompt(
+    file_summary: &str,
+    diff_patch: &str,
+    diff_was_truncated: bool,
+    custom_prompt: Option<String>,
+) -> String {
+    let mut prompt = if let Some(p) = custom_prompt {
+        if p.trim().is_empty() {
+            get_default_expert_prompt()
+        } else {
+            p
+        }
+    } else {
+        get_default_expert_prompt()
+    };
+
+    // Ensure double newline before context
+    if !prompt.ends_with("\n\n") {
+        if prompt.ends_with('\n') {
+            prompt.push('\n');
+        } else {
+            prompt.push_str("\n\n");
+        }
+    }
+
+    prompt.push_str("Staged files (summary):\n");
+    prompt.push_str(file_summary.trim());
+    prompt.push_str("\n\nStaged diff details:\n");
+    prompt.push_str(diff_patch.trim());
+
+    if diff_was_truncated {
+        prompt.push_str("\n\n[NOTE] The diff content was truncated due to its large size. Please rely on the file summary and the provided diff snippet to infer the overall logic.");
+    }
+
+    prompt
+}
+
+fn get_default_expert_prompt() -> String {
+    String::from(
         "You are a Senior Software Engineer with expertise in writing high-quality Git commit messages.\n\
 Task: Generate a professional, clear, and comprehensive commit message based on the staged changes provided below.\n\n\
 Guidelines:\n\
@@ -127,19 +164,8 @@ Guidelines:\n\
 Constraints:\n\
 - Return plain text only. No markdown formatting, no code fences (```).\n\
 - Do not prefix the output with labels like \"Commit Message:\" or \"Subject:\".\n\
-- Ensure there is exactly one empty line between the subject and the body.\n\n",
-    );
-
-    prompt.push_str("Staged files (summary):\n");
-    prompt.push_str(file_summary.trim());
-    prompt.push_str("\n\nStaged diff details:\n");
-    prompt.push_str(diff_patch.trim());
-
-    if diff_was_truncated {
-        prompt.push_str("\n\n[NOTE] The diff content was truncated due to its large size. Please rely on the file summary and the provided diff snippet to infer the overall logic.");
-    }
-
-    prompt
+- Ensure there is exactly one empty line between the subject and the body.",
+    )
 }
 
 async fn call_gemini_api(token: &str, model: &str, prompt: &str) -> Result<String, String> {
@@ -201,7 +227,7 @@ async fn call_gemini_api(token: &str, model: &str, prompt: &str) -> Result<Strin
         return Err(format!("Gemini API error: {}", message));
     }
 
-    Err("Gemini did not return any commit message text.".to_string())
+    Ok("Gemini did not return any commit message text.".to_string())
 }
 
 fn sanitize_commit_message(raw: &str) -> String {
@@ -416,14 +442,18 @@ pub async fn cmd_generate_commit_message_impl(
 ) -> Result<String, String> {
     let path = resolve_repo_path(&state, repo_path)?;
 
-    let (token, model) = {
+    let (token, model, global_prompt, repo_prompt) = {
         let settings = state.settings.lock().map_err(|e| e.to_string())?;
         let token = settings.gemini_api_token.clone();
         let model = settings
             .gemini_model
             .clone()
             .unwrap_or_else(|| DEFAULT_GEMINI_MODEL.to_string());
-        (token, model)
+        
+        let global_prompt = settings.global_commit_prompt.clone();
+        let repo_prompt = settings.repo_commit_prompts.get(&path).cloned();
+
+        (token, model, global_prompt, repo_prompt)
     };
 
     let token = token.ok_or("Gemini API token is missing. Set it in Settings first.")?;
@@ -433,11 +463,15 @@ pub async fn cmd_generate_commit_message_impl(
         model.trim().to_string()
     };
 
+    // Determine target prompt: Repo Specific > Global User Defined > System Default
+    let target_prompt = repo_prompt.or(global_prompt);
+
     let commit_context = fetch_commit_context(&state, &path).await?;
     let prompt = build_gemini_prompt(
         &commit_context.file_summary_for_prompt,
         &commit_context.diff_patch_for_prompt,
         commit_context.diff_was_truncated,
+        target_prompt,
     );
     let raw_response = call_gemini_api(&token, &model, &prompt).await?;
     let sanitized = sanitize_commit_message(&raw_response);
@@ -449,3 +483,4 @@ pub async fn cmd_generate_commit_message_impl(
 
     Ok(message)
 }
+

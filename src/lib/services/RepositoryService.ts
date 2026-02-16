@@ -50,4 +50,12 @@ export class RepositoryService {
   static async getActiveRepo(): Promise<RepoEntry | null> {
     return invoke("cmd_get_active_repo");
   }
+
+  static async setGlobalCommitPrompt(prompt: string): Promise<AppSettings> {
+    return invoke("cmd_set_global_commit_prompt", { prompt });
+  }
+
+  static async setRepoCommitPrompt(repoPath: string, prompt: string): Promise<AppSettings> {
+    return invoke("cmd_set_repo_commit_prompt", { repoPath, prompt });
+  }
 }

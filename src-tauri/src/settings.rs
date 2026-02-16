@@ -30,6 +30,10 @@ pub struct AppSettings {
     pub gemini_api_token: Option<String>,
     #[serde(default)]
     pub gemini_model: Option<String>,
+    #[serde(default)]
+    pub global_commit_prompt: Option<String>,
+    #[serde(default)]
+    pub repo_commit_prompts: std::collections::HashMap<String, String>,
 }
 
 use crate::terminal::TerminalManager;

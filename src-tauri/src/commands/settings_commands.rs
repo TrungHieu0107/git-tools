@@ -197,3 +197,36 @@ pub fn cmd_set_gemini_model_impl(
     save_settings(&app_handle, &settings)?;
     Ok(settings.clone())
 }
+
+pub fn cmd_set_global_commit_prompt_impl(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    prompt: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    let trimmed = prompt.trim().to_string();
+    settings.global_commit_prompt = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    };
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}
+
+pub fn cmd_set_repo_commit_prompt_impl(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    repo_path: String,
+    prompt: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    let trimmed = prompt.trim().to_string();
+    if trimmed.is_empty() {
+        settings.repo_commit_prompts.remove(&repo_path);
+    } else {
+        settings.repo_commit_prompts.insert(repo_path, trimmed);
+    }
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}

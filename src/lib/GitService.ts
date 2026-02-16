@@ -52,6 +52,8 @@ export interface AppSettings {
   file_encodings?: Record<string, string>;
   gemini_api_token?: string | null;
   gemini_model?: string | null;
+  global_commit_prompt?: string | null;
+  repo_commit_prompts?: Record<string, string>;
 }
 
 export class GitService {
@@ -73,6 +75,14 @@ export class GitService {
 
   static async setGeminiModel(model: string): Promise<AppSettings> {
     return RepositoryService.setGeminiModel(model);
+  }
+
+  static async setGlobalCommitPrompt(prompt: string): Promise<AppSettings> {
+    return RepositoryService.setGlobalCommitPrompt(prompt);
+  }
+
+  static async setRepoCommitPrompt(repoPath: string, prompt: string): Promise<AppSettings> {
+    return RepositoryService.setRepoCommitPrompt(repoPath, prompt);
   }
 
   static async getGeminiModels(token?: string): Promise<string[]> {
