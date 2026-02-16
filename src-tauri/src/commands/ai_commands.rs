@@ -106,28 +106,37 @@ async fn fetch_commit_context(
 
 fn build_gemini_prompt(file_summary: &str, diff_patch: &str, diff_was_truncated: bool) -> String {
     let mut prompt = String::from(
-        "You are an expert software engineer writing Git commit messages.\n\
-Task: Generate a single commit message from the staged changes.\n\
-Rules:\n\
-- Return plain text only (no markdown, no code fences).\n\
-- Output format must be exactly:\n\
-  <subject line>\n\
+        "You are a Senior Software Engineer with expertise in writing high-quality Git commit messages.\n\
+Task: Generate a professional, clear, and comprehensive commit message based on the staged changes provided below.\n\n\
+Guidelines:\n\
+- Format: Use the standard structure:\n\
+  <type>(<scope>): <subject>\n\n\
+  [optional detailed body]\n\n\
+- Subject Line: Use the imperative, present tense (\"fix\", \"add\", \"refactor\", not \"fixed\", \"added\", \"refactoring\").\n\
+- Subject Line: Capitalize the first letter and do not end with a period.\n\
+- Subject Line: Keep it clear and under 72 characters.\n\
+- Types: Use common types like feat, fix, refactor, docs, test, chore, perf, build, or ci.\n\
 \n\
-  <description/body>\n\
-- Keep the subject line under 72 characters.\n\
-- Use imperative voice.\n\
-- Prefer Conventional Commit prefixes when clear (feat, fix, refactor, docs, test, chore).\n\
-- Always include a short body (1-3 concise lines) explaining what changed and why.\n\
-- Do not include labels like \"Subject:\" or \"Description:\".\n\n",
+- Detailed Body (Mandatory):\n\
+  - Explain the context and motivation behind the change. Why is this change needed?\n\
+  - Describe the key technical changes made in this commit.\n\
+  - Use bullet points if there are multiple logical changes or files involved.\n\
+  - Be descriptive but professional. Avoid filler words.\n\
+  - Do not just list filenames; explain what was actually done inside them.\n\
+\n\
+Constraints:\n\
+- Return plain text only. No markdown formatting, no code fences (```).\n\
+- Do not prefix the output with labels like \"Commit Message:\" or \"Subject:\".\n\
+- Ensure there is exactly one empty line between the subject and the body.\n\n",
     );
 
-    prompt.push_str("Staged files (name-status):\n");
+    prompt.push_str("Staged files (summary):\n");
     prompt.push_str(file_summary.trim());
-    prompt.push_str("\n\nStaged diff:\n");
+    prompt.push_str("\n\nStaged diff details:\n");
     prompt.push_str(diff_patch.trim());
 
     if diff_was_truncated {
-        prompt.push_str("\n\n[NOTE] Diff content was truncated due to size.");
+        prompt.push_str("\n\n[NOTE] The diff content was truncated due to its large size. Please rely on the file summary and the provided diff snippet to infer the overall logic.");
     }
 
     prompt
@@ -148,9 +157,9 @@ async fn call_gemini_api(token: &str, model: &str, prompt: &str) -> Result<Strin
             }
         ],
         "generationConfig": {
-            "temperature": 0.2,
+            "temperature": 0.3,
             "topP": 0.9,
-            "maxOutputTokens": 320
+            "maxOutputTokens": 1024
         }
     });
 
