@@ -74,6 +74,8 @@ pub type GitResult<T> = Result<T, GitError>;
 pub enum GitCommandType {
     Checkout,
     Merge,
+    Rebase,
+    CherryPick,
     Commit,
     Pull,
     Push,

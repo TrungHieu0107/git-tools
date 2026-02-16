@@ -1984,6 +1984,44 @@ pub async fn cmd_git_merge(
 }
 
 #[tauri::command]
+pub async fn cmd_git_rebase(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    branch: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let args: Vec<String> = vec!["rebase".into(), branch];
+    git_run_result_with_event(
+        &app,
+        &state,
+        repo_path,
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::Rebase,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn cmd_git_cherry_pick(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    commit_hash: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    let args: Vec<String> = vec!["cherry-pick".into(), commit_hash];
+    git_run_result_with_event(
+        &app,
+        &state,
+        repo_path,
+        args,
+        TIMEOUT_LOCAL,
+        GitCommandType::CherryPick,
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn cmd_abort_operation(
     app: AppHandle,
     state: State<'_, AppState>,

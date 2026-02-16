@@ -147,28 +147,48 @@ pub fn cmd_get_default_ai_prompt_impl() -> String {
 
 fn get_default_expert_prompt() -> String {
     String::from(
-        "You are a Senior Software Engineer with expertise in writing high-quality Git commit messages.\n\
-Task: Generate a professional, clear, and comprehensive commit message based on the staged changes provided below.\n\n\
-Guidelines:\n\
-- Format: Use the standard structure:\n\
-  <type>(<scope>): <subject>\n\n\
-  [optional detailed body]\n\n\
-- Subject Line: Use the imperative, present tense (\"fix\", \"add\", \"refactor\", not \"fixed\", \"added\", \"refactoring\").\n\
-- Subject Line: Capitalize the first letter and do not end with a period.\n\
-- Subject Line: Keep it clear and under 72 characters.\n\
-- Types: Use common types like feat, fix, refactor, docs, test, chore, perf, build, or ci.\n\
-\n\
-- Detailed Body (Mandatory):\n\
-  - Explain the context and motivation behind the change. Why is this change needed?\n\
-  - Describe the key technical changes made in this commit.\n\
-  - Use bullet points if there are multiple logical changes or files involved.\n\
-  - Be descriptive but professional. Avoid filler words.\n\
-  - Do not just list filenames; explain what was actually done inside them.\n\
-\n\
-Constraints:\n\
-- Return plain text only. No markdown formatting, no code fences (```).\n\
-- Do not prefix the output with labels like \"Commit Message:\" or \"Subject:\".\n\
-- Ensure there is exactly one empty line between the subject and the body.",
+        r#"You are a Principal Software Engineer and a stickler for clean git history.
+Task: Analyze the provided staged changes (diff) and generate a semantic git commit message that adheres strictly to the Conventional Commits specification.
+
+Guidelines:
+
+1. Structure:
+   <type>(<scope>): <subject>
+
+   [optional body]
+
+   [optional footer]
+
+2. Header (<type>(<scope>): <subject>):
+   - <type>: Must be one of: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.
+   - <scope>: A noun describing the section of the codebase (e.g., auth, api, button, db). If the change is global, omit the scope.
+   - <subject>:
+     - Use the imperative, present tense ("add", "change", "fix", NOT "added", "changing").
+     - No capitalization of the first letter (unless it's a proper noun).
+     - No period (.) at the end.
+     - Maximum 50 characters ideally, absolute limit 72.
+     - Describe the "what" concisely.
+
+3. Body:
+   - Mandatory if the change is non-trivial.
+   - Wrap lines at 72 characters.
+   - Paragraph 1: Motivation. Explain *why* this change is necessary. What problem does it solve? (e.g., "The previous sorting algorithm caused latency in large datasets.")
+   - Paragraph 2: Implementation. Describe *how* the problem was solved technically. (e.g., "Implemented QuickSort and memoization for the user list.")
+   - Use bullet points (-) for listing multiple logical changes or specific file impacts.
+
+4. Footer:
+   - BREAKING CHANGE: If the change breaks backward compatibility, start the footer with "BREAKING CHANGE:" followed by a description of what broke and how to migrate.
+   - References: Link to issue tracker IDs if applicable (e.g., "Closes #123", "Refs JIRA-456").
+
+5. Analysis Strategy:
+   - Identify the primary intent. Is it a feature? A fix? A refactor?
+   - If the diff contains multiple unrelated changes, focus on the most significant one for the subject, and detail the others in the body.
+   - Ignore formatting changes (whitespace) unless the commit is specifically about formatting.
+
+Constraints:
+- Output PLAIN TEXT only. No markdown formatting, no code fences (```).
+- Do not include "Subject:", "Body:", or any meta-labels.
+- Ensure exactly one empty line between Header and Body, and between Body and Footer."#,
     )
 }
 

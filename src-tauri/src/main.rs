@@ -71,6 +71,8 @@ fn main() {
             commands::cmd_git_checkout_new_branch,
             commands::cmd_git_create_branch,
             commands::cmd_git_merge,
+            commands::cmd_git_rebase,
+            commands::cmd_git_cherry_pick,
             commands::cmd_abort_operation,
             commands::cmd_get_pending_commits_count,
             commands::cmd_get_status_files,

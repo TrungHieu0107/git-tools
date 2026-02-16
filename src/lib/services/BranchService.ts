@@ -55,6 +55,26 @@ export class BranchService {
     );
   }
 
+  static async rebase(branch: string, repoPath?: string): Promise<GitCommandResult> {
+    return executeGitCommand(
+      "cmd_git_rebase",
+      { branch, repoPath },
+      `Rebased onto '${branch}'`,
+      "Rebase failed",
+      { reloadGraph: true },
+    );
+  }
+
+  static async cherryPick(commitHash: string, repoPath?: string): Promise<GitCommandResult> {
+    return executeGitCommand(
+      "cmd_git_cherry_pick",
+      { commitHash, repoPath },
+      `Cherry-picked ${commitHash.slice(0, 8)}`,
+      "Cherry-pick failed",
+      { reloadGraph: true },
+    );
+  }
+
   static async abortOperation(repoPath?: string): Promise<GitCommandResult> {
     return executeGitCommand(
       "cmd_abort_operation",

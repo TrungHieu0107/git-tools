@@ -275,6 +275,14 @@ export class GitService {
     return BranchService.merge(branch, repoPath);
   }
 
+  static async rebase(branch: string, repoPath?: string): Promise<GitCommandResult> {
+    return BranchService.rebase(branch, repoPath);
+  }
+
+  static async cherryPick(commitHash: string, repoPath?: string): Promise<GitCommandResult> {
+    return BranchService.cherryPick(commitHash, repoPath);
+  }
+
   static async abortOperation(repoPath?: string): Promise<GitCommandResult> {
     return BranchService.abortOperation(repoPath);
   }

@@ -21,7 +21,7 @@
   import CommitContextMenu from "./common/CommitContextMenu.svelte";
   import StashCommitContextMenu from "./common/StashCommitContextMenu.svelte";
   import BranchContextMenu from "./common/BranchContextMenu.svelte";
-  import type { BranchContextMenuState } from "./common/branch-context-menu-types";
+  import type { BranchContextMenuState, BranchContextMenuAction } from "./common/branch-context-menu-types";
   import type {
       CommitContextMenuAction,
       CommitContextMenuState
@@ -1822,7 +1822,7 @@
       branchContextMenu = null;
   }
 
-  function handleBranchBadgeContextMenu(event: MouseEvent, badge: RefBadge) {
+  function handleBranchBadgeContextMenu(event: MouseEvent, badge: RefBadge, node: GraphNode) {
       event.preventDefault();
       event.stopPropagation();
       if (!canCheckoutFromBadge(badge)) return;
@@ -1832,8 +1832,11 @@
       branchContextMenu = {
           x: event.clientX,
           y: event.clientY,
-          payload: badge,
-          disableMerge: isCurrentBranchBadge(badge)
+          branchName: badge.text,
+          branchType: badge.type === "remote" ? "remote" : "branch",
+          commitHash: node.hash,
+          currentBranch: currentBranchName || "",
+          node
       };
   }
 
@@ -1975,12 +1978,141 @@
       }
   }
 
-  async function handleBranchContextCheckout(payload: unknown) {
-      await checkoutFromBadge(payload as RefBadge);
-  }
+  async function handleBranchContextAction(action: BranchContextMenuAction, menu: BranchContextMenuState) {
+      if (!repoPath) return;
+      try {
+          switch (action.type) {
+              case "checkout": {
+                  const badge: RefBadge = { text: menu.branchName, type: menu.branchType, isCurrent: false, originalIndex: 0 };
+                  await checkoutFromBadge(badge);
+                  break;
+              }
+              case "merge": {
+                  const badge: RefBadge = { text: menu.branchName, type: menu.branchType, isCurrent: false, originalIndex: 0 };
+                  await mergeFromBadge(badge);
+                  break;
+              }
+              case "rebase": {
+                  const confirmed = await confirm({
+                      title: "Rebase",
+                      message: `Rebase <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${menu.currentBranch || "current"}</span> onto <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${menu.branchName}</span>?`,
+                      isHtmlMessage: true,
+                      confirmLabel: "Rebase",
+                      cancelLabel: "Cancel"
+                  });
+                  if (!confirmed) return;
+                  await runCommandWithReload(() => GitService.rebase(menu.branchName, repoPath));
+                  break;
+              }
+              case "cherry-pick": {
+                  const shortHash = getShortHash(menu.commitHash);
+                  const confirmed = await confirm({
+                      title: "Cherry Pick",
+                      message: `Cherry-pick commit <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${shortHash}</span>?`,
+                      isHtmlMessage: true,
+                      confirmLabel: "Cherry Pick",
+                      cancelLabel: "Cancel"
+                  });
+                  if (!confirmed) return;
+                  await runCommandWithReload(() => GitService.cherryPick(menu.commitHash, repoPath));
+                  break;
+              }
+              case "create-branch-here": {
+                  const shortHash = getShortHash(menu.commitHash);
+                  const branchInput = await prompt({
+                      title: "Create Branch Here",
+                      message: `Enter a branch name for commit <code>${shortHash}</code>:`,
+                      isHtmlMessage: true,
+                      placeholder: "feature/my-branch",
+                      confirmLabel: "Create",
+                      cancelLabel: "Cancel"
+                  });
+                  const branchName = branchInput?.trim() ?? "";
+                  if (!branchName) return;
+                  await runCommandWithReload(() => GitService.createBranch(branchName, menu.commitHash, repoPath));
+                  break;
+              }
+              case "reset": {
+                  const shortHash = getShortHash(menu.commitHash);
+                  const confirmation = getResetConfirmation(action.mode, shortHash);
+                  await runConfirmedCommand(confirmation, () => GitService.resetToCommit(menu.commitHash, action.mode, repoPath));
+                  break;
+              }
+              case "revert": {
+                  const shortHash = getShortHash(menu.commitHash);
+                  await runConfirmedCommand({
+                      title: "Revert Commit",
+                      message: `Revert commit <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${shortHash}</span>?<br/><em>"${menu.node.subject}"</em><br/><br/>This creates a new commit that undoes this commit.`,
+                      isHtmlMessage: true,
+                      confirmLabel: "Revert",
+                      cancelLabel: "Cancel"
+                  }, () => GitService.revertCommit(menu.commitHash, repoPath));
+                  break;
+              }
+              case "delete": {
+                  if (menu.branchType === "remote") {
+                      const parsed = parseRemoteRef(menu.branchName);
+                      if (!parsed) {
+                          toast.error("Invalid remote branch reference");
+                          return;
+                      }
+                      await runConfirmedCommand({
+                          title: "Delete Remote Branch",
+                          message: `Delete remote branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${menu.branchName}</span>?`,
+                          isHtmlMessage: true,
+                          confirmLabel: "Delete",
+                          cancelLabel: "Cancel"
+                      }, () => GitService.deleteRemoteBranch(parsed.remote, parsed.branch, repoPath));
+                  } else {
+                      await runConfirmedCommand({
+                          title: "Delete Local Branch",
+                          message: `Delete local branch <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${menu.branchName}</span>?`,
+                          isHtmlMessage: true,
+                          confirmLabel: "Delete",
+                          cancelLabel: "Cancel"
+                      }, () => GitService.deleteBranch(menu.branchName, false, repoPath));
+                  }
+                  break;
+              }
+              case "copy-branch-name":
+                  await copyToClipboard(menu.branchName, `Copied: ${menu.branchName}`);
+                  break;
+              case "copy-commit-sha":
+                  await copyToClipboard(menu.commitHash, `Copied: ${getShortHash(menu.commitHash)}`);
+                  break;
+              case "create-tag": {
+                  const shortHash = getShortHash(menu.commitHash);
+                  const tagNameInput = await prompt({
+                      title: action.annotated ? "Create Annotated Tag" : "Create Tag",
+                      message: `Tag name for commit <code>${shortHash}</code>:`,
+                      isHtmlMessage: true,
+                      placeholder: "v1.0.0",
+                      confirmLabel: "Create",
+                      cancelLabel: "Cancel"
+                  });
+                  const tagName = tagNameInput?.trim() ?? "";
+                  if (!tagName) return;
 
-  async function handleBranchContextMerge(payload: unknown) {
-      await mergeFromBadge(payload as RefBadge);
+                  let tagMessage: string | undefined = undefined;
+                  if (action.annotated) {
+                      const messageInput = await prompt({
+                          title: "Annotated Tag Message",
+                          message: "Enter annotation message:",
+                          placeholder: "Release notes",
+                          confirmLabel: "Continue",
+                          cancelLabel: "Cancel"
+                      });
+                      const trimmedMessage = messageInput?.trim() ?? "";
+                      if (!trimmedMessage) return;
+                      tagMessage = trimmedMessage;
+                  }
+                  await runCommandWithReload(() => GitService.createTag(tagName, menu.commitHash, tagMessage, repoPath));
+                  break;
+              }
+          }
+      } catch (e) {
+          console.error("Branch context menu action failed", e);
+      }
   }
   // -- Git Actions --
   let isFetching = $state(false);
@@ -2561,7 +2693,7 @@
                                             class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 truncate max-w-[118px] bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/80 cursor-pointer hover:brightness-110 {getRefBadgeClass(primaryBadge)}"
                                             title={`${primaryBadge.text} (click to checkout)`}
                                             onclick={(e) => handleBranchBadgeClick(e, primaryBadge)}
-                                            oncontextmenu={(e) => handleBranchBadgeContextMenu(e, primaryBadge)}
+                                            oncontextmenu={(e) => handleBranchBadgeContextMenu(e, primaryBadge, node)}
                                         >
                                             {primaryBadge.text}
                                         </button>
@@ -2588,7 +2720,7 @@
                                                         title={`${badge.text} (double-click to checkout)`}
                                                         onclick={(e) => e.stopPropagation()}
                                                         ondblclick={(e) => handleBranchBadgeClick(e, badge)}
-                                                        oncontextmenu={(e) => handleBranchBadgeContextMenu(e, badge)}
+                                                        oncontextmenu={(e) => handleBranchBadgeContextMenu(e, badge, node)}
                                                     >
                                                         {badge.text}
                                                     </button>
@@ -2890,8 +3022,7 @@
 <BranchContextMenu
   menu={branchContextMenu}
   onClose={closeBranchContextMenu}
-  onCheckout={handleBranchContextCheckout}
-  onMerge={handleBranchContextMerge}
+  onAction={handleBranchContextAction}
 />
 
 <CommitContextMenu
