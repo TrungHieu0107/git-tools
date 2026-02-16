@@ -28,6 +28,8 @@
     sourceSide?: "ours" | "theirs";
   };
 
+  type StackEntry = { side: "ours" | "theirs"; lineIndex: number };
+
   interface Props {
     repoPath?: string;
     filePath: string | null;
@@ -48,7 +50,7 @@
   let useManualEditor = $state(false);
   let newlineStyle = $state<"\n" | "\r\n">("\n");
   let activeConflictIndex = $state(0);
-  let selectedLinesByKey = $state<Record<string, number[]>>({});
+  let selectionStacks = $state<Record<number, StackEntry[]>>({});
   let resolvedLineSources = $state<Record<number, ("ours" | "theirs")[]>>({});
   let selectedEncoding = $state<string | undefined>(undefined);
   let loadToken = 0;
@@ -185,10 +187,6 @@
     return trimmedTrailing.split("\n");
   }
 
-  function selectionKey(side: "ours" | "theirs", conflictIndex: number): string {
-    return `${side}:${conflictIndex}`;
-  }
-
   function getConflictLinesBySide(
     side: "ours" | "theirs",
     conflictIndex: number,
@@ -198,12 +196,8 @@
     return toDisplayLines(side === "ours" ? conflict.ours : conflict.theirs);
   }
 
-  function getSelectedLineIndexes(
-    side: "ours" | "theirs",
-    conflictIndex: number,
-  ): number[] {
-    const key = selectionKey(side, conflictIndex);
-    return selectedLinesByKey[key] ?? [];
+  function getStack(conflictIndex: number): StackEntry[] {
+    return selectionStacks[conflictIndex] ?? [];
   }
 
   function isLineSelected(
@@ -211,51 +205,43 @@
     conflictIndex: number,
     lineIndex: number,
   ): boolean {
-    return getSelectedLineIndexes(side, conflictIndex).includes(lineIndex);
+    return getStack(conflictIndex).some(
+      (e) => e.side === side && e.lineIndex === lineIndex,
+    );
   }
 
-  function setSelectedLineIndexes(
+  function getSelectionOrder(
     side: "ours" | "theirs",
     conflictIndex: number,
-    indexes: number[],
-  ): void {
-    const key = selectionKey(side, conflictIndex);
-    selectedLinesByKey = {
-      ...selectedLinesByKey,
-      [key]: [...new Set(indexes)].sort((a, b) => a - b),
-    };
+    lineIndex: number,
+  ): number | null {
+    const idx = getStack(conflictIndex).findIndex(
+      (e) => e.side === side && e.lineIndex === lineIndex,
+    );
+    return idx >= 0 ? idx + 1 : null;
   }
 
   function isBlockFullySelected(side: "ours" | "theirs", conflictIndex: number): boolean {
     const lines = getConflictLinesBySide(side, conflictIndex);
     if (lines.length === 0) return false;
-    return getSelectedLineIndexes(side, conflictIndex).length === lines.length;
+    const stack = getStack(conflictIndex);
+    return lines.every((_, i) => stack.some((e) => e.side === side && e.lineIndex === i));
   }
 
   function recomputeResolvedFromSelections(conflictIndex: number): void {
     const target = conflictSegments[conflictIndex];
     if (!target) return;
 
-    const oursLines = getConflictLinesBySide("ours", conflictIndex);
-    const theirsLines = getConflictLinesBySide("theirs", conflictIndex);
-    const oursSelected = getSelectedLineIndexes("ours", conflictIndex);
-    const theirsSelected = getSelectedLineIndexes("theirs", conflictIndex);
-
+    const stack = getStack(conflictIndex);
     const resolvedLines: string[] = [];
     const sources: ("ours" | "theirs")[] = [];
 
-    // B (theirs) selected lines first, then A (ours) selected lines
-    // This matches the GitKraken output order shown in the screenshot
-    for (const idx of theirsSelected) {
-      if (idx >= 0 && idx < theirsLines.length) {
-        resolvedLines.push(theirsLines[idx]);
-        sources.push("theirs");
-      }
-    }
-    for (const idx of oursSelected) {
-      if (idx >= 0 && idx < oursLines.length) {
-        resolvedLines.push(oursLines[idx]);
-        sources.push("ours");
+    // Iterate in click-order (the stack preserves insertion order)
+    for (const entry of stack) {
+      const lines = getConflictLinesBySide(entry.side, conflictIndex);
+      if (entry.lineIndex >= 0 && entry.lineIndex < lines.length) {
+        resolvedLines.push(lines[entry.lineIndex]);
+        sources.push(entry.side);
       }
     }
 
@@ -272,25 +258,44 @@
     conflictIndex: number,
     lineIndex: number,
   ): void {
-    const current = getSelectedLineIndexes(side, conflictIndex);
-    if (current.includes(lineIndex)) {
-      setSelectedLineIndexes(
-        side,
-        conflictIndex,
-        current.filter((index) => index !== lineIndex),
-      );
+    const stack = getStack(conflictIndex);
+    const existingIdx = stack.findIndex(
+      (e) => e.side === side && e.lineIndex === lineIndex,
+    );
+    if (existingIdx >= 0) {
+      // Remove (deselect)
+      const next = [...stack];
+      next.splice(existingIdx, 1);
+      selectionStacks = { ...selectionStacks, [conflictIndex]: next };
     } else {
-      setSelectedLineIndexes(side, conflictIndex, [...current, lineIndex]);
+      // Push to end (select)
+      selectionStacks = {
+        ...selectionStacks,
+        [conflictIndex]: [...stack, { side, lineIndex }],
+      };
     }
     recomputeResolvedFromSelections(conflictIndex);
   }
 
   function toggleSideBlock(side: "ours" | "theirs", conflictIndex: number, selected: boolean): void {
     const lines = getConflictLinesBySide(side, conflictIndex);
+    const stack = getStack(conflictIndex);
     if (selected) {
-      setSelectedLineIndexes(side, conflictIndex, lines.map((_, i) => i));
+      // Append all non-selected lines of this side, in line order
+      const toAdd = lines
+        .map((_, i) => i)
+        .filter((i) => !stack.some((e) => e.side === side && e.lineIndex === i))
+        .map((i): StackEntry => ({ side, lineIndex: i }));
+      selectionStacks = {
+        ...selectionStacks,
+        [conflictIndex]: [...stack, ...toAdd],
+      };
     } else {
-      setSelectedLineIndexes(side, conflictIndex, []);
+      // Remove all lines of this side from the stack
+      selectionStacks = {
+        ...selectionStacks,
+        [conflictIndex]: stack.filter((e) => e.side !== side),
+      };
     }
     recomputeResolvedFromSelections(conflictIndex);
   }
@@ -298,13 +303,22 @@
   function resetConflict(conflictIndex: number): void {
     const target = conflictSegments[conflictIndex];
     if (!target) return;
+    selectionStacks = { ...selectionStacks, [conflictIndex]: [] };
     segments = segments.map((segment) => {
       if (segment.kind !== "conflict" || segment.id !== target.id) return segment;
       return { ...segment, resolved: segment.ours };
     });
     resolvedLineSources = { ...resolvedLineSources, [conflictIndex]: [] };
-    setSelectedLineIndexes("ours", conflictIndex, []);
-    setSelectedLineIndexes("theirs", conflictIndex, []);
+  }
+
+  function undoLastSelection(conflictIndex: number): void {
+    const stack = getStack(conflictIndex);
+    if (stack.length === 0) return;
+    selectionStacks = {
+      ...selectionStacks,
+      [conflictIndex]: stack.slice(0, -1),
+    };
+    recomputeResolvedFromSelections(conflictIndex);
   }
 
   function buildFullViewRows(view: "ours" | "theirs" | "output"): DiffLineRow[] {
@@ -423,7 +437,7 @@
     segments = [];
     manualContent = "";
     activeConflictIndex = 0;
-    selectedLinesByKey = {};
+    selectionStacks = {};
     resolvedLineSources = {};
 
     try {
@@ -610,8 +624,9 @@
                   {@const isConflict = row.conflictIndex !== undefined}
                   {@const isFirst = isConflict && row.conflictLineIndex === 0}
                   {@const selected = isConflict && row.conflictLineIndex !== undefined && isLineSelected("ours", row.conflictIndex!, row.conflictLineIndex!)}
+                  {@const order = isConflict && row.conflictLineIndex !== undefined ? getSelectionOrder("ours", row.conflictIndex!, row.conflictLineIndex!) : null}
                   <div
-                    class="grid grid-cols-[24px_48px_1fr] {isConflict ? 'bg-[#14485c]/60 border-l-2 border-l-[#36a9da] cursor-pointer hover:bg-[#14485c]/90' : ''}"
+                    class="grid grid-cols-[28px_48px_1fr] {isConflict ? 'border-l-2 border-l-[#36a9da] cursor-pointer hover:bg-[#14485c]/90' : ''} {selected ? 'bg-[#14485c]/35 opacity-60' : isConflict ? 'bg-[#14485c]/60' : ''}"
                     data-conflict-start={isFirst ? row.conflictIndex : undefined}
                     onclick={() => {
                       if (isConflict && row.conflictIndex !== undefined && row.conflictLineIndex !== undefined) {
@@ -622,11 +637,8 @@
                     tabindex={isConflict ? 0 : undefined}
                   >
                     <div class="flex items-center justify-center">
-                      {#if selected}
-                        <svg class="w-4 h-4 text-green-400" viewBox="0 0 20 20" fill="none">
-                          <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
-                          <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
+                      {#if order !== null}
+                        <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#36a9da] text-[9px] font-bold text-white px-1 leading-none">#{order}</span>
                       {/if}
                     </div>
                     <div class="px-1 text-right text-[#7d8590] select-none text-xs">{row.lineNo}</div>
@@ -655,8 +667,9 @@
                   {@const isConflict = row.conflictIndex !== undefined}
                   {@const isFirst = isConflict && row.conflictLineIndex === 0}
                   {@const selected = isConflict && row.conflictLineIndex !== undefined && isLineSelected("theirs", row.conflictIndex!, row.conflictLineIndex!)}
+                  {@const order = isConflict && row.conflictLineIndex !== undefined ? getSelectionOrder("theirs", row.conflictIndex!, row.conflictLineIndex!) : null}
                   <div
-                    class="grid grid-cols-[24px_48px_1fr] {isConflict ? 'bg-[#584e22]/60 border-l-2 border-l-[#f3cc47] cursor-pointer hover:bg-[#584e22]/90' : ''}"
+                    class="grid grid-cols-[28px_48px_1fr] {isConflict ? 'border-l-2 border-l-[#f3cc47] cursor-pointer hover:bg-[#584e22]/90' : ''} {selected ? 'bg-[#584e22]/35 opacity-60' : isConflict ? 'bg-[#584e22]/60' : ''}"
                     data-conflict-start={isFirst ? row.conflictIndex : undefined}
                     onclick={() => {
                       if (isConflict && row.conflictIndex !== undefined && row.conflictLineIndex !== undefined) {
@@ -667,11 +680,8 @@
                     tabindex={isConflict ? 0 : undefined}
                   >
                     <div class="flex items-center justify-center">
-                      {#if selected}
-                        <svg class="w-4 h-4 text-green-400" viewBox="0 0 20 20" fill="none">
-                          <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
-                          <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
+                      {#if order !== null}
+                        <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#f3cc47] text-[9px] font-bold text-[#2b2200] px-1 leading-none">#{order}</span>
                       {/if}
                     </div>
                     <div class="px-1 text-right text-[#7d8590] select-none text-xs">{row.lineNo}</div>
@@ -712,11 +722,21 @@
             </div>
             <button
               type="button"
-              class="px-2.5 py-1 text-[11px] font-medium rounded border border-[#30363d] text-[#c9d1d9] bg-[#21262d] hover:bg-[#30363d] hover:text-white transition-colors"
-              onclick={() => resetConflict(activeConflictIndex)}
-              title="Reset current conflict resolution"
+              class="px-2.5 py-1 text-[11px] font-medium rounded border border-[#30363d] text-[#c9d1d9] bg-[#21262d] hover:bg-[#30363d] hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              onclick={() => undoLastSelection(activeConflictIndex)}
+              disabled={getStack(activeConflictIndex).length === 0}
+              title="Undo last selected line"
             >
-              Reset
+              Undo
+            </button>
+            <button
+              type="button"
+              class="px-2.5 py-1 text-[11px] font-medium rounded border border-[#30363d] text-[#c9d1d9] bg-[#21262d] hover:bg-[#30363d] hover:text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              onclick={() => resetConflict(activeConflictIndex)}
+              disabled={getStack(activeConflictIndex).length === 0}
+              title="Clear all selections for this conflict block"
+            >
+              Clear
             </button>
           </div>
 
@@ -733,35 +753,26 @@
               </div>
             {/if}
 
-            {#each fullOutputRows as row (`output-${row.lineNo}`)}
+            {#each fullOutputRows as row, outputIdx (`output-${row.lineNo}`)}
               {@const isConflict = row.conflictIndex !== undefined}
               {@const isFirst = isConflict && row.conflictLineIndex === 0}
               {@const isOurs = row.sourceSide === "ours"}
               {@const isTheirs = row.sourceSide === "theirs"}
+              {@const outputOrder = isConflict && (isOurs || isTheirs) ? row.conflictLineIndex !== undefined ? row.conflictLineIndex + 1 : null : null}
               <div
-                class="grid grid-cols-[24px_48px_1fr] {isTheirs ? 'bg-[#584e22]/60 border-l-2 border-l-[#f3cc47]' : isOurs ? 'bg-[#14485c]/60 border-l-2 border-l-[#36a9da]' : isConflict ? 'bg-[#21262d]/40' : ''}"
+                class="grid grid-cols-[28px_48px_1fr] {isTheirs ? 'bg-[#584e22]/60 border-l-2 border-l-[#f3cc47]' : isOurs ? 'bg-[#14485c]/60 border-l-2 border-l-[#36a9da]' : isConflict ? 'bg-[#21262d]/40' : ''}"
                 data-conflict-start={isFirst ? row.conflictIndex : undefined}
               >
                 <div class="flex items-center justify-center">
                   {#if isTheirs}
-                    <span class="text-[10px] font-bold text-[#ffe38b]">B</span>
+                    <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#f3cc47] text-[9px] font-bold text-[#2b2200] px-1 leading-none">B</span>
                   {:else if isOurs}
-                    <span class="text-[10px] font-bold text-[#9ee7ff]">A</span>
+                    <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#36a9da] text-[9px] font-bold text-white px-1 leading-none">A</span>
                   {/if}
                 </div>
                 <div class="px-1 text-right text-[#7d8590] select-none text-xs">{row.lineNo}</div>
                 <div class="pr-3 pl-2 whitespace-pre overflow-hidden text-ellipsis {isTheirs ? 'text-[#fff3bf]' : isOurs ? 'text-[#d5f5ff]' : 'text-[#d2d9e7]'}">
-                  {#if isConflict && (isOurs || isTheirs)}
-                    <span class="inline-flex items-center gap-1">
-                      <svg class="w-3.5 h-3.5 text-green-400 shrink-0 inline" viewBox="0 0 20 20" fill="none">
-                        <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
-                        <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                      </svg>
-                      {row.text || " "}
-                    </span>
-                  {:else}
-                    {row.text || " "}
-                  {/if}
+                  {row.text || " "}
                 </div>
               </div>
             {/each}
