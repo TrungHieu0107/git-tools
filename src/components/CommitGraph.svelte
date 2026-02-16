@@ -31,6 +31,7 @@
       StashCommitContextMenuState
   } from "./common/stash-commit-context-menu-types";
   import FileChangeStatusBadge from "./common/FileChangeStatusBadge.svelte";
+  import GraphWipPanel from "./commit/GraphWipPanel.svelte";
 
   interface Props {
     nodes?: GraphNode[];
@@ -42,7 +43,6 @@
     onLoadMoreCommits?: () => Promise<boolean>;
     hasMoreCommits?: boolean;
     isLoadingMoreCommits?: boolean;
-    onNavigateToCommitPanel?: () => void | Promise<void>;
     onShowHistory?: (filePath: string) => void;
     onShowBlame?: (filePath: string) => void;
   }
@@ -57,7 +57,6 @@
       onLoadMoreCommits,
       hasMoreCommits = true,
       isLoadingMoreCommits = false,
-      onNavigateToCommitPanel,
       onShowHistory,
       onShowBlame
   }: Props = $props();
@@ -285,7 +284,7 @@
       await loadCommitDetails(node);
   }
 
-  function selectWipRow() {
+  export function selectWipRow() {
       isWipRowSelected = true;
       selectedCommit = null;
       changedFiles = wipSummary.files;
@@ -371,8 +370,43 @@
   function handleEncodingChange(encoding: string) {
       selectedEncoding = encoding;
       if (selectedDiffFile) {
-          openDiff(selectedDiffFile);
+          if (isWipRowSelected) {
+              openWipDiff({ path: selectedDiffFile, status: "", staged: false });
+          } else {
+              openDiff(selectedDiffFile);
+          }
       }
+  }
+
+  let wipPanelRef = $state<any>(null);
+
+  async function openWipDiff(file: FileStatus) {
+      if (!repoPath) return;
+      selectedDiffFile = file.path;
+      leftPanelMode = 'diff';
+      isLoadingDiff = true;
+      baseContent = "";
+      modifiedContent = "";
+      try {
+          const [base, mod] = await Promise.all([
+              GitService.getFileBaseContent(file.path, file.staged, repoPath, selectedEncoding),
+              GitService.getFileModifiedContent(file.path, file.staged, repoPath, selectedEncoding),
+          ]);
+          if (selectedDiffFile !== file.path) return; // Race check
+          modifiedContent = mod;
+          baseContent = base;
+      } catch (e) {
+          console.error("Failed to load WIP diff", e);
+      } finally {
+          if (selectedDiffFile === file.path) {
+              isLoadingDiff = false;
+          }
+      }
+  }
+
+  async function handleWipCommitSuccess() {
+      await onGraphReload?.();
+      await loadWipSummary();
   }
 
 
@@ -719,8 +753,8 @@
       }
   }
 
-  async function navigateToCommitPanel() {
-      await onNavigateToCommitPanel?.();
+  function navigateToCommitPanel() {
+      selectWipRow();
   }
 
   function getRowCellHighlightClass(nodeHash: string, columnId: string): string {
@@ -1912,7 +1946,8 @@
       async function navigateToCommitWhenMergeBlocked(message: string): Promise<boolean> {
           const hasConflicts = await GitService.checkConflictState(repoPath).catch(() => false);
           if (hasConflicts || isMergeOrRebaseInProgressMessage(message)) {
-              await onNavigateToCommitPanel?.();
+              selectWipRow();
+              await loadWipSummary();
               return true;
           }
           return false;
@@ -2592,50 +2627,33 @@
 
   <!-- Commit Details Panel -->
   {#if selectedCommit || isWipRowSelected}
-      <ResizablePanel side="left" initialSize={320} minSize={200} maxSize={600}>
+      <ResizablePanel side="left" initialSize={isWipRowSelected ? 380 : 320} minSize={240} maxSize={600}>
+          {#if isWipRowSelected}
+              <div class="h-full border-l border-[#1e293b]">
+                  <GraphWipPanel
+                      bind:this={wipPanelRef}
+                      repoPath={repoPath ?? ""}
+                      onFileSelect={openWipDiff}
+                      onClose={closeDetails}
+                      onCommitSuccess={handleWipCommitSuccess}
+                      {onShowHistory}
+                      {onShowBlame}
+                  />
+              </div>
+          {:else}
           <div class="h-full flex flex-col bg-[#0f172a] border-l border-[#1e293b]">
               <!-- Header -->
               <div class="{HEADER_BASE} justify-between px-2">
-                  <span class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider">{isWipRowSelected ? "Working Changes" : "Commit Details"}</span>
+                  <span class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider">Commit Details</span>
                   <button class="text-[#8b949e] hover:text-white p-1 rounded" onclick={closeDetails} title="Close">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                   </button>
               </div>
-              
+
               <div class="flex-1 overflow-auto p-3 custom-scrollbar">
                   <!-- Metadata -->
                   <div class="mb-4 space-y-2">
-                       {#if isWipRowSelected}
-                           <div class="select-text font-mono text-[10px] text-[#8b949e] bg-[#111827] p-1.5 rounded border border-[#1e293b]">
-                               // WIP
-                           </div>
-
-                           <div class="text-sm font-medium text-[#c9d1d9] leading-tight py-1">
-                               Uncommitted working tree changes
-                           </div>
-
-                           <div class="flex items-center gap-2 text-[11px]">
-                               <span class="px-2 py-0.5 rounded border border-emerald-700/50 bg-emerald-900/30 text-emerald-300">
-                                   +{wipSummary.stagedCount} staged
-                               </span>
-                               <span class="px-2 py-0.5 rounded border border-amber-700/50 bg-amber-900/30 text-amber-300">
-                                   +{wipSummary.unstagedCount} unstaged
-                               </span>
-                               <span class="text-[#8b949e]">{wipSummary.totalCount} file(s)</span>
-                           </div>
-
-                           {#if onNavigateToCommitPanel}
-                               <div class="pt-1">
-                                   <button
-                                       type="button"
-                                       class="px-3 py-1.5 text-xs font-medium text-white bg-[#1f6feb] hover:bg-[#388bfd] rounded border border-[rgba(240,246,252,0.1)] transition-colors"
-                                       onclick={navigateToCommitPanel}
-                                   >
-                                       Go to Commit panel
-                                   </button>
-                               </div>
-                           {/if}
-                       {:else if selectedCommit}
+                       {#if selectedCommit}
                            <div class="select-text font-mono text-[10px] text-[#8b949e] bg-[#111827] p-1.5 rounded border border-[#1e293b]">
                                {selectedCommit.hash}
                            </div>
@@ -2736,12 +2754,13 @@
                           </div>
                       {:else}
                           <div class="text-xs text-[#8b949e] italic text-center py-4">
-                              {isWipRowSelected ? "Working tree is clean" : "No changes found"}
+                              No changes found
                           </div>
                       {/if}
                   </div>
               </div>
           </div>
+          {/if}
       </ResizablePanel>
   {/if}
 </div>

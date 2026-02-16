@@ -7,7 +7,6 @@
   import Conflicts from './Conflicts.svelte';
   import TerminalPanel from './TerminalPanel.svelte';
   import CommitGraph from './CommitGraph.svelte';
-  import CommitPanel from './CommitPanel.svelte';
   import FileHistoryPanel from './FileHistoryPanel.svelte';
   import BlameView from './blame/BlameView.svelte';
   import BranchExplorer from './BranchExplorer.svelte';
@@ -30,7 +29,7 @@
   
   // View Routing
   let currentView = $state<'repos' | 'conflicts'>('repos'); 
-  let activeTab = $state<"terminal" | "graph" | "commit" | "history" | "blame" | "settings">("graph");
+  let activeTab = $state<"terminal" | "graph" | "history" | "blame" | "settings">("graph");
   
   // Graph State
   let graphNodes = $state<GraphNode[]>([]);
@@ -47,7 +46,6 @@
   let hasConflicts = $state(false);
   let pendingPushCount = $state(0);
   let commitGraph = $state<any>(null);
-  let commitPanel = $state<any>(null);
   let selectedFile = $state<FileStatus | null>(null);
   let pendingCommitFocusHash = $state<string | null>(null);
 
@@ -132,10 +130,10 @@
   }
 
   async function navigateToCommitPanel(): Promise<void> {
-      activeTab = "commit";
+      activeTab = "graph";
       await tick();
-      if (commitPanel?.refresh) {
-          commitPanel.refresh();
+      if (commitGraph?.selectWipRow) {
+          commitGraph.selectWipRow();
       }
   }
 
@@ -301,13 +299,7 @@
         >
            {@html Icons.Terminal} Terminal
         </button>
-        <button 
-           onclick={() => activeTab = "commit"}
-           class="shrink-0 px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'commit' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
-        >
-           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><line x1="1.05" y1="12" x2="7" y2="12"></line><line x1="17.01" y1="12" x2="22.96" y2="12"></line></svg> Commit
-        </button>
-        <button 
+        <button
            onclick={() => activeTab = "history"}
            class="shrink-0 px-4 py-1.5 rounded-md text-xs font-medium transition-colors flex items-center gap-2 {activeTab === 'history' ? 'bg-[#30363d] text-white' : 'text-[#8b949e] hover:bg-[#21262d] hover:text-[#c9d1d9]'}"
         >
@@ -357,24 +349,11 @@
                   onLoadMoreCommits={handleLoadMoreCommits}
                   hasMoreCommits={graphHasMoreCommits}
                   isLoadingMoreCommits={graphLoadingMore}
-                  onNavigateToCommitPanel={navigateToCommitPanel}
                   onShowHistory={handleShowFileHistory}
                   onShowBlame={handleShowFileBlame}
                 />
             {/if}
          </div>
-
-          <!-- Commit Tab -->
-          <div class="absolute inset-0 {activeTab === 'commit' ? 'z-10 visible' : 'z-0 invisible'}">
-             <CommitPanel
-               bind:this={commitPanel}
-               repoPath={repoPath}
-               isActive={isActive && activeTab === 'commit'}
-               bind:selectedFile={selectedFile}
-               onShowHistory={handleShowFileHistory}
-               onShowBlame={handleShowFileBlame}
-             />
-          </div>
 
           <!-- History Tab -->
           <div class="absolute inset-0 bg-[#0d1117] {activeTab === 'history' ? 'z-10 visible' : 'z-0 invisible'}">

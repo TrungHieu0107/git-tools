@@ -84,10 +84,10 @@
     "bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white font-medium py-1.5 px-3 rounded-md shadow-sm transition-all active:scale-[0.98] flex items-center justify-center gap-2 border border-[rgba(240,246,252,0.1)] text-xs focus:outline-none";
 
   const operationPrimaryButtonClass =
-    "w-full h-10 px-3 rounded-sm border border-[#2ea043] bg-[#163222] text-[#d0d7de] hover:bg-[#1b3d29] disabled:opacity-45 disabled:cursor-not-allowed transition-colors text-[15px] font-semibold inline-flex items-center justify-center whitespace-nowrap";
+    "w-full h-8 px-3 rounded-sm border border-[#2ea043] bg-[#163222] text-[#d0d7de] hover:bg-[#1b3d29] disabled:opacity-45 disabled:cursor-not-allowed transition-colors text-[13px] font-semibold inline-flex items-center justify-center whitespace-nowrap";
 
   const operationAbortButtonClass =
-    "w-full h-10 px-3 rounded-sm border border-[#f85149] bg-[#3a1b23] text-[#f3d7db] hover:bg-[#4a232d] disabled:opacity-45 disabled:cursor-not-allowed transition-colors text-[15px] font-semibold inline-flex items-center justify-center whitespace-nowrap";
+    "w-full h-8 px-3 rounded-sm border border-[#f85149] bg-[#3a1b23] text-[#f3d7db] hover:bg-[#4a232d] disabled:opacity-45 disabled:cursor-not-allowed transition-colors text-[13px] font-semibold inline-flex items-center justify-center whitespace-nowrap";
 
   async function handleCommit() {
     if (!canCommit) return;
@@ -153,18 +153,18 @@
       <span class="text-[13px] leading-none {summaryTooLong ? 'text-[#f85149]' : 'text-[#8b949e]'}">{summary.length}</span>
       <button
         type="button"
-        class="h-10 w-10 shrink-0 rounded-md border border-[#3f4b63] bg-[linear-gradient(145deg,#2a2f3d_0%,#1f2735_100%)] text-[#c6d6f7] hover:border-[#5c6f96] hover:bg-[linear-gradient(145deg,#323b52_0%,#263247_100%)] hover:text-[#e5eeff] hover:shadow-[0_6px_14px_rgba(18,32,64,0.45)] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center justify-center transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#79c0ff]"
+        class="h-8 w-8 shrink-0 rounded-md border border-[#3f4b63] bg-[linear-gradient(145deg,#2a2f3d_0%,#1f2735_100%)] text-[#c6d6f7] hover:border-[#5c6f96] hover:bg-[linear-gradient(145deg,#323b52_0%,#263247_100%)] hover:text-[#e5eeff] hover:shadow-[0_6px_14px_rgba(18,32,64,0.45)] disabled:opacity-45 disabled:cursor-not-allowed inline-flex items-center justify-center transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#79c0ff]"
         disabled={!canGenerate}
         onclick={handleGenerate}
         title="Generate commit message"
         aria-label="Generate commit message"
       >
         {#if generating}
-          <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
           </svg>
         {:else}
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3z"></path>
             <path d="M19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14z"></path>
           </svg>
