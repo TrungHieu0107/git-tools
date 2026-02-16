@@ -276,6 +276,22 @@
       type="button"
       class={MENU_ITEM_CLASS}
       onmouseenter={closeSubmenu}
+      onclick={() => void trigger({ type: "rebase" })}
+    >
+      Rebase {menu.currentBranch || "current"} onto this commit
+    </button>
+    <button
+      type="button"
+      class={MENU_ITEM_CLASS}
+      onmouseenter={closeSubmenu}
+      onclick={() => void trigger({ type: "interactive-rebase" })}
+    >
+      Interactive Rebase onto this commit
+    </button>
+    <button
+      type="button"
+      class={MENU_ITEM_CLASS}
+      onmouseenter={closeSubmenu}
       onclick={() => void trigger({ type: "revert" })}
     >
       Revert commit

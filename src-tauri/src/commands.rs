@@ -8,8 +8,8 @@ use uuid::Uuid;
 
 use crate::git::service::{TIMEOUT_LOCAL, TIMEOUT_NETWORK, TIMEOUT_QUICK};
 use crate::git::{
-    ConflictFile, DiagnosticInfo, GitCommandResult, GitCommandType, GitError, GitResponse,
-    GitResult,
+    ConflictFile, DiagnosticInfo, FullRebaseStatus, GitCommandResult, GitCommandType, GitError,
+    GitResponse, GitResult, RebaseStepInfo, RebaseTodoItem,
 };
 use crate::models::{CommitDiff, DiffFile, DiffHunk, DiffLine, DiffLineType, FileCommit};
 use crate::settings::{save_settings, AppSettings, AppState, RepoEntry};
@@ -22,6 +22,7 @@ use tauri::Emitter;
 mod ai_commands;
 mod conflict_commands;
 mod diff_commands;
+mod rebase_commands;
 mod settings_commands;
 mod terminal_commands;
 
@@ -1835,6 +1836,20 @@ pub fn cmd_write_file(
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
+pub async fn cmd_get_branch_tip(
+    state: State<'_, AppState>,
+    branch_name: String,
+    repo_path: Option<String>,
+) -> Result<String, String> {
+    let resp = git_run(&state, repo_path, &["rev-parse", &branch_name], TIMEOUT_QUICK).await?;
+    if resp.exit_code == 0 {
+        Ok(resp.stdout.trim().to_string())
+    } else {
+        Err(resp.stderr)
+    }
+}
+
+#[tauri::command]
 pub async fn cmd_get_git_branches(
     state: State<'_, AppState>,
     include_remote: bool,
@@ -2787,6 +2802,75 @@ pub async fn cmd_get_commit_file_diff(
         exit_code: output.status.code().unwrap_or(-1),
         command_type: GitCommandType::Other,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Rebase Commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn cmd_get_rebase_status(
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<FullRebaseStatus, String> {
+    rebase_commands::cmd_get_rebase_status_impl(state, repo_path).await
+}
+
+#[tauri::command]
+pub async fn cmd_rebase_start(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    base: String,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    rebase_commands::cmd_rebase_start_impl(app, state, base, repo_path).await
+}
+
+#[tauri::command]
+pub async fn cmd_rebase_interactive_prepare(
+    state: State<'_, AppState>,
+    base_commit: String,
+    repo_path: Option<String>,
+) -> Result<Vec<RebaseTodoItem>, String> {
+    rebase_commands::cmd_rebase_interactive_prepare_impl(state, base_commit, repo_path).await
+}
+
+#[tauri::command]
+pub async fn cmd_rebase_interactive_apply(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    base_commit: String,
+    todo_items: Vec<RebaseTodoItem>,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    rebase_commands::cmd_rebase_interactive_apply_impl(app, state, base_commit, todo_items, repo_path).await
+}
+
+#[tauri::command]
+pub async fn cmd_rebase_continue(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    rebase_commands::cmd_rebase_continue_impl(app, state, repo_path).await
+}
+
+#[tauri::command]
+pub async fn cmd_rebase_abort(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    rebase_commands::cmd_rebase_abort_impl(app, state, repo_path).await
+}
+
+#[tauri::command]
+pub async fn cmd_rebase_skip(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    repo_path: Option<String>,
+) -> Result<GitCommandResult, String> {
+    rebase_commands::cmd_rebase_skip_impl(app, state, repo_path).await
 }
 
 // ---------------------------------------------------------------------------

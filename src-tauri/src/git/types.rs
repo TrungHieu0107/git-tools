@@ -93,3 +93,40 @@ pub struct GitCommandResult {
     pub exit_code: i32,
     pub command_type: GitCommandType,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum RebaseStatus {
+    Idle,
+    InProgress,
+    Conflicted,
+    EditingTodo,
+    Completed,
+    Aborted,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RebaseStepInfo {
+    pub current: usize,
+    pub total: usize,
+    pub commit_hash: String,
+    pub commit_message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RebaseTodoItem {
+    pub action: String,
+    pub hash: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FullRebaseStatus {
+    pub status: RebaseStatus,
+    pub step: Option<RebaseStepInfo>,
+    pub onto_branch: Option<String>,
+    pub upstream_branch: Option<String>,
+}

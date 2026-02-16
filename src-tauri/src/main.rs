@@ -116,7 +116,15 @@ fn main() {
             commands::cmd_git_delete_branch,
             commands::cmd_git_delete_remote_branch,
             commands::cmd_git_rename_branch,
+            commands::cmd_get_rebase_status,
+            commands::cmd_rebase_start,
+            commands::cmd_rebase_interactive_prepare,
+            commands::cmd_rebase_interactive_apply,
+            commands::cmd_rebase_continue,
+            commands::cmd_rebase_abort,
+            commands::cmd_rebase_skip,
             commands::cmd_git_set_upstream,
+            commands::cmd_get_branch_tip,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

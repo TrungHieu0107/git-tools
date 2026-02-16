@@ -4,6 +4,7 @@
   import { toast } from "../lib/toast.svelte";
   import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk, type DiffStageLineTarget } from "../lib/diff";
   import { confirm } from "../lib/confirmation.svelte";
+  import { rebaseStore } from "../lib/rebaseStore";
 
   import CommitFileList from "./commit/CommitFileList.svelte";
   import ConflictResolveModal from "./commit/ConflictResolveModal.svelte";
@@ -296,11 +297,26 @@
       if (!repoPath || commitActionState !== "idle") return;
       commitActionState = "aborting";
       try {
-          await GitService.abortOperation(repoPath);
+          if (operationState.isRebasing) {
+              await rebaseStore.abort(repoPath);
+          } else {
+              await GitService.abortOperation(repoPath);
+          }
           await loadStatus(true);
           selectedFile = null;
           baseContent = "";
           modifiedContent = "";
+      } finally {
+          commitActionState = "idle";
+      }
+  }
+
+  async function handleSkipRebase() {
+      if (!repoPath || commitActionState !== "idle") return;
+      commitActionState = "aborting"; // Use same busy state
+      try {
+          await rebaseStore.skip(repoPath);
+          await loadStatus(true);
       } finally {
           commitActionState = "idle";
       }
@@ -797,6 +813,17 @@
                 abortOperationLabel={abortOperationLabel}
                 onAbortOperation={handleAbortOperation}
             />
+            {#if operationState.isRebasing && !operationState.hasConflicts && commitActionState === 'idle'}
+                <div class="px-1.5 pb-2">
+                    <button
+                        type="button"
+                        class="w-full h-8 px-3 rounded-sm border border-[#30363d] bg-[#21262d] text-[#c9d1d9] hover:bg-[#30363d] transition-colors text-[12px] font-semibold"
+                        onclick={handleSkipRebase}
+                    >
+                        Skip Current Commit
+                    </button>
+                </div>
+            {/if}
         </div>
     </div>
 

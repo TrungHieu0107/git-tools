@@ -22,6 +22,9 @@
   import StashCommitContextMenu from "./common/StashCommitContextMenu.svelte";
   import BranchContextMenu from "./common/BranchContextMenu.svelte";
   import type { BranchContextMenuState, BranchContextMenuAction } from "./common/branch-context-menu-types";
+  import { rebaseStore } from "../lib/rebaseStore";
+  import RebaseEditor from "./rebase/RebaseEditor.svelte";
+  import RebaseProgress from "./rebase/RebaseProgress.svelte";
   import type {
       CommitContextMenuAction,
       CommitContextMenuState
@@ -1675,6 +1678,23 @@
       "checkout-detached": async (_, menu) => handleCheckoutDetachedAction(menu),
       "create-branch-here": async (_, menu) => handleCreateBranchHereAction(menu),
       "reset": async (action, menu) => handleResetAction(action as Extract<CommitContextMenuAction, { type: "reset" }>, menu),
+      "rebase": async (_, menu) => {
+          if (!repoPath) return;
+          const confirmed = await confirm({
+              title: "Rebase",
+              message: `Rebase <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${menu.currentBranch || "current"}</span> onto commit <span class="font-mono text-[#58a6ff] bg-[#1f6feb]/10 px-1 rounded">${getShortHash(menu.node.hash)}</span>?`,
+              isHtmlMessage: true,
+              confirmLabel: "Rebase",
+              cancelLabel: "Cancel"
+          });
+          if (!confirmed) return;
+          await rebaseStore.startRebase(menu.node.hash, repoPath);
+          await onGraphReload?.();
+      },
+      "interactive-rebase": async (_, menu) => {
+          if (!repoPath) return;
+          await rebaseStore.prepareInteractive(menu.node.hash, repoPath);
+      },
       "revert": async (_, menu) => handleRevertAction(menu),
       "rename-branch": async (action) => handleRenameBranchAction(action as Extract<CommitContextMenuAction, { type: "rename-branch" }>),
       "delete-local-branch": async (action) => handleDeleteLocalBranchAction(action as Extract<CommitContextMenuAction, { type: "delete-local-branch" }>),
@@ -2001,8 +2021,13 @@
                       cancelLabel: "Cancel"
                   });
                   if (!confirmed) return;
-                  await runCommandWithReload(() => GitService.rebase(menu.branchName, repoPath));
+                  await rebaseStore.startRebase(menu.branchName, repoPath);
+                  await onGraphReload?.();
                   break;
+              }
+              case "interactive-rebase": {
+                   await rebaseStore.prepareInteractive(menu.commitHash, repoPath);
+                   break;
               }
               case "cherry-pick": {
                   const shortHash = getShortHash(menu.commitHash);
@@ -3024,6 +3049,9 @@
   onClose={closeBranchContextMenu}
   onAction={handleBranchContextAction}
 />
+
+<RebaseEditor />
+<RebaseProgress />
 
 <CommitContextMenu
   menu={commitContextMenu}

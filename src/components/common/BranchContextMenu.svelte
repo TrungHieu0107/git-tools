@@ -145,6 +145,14 @@
     >
       Rebase {menu.currentBranch || "current"} onto {menu.branchName}
     </button>
+    <button
+      type="button"
+      class={MENU_ITEM_CLASS}
+      onmouseenter={closeSubmenu}
+      onclick={() => void trigger({ type: "interactive-rebase" })}
+    >
+      Interactive Rebase onto {menu.branchName}
+    </button>
     <div class="border-t border-[#30363d] my-1"></div>
 
     <!-- Checkout -->

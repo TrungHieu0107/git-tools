@@ -14,6 +14,10 @@ export class BranchService {
     return invoke("cmd_get_current_branch", { repoPath });
   }
 
+  static async getBranchTip(branchName: string, repoPath?: string): Promise<string> {
+    return invoke("cmd_get_branch_tip", { branchName, repoPath });
+  }
+
   static async switchBranch(branchName: string, repoPath?: string): Promise<GitCommandResult> {
     return BranchService.checkoutBranch("switch", branchName, repoPath);
   }

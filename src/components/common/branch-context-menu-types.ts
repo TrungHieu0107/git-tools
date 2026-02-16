@@ -14,6 +14,7 @@ export type BranchContextMenuAction =
   | { type: "checkout" }
   | { type: "merge" }
   | { type: "rebase" }
+  | { type: "interactive-rebase" }
   | { type: "cherry-pick" }
   | { type: "create-branch-here" }
   | { type: "reset"; mode: "soft" | "mixed" | "hard" }

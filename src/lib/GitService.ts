@@ -1,5 +1,6 @@
 import type { DiffStageLineTarget } from "./diff";
 import type { BlameLine, CommitDiff, FileCommit, GitCommandResult } from "./types";
+export type { GitCommandResult };
 import { RepositoryService } from "./services/RepositoryService";
 import { FileService } from "./services/FileService";
 import { CommitService } from "./services/CommitService";
@@ -249,6 +250,10 @@ export class GitService {
 
   static async getCurrentBranch(repoPath?: string): Promise<string> {
     return BranchService.getCurrentBranch(repoPath);
+  }
+
+  static async getBranchTip(branchName: string, repoPath?: string): Promise<string> {
+    return BranchService.getBranchTip(branchName, repoPath);
   }
 
   static async switchBranch(branchName: string, repoPath?: string): Promise<GitCommandResult> {

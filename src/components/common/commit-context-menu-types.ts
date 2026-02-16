@@ -23,6 +23,8 @@ export type CommitContextMenuAction =
   | { type: "checkout-detached" }
   | { type: "create-branch-here" }
   | { type: "reset"; mode: ResetMode }
+  | { type: "rebase" }
+  | { type: "interactive-rebase" }
   | { type: "revert" }
   | { type: "rename-branch"; branch: string }
   | { type: "delete-local-branch"; branch: string }

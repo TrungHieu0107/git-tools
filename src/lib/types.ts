@@ -25,6 +25,8 @@ export type GitCommandError =
 export type GitCommandType =
   | "Checkout"
   | "Merge"
+  | "Rebase"
+  | "CherryPick"
   | "Commit"
   | "Pull"
   | "Push"
@@ -82,4 +84,3 @@ export interface CommitDiff {
   parentHash?: string;
   files: DiffFile[];
 }
-
