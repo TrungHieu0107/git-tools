@@ -45,6 +45,27 @@ pub fn decode_bytes(
     String::from_utf8_lossy(data).to_string()
 }
 
+/// Encodes a string to bytes using the specified encoding.
+/// If encoding_name is None or "UTF-8", returns the string as UTF-8 bytes.
+pub fn encode_string(
+    content: &str,
+    path: &Path,
+    settings: &AppSettings,
+    override_encoding: Option<String>,
+) -> Vec<u8> {
+    let encoding_name = override_encoding.or_else(|| resolve_file_encoding(path, settings));
+
+    if let Some(enc_name) = encoding_name {
+        if let Some(encoding) = Encoding::for_label(enc_name.as_bytes()) {
+            let (cow, _, _) = encoding.encode(content);
+            return cow.into_owned();
+        }
+    }
+
+    // Default: UTF-8
+    content.as_bytes().to_vec()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

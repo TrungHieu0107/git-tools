@@ -20,6 +20,10 @@ export interface GitOperationState {
   isReverting: boolean;
   hasConflicts: boolean;
   conflictPaths: string[];
+  oursCommit?: string | null;
+  oursBranch?: string | null;
+  theirsCommit?: string | null;
+  theirsBranch?: string | null;
 }
 
 export interface RepoEntry {
@@ -103,8 +107,8 @@ export class GitService {
     return ConflictService.getConflicts(repoPath);
   }
 
-  static async getConflictFile(path: string, repoPath?: string): Promise<ConflictFile> {
-    return ConflictService.getConflictFile(path, repoPath);
+  static async getConflictFile(path: string, repoPath?: string, encoding?: string): Promise<ConflictFile> {
+    return ConflictService.getConflictFile(path, repoPath, encoding);
   }
 
   static async resolveOurs(path: string, repoPath?: string): Promise<void> {
@@ -119,8 +123,8 @@ export class GitService {
     return ConflictService.markResolved(path, repoPath);
   }
 
-  static async writeFile(path: string, content: string, repoPath?: string): Promise<void> {
-    return ConflictService.writeFile(path, content, repoPath);
+  static async writeFile(path: string, content: string, repoPath?: string, encoding?: string): Promise<void> {
+    return ConflictService.writeFile(path, content, repoPath, encoding);
   }
 
   static async checkConflictState(repoPath?: string): Promise<boolean> {

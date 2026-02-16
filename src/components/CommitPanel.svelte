@@ -51,7 +51,11 @@
       isCherryPicking: false,
       isReverting: false,
       hasConflicts: false,
-      conflictPaths: []
+      conflictPaths: [],
+      oursCommit: null,
+      oursBranch: null,
+      theirsCommit: null,
+      theirsBranch: null,
   };
   let operationState = $state<GitOperationState>(DEFAULT_OPERATION_STATE);
   let resolvingConflictFilePath = $state<string | null>(null);
@@ -77,7 +81,11 @@
           isCherryPicking: !!state.isCherryPicking,
           isReverting: !!state.isReverting,
           hasConflicts: !!state.hasConflicts,
-          conflictPaths: (state.conflictPaths ?? []).map((path) => resolvePathForActions(path))
+          conflictPaths: (state.conflictPaths ?? []).map((path) => resolvePathForActions(path)),
+          oursCommit: state.oursCommit ?? null,
+          oursBranch: state.oursBranch ?? null,
+          theirsCommit: state.theirsCommit ?? null,
+          theirsBranch: state.theirsBranch ?? null
       };
   }
 
@@ -844,6 +852,7 @@
     <ConflictResolveModal
         repoPath={repoPath}
         filePath={resolvingConflictFilePath}
+        {operationState}
         onClose={handleCloseConflictResolver}
         onResolved={handleConflictResolved}
     />

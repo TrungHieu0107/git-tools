@@ -1,0 +1,331 @@
+{
+  "project": {
+    "name": "GitHelper",
+    "package_name": "git-kraken-mini",
+    "version": "0.1.0",
+    "description": "Desktop Git GUI client built with Tauri v2 + Svelte 5 + Rust",
+    "tech_stack": {
+      "frontend": ["Svelte 5 (Runes)", "TypeScript", "Tailwind CSS v3", "Vite"],
+      "backend": ["Rust", "Tauri v2", "Tokio (async)", "reqwest", "encoding_rs"],
+      "plugins": ["tauri-plugin-shell", "tauri-plugin-dialog"],
+      "target_platform": "Windows (primary), macOS/Linux (secondary)"
+    }
+  },
+
+  "features": [
+    {
+      "id": "multi_repo_tabs",
+      "name": "Quản lý đa repository qua tab",
+      "description": "Mở nhiều Git repository cùng lúc, mỗi repo một tab riêng biệt",
+      "sub_features": [
+        "Mở/đóng tab repo giống trình duyệt",
+        "Thêm repo qua native folder picker dialog",
+        "Xoá repo khỏi danh sách quản lý",
+        "Persist danh sách repo qua các phiên làm việc (lưu settings.json)"
+      ],
+      "components": ["App.svelte", "TabBar.svelte", "RepoManager.svelte", "RepoSelector.svelte"],
+      "services": ["RepositoryService.ts", "settings_commands.rs"]
+    },
+
+    {
+      "id": "commit_graph",
+      "name": "Commit Graph trực quan",
+      "description": "Đồ thị commit dạng SVG với các lane màu, đường nối và avatar",
+      "sub_features": [
+        "Hiển thị tất cả branch cùng lúc (git log --all)",
+        "Avatar tác giả (initials + gradient color theo hash tên)",
+        "Stash commit hiển thị kiểu dashed riêng biệt",
+        "Infinite scroll: tải 200 commit ban đầu, tải thêm 200 khi cuộn xuống",
+        "Badge hiển thị số commit chưa push trên HEAD",
+        "Right-click context menu trên commit (Pull, Push, Fetch, Checkout, Reset, Tag, Revert, Patch, Delete branch, Rename, Merge, File history, Blame)",
+        "Right-click trên stash commit (Apply, Pop, Drop, Edit message, Create patch)"
+      ],
+      "components": ["CommitGraph.svelte", "CommitContextMenu.svelte", "StashCommitContextMenu.svelte"],
+      "services": ["graph-layout.ts", "graph-colors.ts", "commit-graph-helpers.ts"]
+    },
+
+    {
+      "id": "staging_and_commit",
+      "name": "Staging & Commit",
+      "description": "Panel staging/unstaging file với diff view và commit message",
+      "sub_features": [
+        "Hai panel: Changes (unstaged) và Staged Changes",
+        "Splitter có thể kéo thả giữa 2 panel",
+        "Chế độ hiển thị file: flat path list hoặc directory tree",
+        "Stage / Unstage / Discard / Stash từng file",
+        "Stage All / Unstage All / Discard All / Stash All",
+        "Line-level staging: stage/unstage từng dòng riêng lẻ",
+        "Inline diff view cho file đang chọn với hunk navigation",
+        "Commit message textarea",
+        "Commit và Commit & Push",
+        "Nhận biết trạng thái merge/rebase/cherry-pick/revert operation",
+        "Nút Abort Operation (Abort Merge, Abort Rebase, ...)",
+        "Phát hiện file conflict và nút Resolve"
+      ],
+      "components": ["CommitPanel.svelte", "CommitFileList.svelte", "CommitActions.svelte"],
+      "services": ["FileService.ts", "CommitService.ts", "diff_commands.rs"]
+    },
+
+    {
+      "id": "conflict_resolution",
+      "name": "Giải quyết Conflict",
+      "description": "Giao diện 3-way merge để giải quyết xung đột Git",
+      "sub_features": [
+        "Tự động phát hiện conflict khi merge/rebase/cherry-pick/revert",
+        "Modal 3 panel: Ours | Theirs | Output (resolution)",
+        "Parse conflict segment và chọn từng đoạn từ ours hoặc theirs",
+        "Nút Accept Ours / Accept Theirs nhanh",
+        "Mark Resolved gọi git add",
+        "Header hiển thị commit hash và branch name cho ours/theirs",
+        "Đồng bộ scroll giữa các panel",
+        "Hỗ trợ encoding cho file non-UTF-8"
+      ],
+      "components": ["ConflictResolveModal.svelte", "Conflicts.svelte", "ConflictList.svelte", "ConflictEditor.svelte"],
+      "services": ["ConflictService.ts", "conflict_commands.rs"]
+    },
+
+    {
+      "id": "diff_viewer",
+      "name": "Diff Viewer",
+      "description": "Xem diff với nhiều chế độ hiển thị",
+      "sub_features": [
+        "Chế độ Inline (unified diff)",
+        "Chế độ Side-by-side",
+        "LCS algorithm cho character-level diff",
+        "Hunk navigation (previous/next)",
+        "Phát hiện file lớn và graceful degradation",
+        "Encoding selector cho file non-UTF-8"
+      ],
+      "components": ["DiffView.svelte", "InlineDiffViewer.svelte", "SideBySideDiffViewer.svelte", "DiffToolbar.svelte"],
+      "services": ["diff.ts", "lcs.ts", "diff-utils.ts", "git-diff-parser.ts"]
+    },
+
+    {
+      "id": "branch_explorer",
+      "name": "Branch Explorer",
+      "description": "Sidebar cây thư mục hiển thị tất cả branch local và remote",
+      "sub_features": [
+        "Cây phân cấp branch local và remote",
+        "Tìm kiếm/lọc branch với auto-expand node khớp",
+        "Expand/collapse folder nodes",
+        "Double-click hoặc context menu để checkout",
+        "Context menu: Checkout, Merge vào branch hiện tại",
+        "Highlight branch hiện tại",
+        "Tạo branch mới từ explorer"
+      ],
+      "components": ["BranchExplorer.svelte", "BranchContextMenu.svelte", "CreateBranchDialog.svelte"],
+      "services": ["BranchService.ts", "branch-utils.ts"]
+    },
+
+    {
+      "id": "file_history",
+      "name": "File History",
+      "description": "Xem lịch sử commit của từng file",
+      "sub_features": [
+        "Danh sách commit theo file với hash, author, date, message",
+        "Tìm kiếm file trong panel",
+        "Click commit để xem diff tại thời điểm đó",
+        "Diff view cho trạng thái lịch sử của file"
+      ],
+      "components": ["FileHistoryPanel.svelte"],
+      "services": ["CommitService.ts"]
+    },
+
+    {
+      "id": "git_blame",
+      "name": "Git Blame",
+      "description": "Xem blame từng dòng của file",
+      "sub_features": [
+        "Hiển thị commit hash, author, date, nội dung từng dòng",
+        "Click commit hash để focus vào commit trong graph",
+        "Copy hash vào clipboard"
+      ],
+      "components": ["BlameView.svelte"],
+      "services": ["CommitService.ts"]
+    },
+
+    {
+      "id": "embedded_terminal",
+      "name": "Terminal tích hợp",
+      "description": "PowerShell terminal nhúng trong ứng dụng",
+      "sub_features": [
+        "Spawn PowerShell process cho mỗi repo",
+        "Working directory tự động set theo repo",
+        "Input field + scrolling output",
+        "Session persist khi workspace đang mở",
+        "Stream stdout/stderr qua Tauri events"
+      ],
+      "components": ["TerminalPanel.svelte"],
+      "services": ["TerminalService.ts", "terminal.rs", "terminal_commands.rs"]
+    },
+
+    {
+      "id": "remote_operations",
+      "name": "Remote Operations",
+      "description": "Các thao tác với remote repository",
+      "sub_features": [
+        "Pull (git pull)",
+        "Push (tự động set upstream với -u nếu chưa có)",
+        "Fetch",
+        "Timeout 120 giây cho network operations"
+      ],
+      "services": ["BranchService.ts", "commands.rs"]
+    },
+
+    {
+      "id": "stash_management",
+      "name": "Quản lý Stash",
+      "description": "Stash, apply, pop, drop và chỉnh sửa stash",
+      "sub_features": [
+        "Stash từng file",
+        "Stash all changes",
+        "Apply stash / Pop stash / Drop stash",
+        "Edit stash message (drop + re-store)",
+        "Create patch từ stash"
+      ],
+      "services": ["FileService.ts", "commands.rs"]
+    },
+
+    {
+      "id": "branch_management",
+      "name": "Quản lý Branch",
+      "description": "Tạo, xoá, đổi tên, merge và quản lý branch",
+      "sub_features": [
+        "Liệt kê branch local và remote",
+        "Switch / Checkout branch",
+        "Tạo branch mới từ start point",
+        "Xoá branch local (force optional)",
+        "Xoá branch remote (git push origin --delete)",
+        "Đổi tên branch",
+        "Set upstream tracking",
+        "Merge branch vào branch hiện tại"
+      ],
+      "services": ["BranchService.ts", "commands.rs"]
+    },
+
+    {
+      "id": "commit_history_operations",
+      "name": "Thao tác trên lịch sử Commit",
+      "description": "Revert, reset và tag trên commit",
+      "sub_features": [
+        "Revert commit (tạo commit revert mới)",
+        "Reset tới commit: soft / mixed / hard",
+        "Tạo tag lightweight hoặc annotated (có message)"
+      ],
+      "services": ["BranchService.ts", "commands.rs"]
+    },
+
+    {
+      "id": "file_operations",
+      "name": "Thao tác trên File",
+      "description": "Các thao tác file tiện ích",
+      "sub_features": [
+        "Mở file với ứng dụng mặc định",
+        "Mở trong editor đã cấu hình (core.editor / $VISUAL / $EDITOR, mặc định VS Code)",
+        "Mở trong external diff tool (git difftool)",
+        "Show in folder (Explorer select trên Windows)",
+        "Thêm pattern vào .gitignore",
+        "Tạo patch (copy diff vào clipboard)",
+        "Tạo patch từ commit (git format-patch --stdout)",
+        "Xoá file (có kiểm tra path-traversal)"
+      ],
+      "services": ["FileService.ts", "commands.rs"]
+    },
+
+    {
+      "id": "ai_commit_message",
+      "name": "AI Commit Message (Google Gemini)",
+      "description": "Tự động sinh commit message bằng Google Gemini AI",
+      "sub_features": [
+        "Đọc staged diff và danh sách file",
+        "Gửi tới Gemini API (mặc định gemini-2.5-flash)",
+        "Enforce Conventional Commits format (subject + body)",
+        "Truncate diff lớn tới 40,000 ký tự",
+        "Sanitize response (bỏ markdown fences, label prefixes)",
+        "Chọn model: fetch danh sách model Gemini qua API"
+      ],
+      "services": ["ai_commands.rs"],
+      "config": "Gemini API token lưu trong settings"
+    },
+
+    {
+      "id": "settings",
+      "name": "Cài đặt ứng dụng",
+      "description": "Quản lý cài đặt persist qua các phiên",
+      "sub_features": [
+        "Excluded files: glob patterns cho file không bao giờ stage/commit",
+        "Commit log filter theo repo",
+        "Encoding map theo file (glob-to-encoding, hỗ trợ tất cả encoding qua encoding_rs)",
+        "Lưu trữ Gemini API token",
+        "Chọn Gemini model với live model list"
+      ],
+      "components": ["SettingsView.svelte"],
+      "services": ["settings_commands.rs", "settings.rs"],
+      "storage": "%APPDATA%/com.gittools.app/settings.json"
+    },
+
+    {
+      "id": "encoding_support",
+      "name": "Hỗ trợ đa Encoding",
+      "description": "Đọc/ghi file với nhiều encoding khác nhau",
+      "sub_features": [
+        "Hỗ trợ tất cả encoding qua encoding_rs (UTF-8, Shift_JIS, EUC-KR, GBK, ...)",
+        "Encoding selector UI cho từng file",
+        "Cấu hình encoding map theo glob pattern",
+        "Auto-detect encoding khi đọc file"
+      ],
+      "components": ["EncodingSelector.svelte"],
+      "services": ["encoding.rs"]
+    },
+
+    {
+      "id": "event_system",
+      "name": "Hệ thống Event",
+      "description": "Cơ chế event giữa backend và frontend",
+      "sub_features": [
+        "Tauri git-event phát sau mỗi thao tác Git mutating",
+        "Frontend subscribe và reload commit graph tự động",
+        "terminal-output events stream output từng dòng"
+      ],
+      "services": ["git-events.ts", "commands.rs"]
+    },
+
+    {
+      "id": "ui_ux",
+      "name": "UI/UX",
+      "description": "Giao diện và trải nghiệm người dùng",
+      "sub_features": [
+        "Dark theme toàn ứng dụng (GitHub color scheme: #0d1117, #161b22, #58a6ff)",
+        "Resizable left sidebar (kéo thả handle)",
+        "Resizable staged/unstaged split trong CommitPanel",
+        "Toast notifications cho success/error feedback",
+        "Global confirmation dialog cho thao tác huỷ không thể hoàn tác",
+        "Generic prompt dialog cho tên branch, tag message, stash message",
+        "File status badges màu (M=modified, A=added, D=deleted, R=renamed, U=unmerged)",
+        "Responsive layout reflow dưới 1024px"
+      ],
+      "components": [
+        "ToastContainer.svelte",
+        "GlobalConfirmation.svelte",
+        "PromptDialog.svelte",
+        "FileChangeStatusBadge.svelte",
+        "ResizablePanel.svelte",
+        "ResizablePanes.svelte",
+        "ResizableSection.svelte"
+      ]
+    },
+
+    {
+      "id": "diagnostics",
+      "name": "Diagnostics",
+      "description": "Thông tin chẩn đoán hệ thống",
+      "sub_features": [
+        "Trả về git version, binary path, $PATH, platform info"
+      ],
+      "services": ["commands.rs (cmd_diagnostics)"]
+    }
+  ],
+
+  "total_feature_count": 19,
+  "total_sub_feature_count": 108
+}

@@ -1721,9 +1721,10 @@ pub async fn cmd_get_conflicts(
 pub async fn cmd_get_conflict_file(
     state: State<'_, AppState>,
     path: String,
+    encoding: Option<String>,
     repo_path: Option<String>,
 ) -> Result<ConflictFile, String> {
-    conflict_commands::cmd_get_conflict_file_impl(state, path, repo_path).await
+    conflict_commands::cmd_get_conflict_file_impl(state, path, encoding, repo_path).await
 }
 
 #[tauri::command]
@@ -1781,6 +1782,7 @@ pub fn cmd_write_file(
     state: State<AppState>,
     path: String,
     content: String,
+    encoding: Option<String>,
     repo_path: Option<String>,
 ) -> Result<(), String> {
     use std::fs;
@@ -1792,7 +1794,15 @@ pub fn cmd_write_file(
         return Err("Invalid path: cannot write outside of repository".to_string());
     }
 
-    fs::write(&full_path, content).map_err(|e| format!("Failed to write file {}: {}", path, e))?;
+    let settings = state.settings.lock().map_err(|e| e.to_string())?;
+    let bytes = crate::git::encoding::encode_string(
+        &content,
+        Path::new(&path),
+        &settings,
+        encoding,
+    );
+
+    fs::write(&full_path, bytes).map_err(|e| format!("Failed to write file {}: {}", path, e))?;
 
     Ok(())
 }

@@ -6,8 +6,8 @@ export class ConflictService {
     return invoke("cmd_get_conflicts", { repoPath });
   }
 
-  static async getConflictFile(path: string, repoPath?: string): Promise<ConflictFile> {
-    return invoke("cmd_get_conflict_file", { path, repoPath });
+  static async getConflictFile(path: string, repoPath?: string, encoding?: string): Promise<ConflictFile> {
+    return invoke("cmd_get_conflict_file", { path, encoding, repoPath });
   }
 
   static async resolveOurs(path: string, repoPath?: string): Promise<void> {
@@ -22,8 +22,8 @@ export class ConflictService {
     return invoke("cmd_mark_resolved", { path, repoPath });
   }
 
-  static async writeFile(path: string, content: string, repoPath?: string): Promise<void> {
-    return invoke("cmd_write_file", { path, content, repoPath });
+  static async writeFile(path: string, content: string, repoPath?: string, encoding?: string): Promise<void> {
+    return invoke("cmd_write_file", { path, content, encoding, repoPath });
   }
 
   static async checkConflictState(repoPath?: string): Promise<boolean> {
