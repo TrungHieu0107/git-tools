@@ -456,14 +456,42 @@
 
       const modifiedContent =
         modifiedContentResult.status === "fulfilled" ? modifiedContentResult.value : null;
-      const sourceContent = modifiedContent ?? buildFallbackConflictContent(nextConflictFile);
+
+      // Fallback to construction from stages if modified content is missing or unexpectedly empty,
+      // ensuring the user always sees the conflict structure even if the disk read is transiently empty.
+      const sourceContent = (modifiedContent && modifiedContent.length > 0)
+        ? modifiedContent
+        : buildFallbackConflictContent(nextConflictFile);
+
       newlineStyle = detectNewlineStyle(sourceContent);
 
       const parsed = parseResolutionSegments(sourceContent);
-      segments = parsed.segments;
+      
+      // Initialize stacks and sources to match the default 'ours' resolution.
+      // This ensures that source indicators (A/B badges) and checkmarks appear immediately upon load.
+      const initialStacks: Record<number, StackEntry[]> = {};
+      const initialSources: Record<number, ("ours" | "theirs")[]> = {};
+      let conflictCounter = 0;
 
-      if (modifiedContentResult.status === "rejected") {
-        parseWarning = "Working tree version is unavailable. Showing content from conflict stages.";
+      for (const segment of parsed.segments) {
+        if (segment.kind === "conflict") {
+          const lines = toDisplayLines(segment.ours);
+          initialStacks[conflictCounter] = lines.map((_, i) => ({
+            side: "ours" as const,
+            lineIndex: i,
+          }));
+          initialSources[conflictCounter] = lines.map(() => "ours" as const);
+          conflictCounter += 1;
+        }
+      }
+
+      // Batch update all state to ensure atomic UI transition and prevent inconsistent intermediate renders.
+      segments = parsed.segments;
+      selectionStacks = initialStacks;
+      resolvedLineSources = initialSources;
+
+      if (modifiedContentResult.status === "rejected" || (modifiedContent !== null && modifiedContent.length === 0)) {
+        parseWarning = "Working tree version is unavailable or empty. Showing content derived from conflict stages.";
       }
 
       if (parsed.conflictCount === 0) {

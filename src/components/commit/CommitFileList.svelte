@@ -342,18 +342,28 @@
   }
 
   function resolvePathForActions(path: string): string {
-      const trimmed = path.trim();
-      if (!trimmed) return trimmed;
-      const renamed = splitRenamePath(trimmed);
-      return renamed ? renamed.newPath : trimmed.replaceAll("\\", "/");
+      const normalized = path.replaceAll("\\", "/").trim();
+      const renameParts = normalized.split(" -> ");
+      return (renameParts[renameParts.length - 1] ?? normalized).trim();
   }
 
   let normalizedConflictPaths = $derived.by<Set<string>>(() => {
-      const values = conflictPaths instanceof Set ? [...conflictPaths] : (conflictPaths ?? []);
+      // Ensure we have an iterable array of strings regardless of prop format (Set, Array, or Proxy)
+      const input = conflictPaths;
+      let values: string[] = [];
+      if (input instanceof Set) {
+          values = Array.from(input);
+      } else if (Array.isArray(input)) {
+          values = input;
+      } else if (input && typeof (input as any)[Symbol.iterator] === 'function') {
+          values = Array.from(input as any);
+      }
+      
       return new Set(values.map((value) => resolvePathForActions(value)));
   });
 
   function isConflictFile(file: FileStatus): boolean {
+      if (!file?.path) return false;
       return normalizedConflictPaths.has(resolvePathForActions(file.path));
   }
 
