@@ -1,6 +1,103 @@
 use super::*;
-use std::path::{Path, PathBuf};
-use crate::git::{GitCommandResult, GitCommandType, RebaseStatus, RebaseStepInfo, RebaseTodoItem, FullRebaseStatus};
+use std::path::Path;
+use crate::git::{GitCommandResult, GitCommandType, GitError, RebaseStatus, RebaseStepInfo, RebaseTodoItem, FullRebaseStatus};
+
+/// Helper: run a git command and return a `GitCommandResult` even when Git
+/// reports conflicts or a non-zero exit code.  Only truly fatal errors
+/// (e.g. spawning the process failed) are propagated as `Err`.
+async fn git_run_rebase(
+    state: &State<'_, AppState>,
+    repo_path: &str,
+    args: &[String],
+    timeout: u64,
+) -> Result<GitCommandResult, String> {
+    match state
+        .git
+        .run(Path::new(repo_path), args, timeout)
+        .await
+    {
+        Ok(resp) => {
+            Ok(GitCommandResult {
+                success: resp.exit_code == 0,
+                stdout: resp.stdout,
+                stderr: resp.stderr,
+                exit_code: resp.exit_code,
+                command_type: GitCommandType::Rebase,
+            })
+        }
+        Err(GitError::MergeConflict) => {
+            // Conflict is NOT a fatal error for rebase — return it as a result
+            Ok(GitCommandResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "CONFLICT: merge conflicts detected during rebase".into(),
+                exit_code: 1,
+                command_type: GitCommandType::Rebase,
+            })
+        }
+        Err(GitError::CommandError(msg)) => {
+            // Git exited non-zero without CONFLICT keyword — still return as result
+            // because the rebase may actually be in progress (paused, needing input, etc.)
+            Ok(GitCommandResult {
+                success: false,
+                stdout: String::new(),
+                stderr: msg,
+                exit_code: 1,
+                command_type: GitCommandType::Rebase,
+            })
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Helper: run a git command with environment variables and return a
+/// `GitCommandResult` even on conflicts / non-zero exit.
+async fn git_run_rebase_with_env(
+    state: &State<'_, AppState>,
+    repo_path: &str,
+    args: &[String],
+    envs: Vec<(String, String)>,
+    timeout: u64,
+) -> Result<GitCommandResult, String> {
+    match state
+        .git
+        .run_with_env(Path::new(repo_path), args, envs, timeout)
+        .await
+    {
+        Ok(resp) => {
+            Ok(GitCommandResult {
+                success: resp.exit_code == 0,
+                stdout: resp.stdout,
+                stderr: resp.stderr,
+                exit_code: resp.exit_code,
+                command_type: GitCommandType::Rebase,
+            })
+        }
+        Err(GitError::MergeConflict) => {
+            Ok(GitCommandResult {
+                success: false,
+                stdout: String::new(),
+                stderr: "CONFLICT: merge conflicts detected during rebase".into(),
+                exit_code: 1,
+                command_type: GitCommandType::Rebase,
+            })
+        }
+        Err(GitError::CommandError(msg)) => {
+            Ok(GitCommandResult {
+                success: false,
+                stdout: String::new(),
+                stderr: msg,
+                exit_code: 1,
+                command_type: GitCommandType::Rebase,
+            })
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rebase Status
+// ---------------------------------------------------------------------------
 
 pub async fn cmd_get_rebase_status_impl(
     state: State<'_, AppState>,
@@ -46,7 +143,6 @@ pub async fn cmd_get_rebase_status_impl(
         let commit_hash = read_git_file(&git_dir, "rebase-merge/stopped-sha")
             .unwrap_or_default();
         
-        // Try to get commit message if possible
         let commit_message = if !commit_hash.is_empty() {
              git_run(&state, Some(path.clone()), &["log", "-1", "--format=%s", &commit_hash], TIMEOUT_QUICK)
                 .await
@@ -68,7 +164,6 @@ pub async fn cmd_get_rebase_status_impl(
         upstream_branch = read_git_file(&git_dir, "rebase-merge/head-name")
             .and_then(|s| s.strip_prefix("refs/heads/").map(|b| b.to_string()));
     } else if rebase_apply.exists() {
-        // Fallback for rebase-apply (legacy or non-interactive rebase)
         let current = read_git_file(&git_dir, "rebase-apply/next")
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(0);
@@ -107,7 +202,6 @@ async fn cmd_check_conflict_state_internal(
     for line in resp.stdout.lines() {
         if line.len() >= 2 {
             let status = &line[0..2];
-            // Unmerged statuses: DD, AU, UD, UA, DU, AA, UU
             if matches!(status, "DD" | "AU" | "UD" | "UA" | "DU" | "AA" | "UU") {
                 return Ok(true);
             }
@@ -123,14 +217,21 @@ fn read_git_file(git_dir: &Path, name: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+// ---------------------------------------------------------------------------
+// Rebase Operations (all return GitCommandResult, never Err on conflicts)
+// ---------------------------------------------------------------------------
+
 pub async fn cmd_rebase_start_impl(
     app: AppHandle,
     state: State<'_, AppState>,
     base: String,
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
     let args = vec!["rebase".into(), base];
-    git_run_result_with_event(&app, &state, repo_path, args, TIMEOUT_LOCAL, GitCommandType::Rebase).await
+    let result = git_run_rebase(&state, &path, &args, TIMEOUT_LOCAL).await?;
+    let _ = emit_git_change_event(&app);
+    Ok(result)
 }
 
 pub async fn cmd_rebase_interactive_prepare_impl(
@@ -138,7 +239,6 @@ pub async fn cmd_rebase_interactive_prepare_impl(
     base_commit: String,
     repo_path: Option<String>,
 ) -> Result<Vec<RebaseTodoItem>, String> {
-    // Get the list of commits that would be rebased: git log base..HEAD --format=%h%x09%s
     let args = vec!["log".into(), format!("{}..HEAD", base_commit), "--reverse".into(), "--format=%h\t%s".into()];
     let resp = git_run(&state, repo_path, &args.iter().map(|s| s.as_str()).collect::<Vec<&str>>(), TIMEOUT_LOCAL).await?;
     
@@ -164,7 +264,7 @@ pub async fn cmd_rebase_interactive_apply_impl(
     todo_items: Vec<RebaseTodoItem>,
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
-    let path = resolve_repo_path(&state, repo_path.clone())?;
+    let path = resolve_repo_path(&state, repo_path)?;
     
     // Create the todo content
     let mut todo_content = String::new();
@@ -178,11 +278,10 @@ pub async fn cmd_rebase_interactive_apply_impl(
     std::fs::write(&todo_file, todo_content).map_err(|e| e.to_string())?;
 
     // Create a script that replaces the todo file git provides with our one
-    // We use a simple platform-agnostic way: a script that copies our file to the one git provides
     #[cfg(target_os = "windows")]
-    let script_content = format!("move /y \"{}\" \"%1\"", todo_file.to_string_lossy().replace("\\", "\\\\"));
+    let script_content = format!("copy /y \"{}\" \"%1\"", todo_file.to_string_lossy().replace("/", "\\"));
     #[cfg(not(target_os = "windows"))]
-    let script_content = format!("mv \"{}\" \"$1\"", todo_file.to_string_lossy());
+    let script_content = format!("cp \"{}\" \"$1\"", todo_file.to_string_lossy());
 
     let script_file = temp_dir.join(format!("git-rebase-editor-{}", uuid::Uuid::new_v4()));
     #[cfg(target_os = "windows")]
@@ -190,56 +289,30 @@ pub async fn cmd_rebase_interactive_apply_impl(
     
     std::fs::write(&script_file, &script_content).map_err(|e| e.to_string())?;
 
-    // On non-windows we need to make it executable
     #[cfg(not(target_os = "windows"))]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&script_file, std::fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
     }
 
-    // Run git rebase -i with our editor
     let env_name = "GIT_SEQUENCE_EDITOR";
     let env_value = script_file.to_string_lossy().to_string();
-
-    // We need a way to run git with environment variables. 
-    // Let's check GitExecutor or similar.
-    
-    // Actually, we can use std::process::Command directly if we want, 
-    // but better to add environment support to our git run helpers.
-    // For now, I'll assume I can use a more primitive approach or update GitExecutor.
-    
-    // Let's assume for a moment I can pass env to git_run_vec_at_path (or similar)
-    // Actually, I should probably add env support to GitExecutor.
-    
-    // Wait, let's see how GitExecutor is implemented.
-    // It's in src-tauri/src/git/mod.rs or similar? No, probably git_engine.rs or git/mod.rs
-    
     let args = vec!["rebase".into(), "-i".into(), base_commit];
     
-    // I'll need to modify git_run_result_with_event or similar to support env.
-    // Or I can just manually construct it here using GitExecutor if I have access.
-    
-    // Let's look at GitExecutor.
-    let res = state.git.run_with_env(Path::new(&path), &args, vec![(env_name.to_string(), env_value)], TIMEOUT_LOCAL).await
-        .map_err(|e| e.to_string())?;
+    let result = git_run_rebase_with_env(
+        &state,
+        &path,
+        &args,
+        vec![(env_name.to_string(), env_value)],
+        TIMEOUT_LOCAL,
+    ).await;
         
-    // Cleanup
+    // Cleanup temp files regardless of result
     let _ = std::fs::remove_file(&todo_file);
     let _ = std::fs::remove_file(&script_file);
 
-    let success = res.exit_code == 0;
-    let result = GitCommandResult {
-        success,
-        stdout: res.stdout,
-        stderr: res.stderr,
-        exit_code: res.exit_code,
-        command_type: GitCommandType::Rebase,
-    };
-    
-    if success {
-        let _ = emit_git_change_event(&app);
-    }
-    
+    let result = result?;
+    let _ = emit_git_change_event(&app);
     Ok(result)
 }
 
@@ -248,31 +321,16 @@ pub async fn cmd_rebase_continue_impl(
     state: State<'_, AppState>,
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
     let args = vec!["rebase".into(), "--continue".into()];
-    // Note: rebase --continue might open editor if there are commits to reword or if it's the first commit.
-    // But usually it just continues if conflicts are resolved.
-    // If it opens an editor, it will hang.
-    // We should probably set GIT_EDITOR=cat or similar just in case.
+    let envs = vec![
+        ("GIT_EDITOR".to_string(), "true".to_string()),
+        ("GIT_SEQUENCE_EDITOR".to_string(), "true".to_string()),
+    ];
     
-    // Actually, let's use the same env approach.
-    let path = resolve_repo_path(&state, repo_path.clone())?;
-    let envs = vec![("GIT_EDITOR".to_string(), "cat".to_string()), ("GIT_SEQUENCE_EDITOR".to_string(), "cat".to_string())];
-    
-    let res = state.git.run_with_env(Path::new(&path), &args, envs, TIMEOUT_LOCAL).await
-        .map_err(|e| e.to_string())?;
-        
-    let success = res.exit_code == 0;
-    if success {
-        let _ = emit_git_change_event(&app);
-    }
-    
-    Ok(GitCommandResult {
-        success,
-        stdout: res.stdout,
-        stderr: res.stderr,
-        exit_code: res.exit_code,
-        command_type: GitCommandType::Rebase,
-    })
+    let result = git_run_rebase_with_env(&state, &path, &args, envs, TIMEOUT_LOCAL).await?;
+    let _ = emit_git_change_event(&app);
+    Ok(result)
 }
 
 pub async fn cmd_rebase_abort_impl(
@@ -280,8 +338,11 @@ pub async fn cmd_rebase_abort_impl(
     state: State<'_, AppState>,
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
     let args = vec!["rebase".into(), "--abort".into()];
-    git_run_result_with_event(&app, &state, repo_path, args, TIMEOUT_LOCAL, GitCommandType::Rebase).await
+    let result = git_run_rebase(&state, &path, &args, TIMEOUT_LOCAL).await?;
+    let _ = emit_git_change_event(&app);
+    Ok(result)
 }
 
 pub async fn cmd_rebase_skip_impl(
@@ -289,6 +350,9 @@ pub async fn cmd_rebase_skip_impl(
     state: State<'_, AppState>,
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
+    let path = resolve_repo_path(&state, repo_path)?;
     let args = vec!["rebase".into(), "--skip".into()];
-    git_run_result_with_event(&app, &state, repo_path, args, TIMEOUT_LOCAL, GitCommandType::Rebase).await
+    let result = git_run_rebase(&state, &path, &args, TIMEOUT_LOCAL).await?;
+    let _ = emit_git_change_event(&app);
+    Ok(result)
 }
