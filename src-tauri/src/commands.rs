@@ -533,6 +533,13 @@ pub async fn cmd_git_push(
             .map_err(|e| e.to_string())?;
         let branch = branch_resp.stdout.trim().to_string();
 
+        if branch.is_empty() || branch == "HEAD" {
+            return Err(
+                "Cannot push: you are in a detached HEAD state. Please checkout a branch first."
+                    .to_string(),
+            );
+        }
+
         state
             .git
             .run(
