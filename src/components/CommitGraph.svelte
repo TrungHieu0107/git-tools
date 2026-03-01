@@ -418,41 +418,22 @@
   async function handleWipCommitSuccess() {
       conflictBannerMessage = null;
       closeDiff();
-      closeDetails();
       await onGraphReload?.();
-      await loadWipSummary();
-  }
-
-  async function ensureWipPanelRefreshedForConflict(): Promise<void> {
-      if (!isWipRowSelected) {
-          selectWipRow();
+      // After "Commit and Continue Rebase", check if the next rebase step also has conflicts.
+      // If so, keep WIP panel open so the user sees the new conflict UI immediately.
+      await handlePostRebaseConflictCheck({ notify: true });
+      if (!conflictBannerMessage) {
+          // No more conflicts — safe to close the WIP detail panel
+          closeDetails();
       }
       await loadWipSummary();
-      await tick();
-      wipPanelRef?.refresh?.();
   }
 
   async function startRebaseFromGraph(baseRef: string): Promise<void> {
       if (!repoPath) return;
 
-      const result = await rebaseStore.startRebase(baseRef, repoPath);
-      const operationState = await GitService.getOperationState(repoPath).catch(() => null as GitOperationState | null);
-      const isRebaseActive = !!operationState?.isRebasing;
-      const hasRebaseConflicts = !!operationState?.isRebasing && !!operationState?.hasConflicts;
-
-      if (hasRebaseConflicts) {
-          await ensureWipPanelRefreshedForConflict();
-          await handlePostRebaseConflictCheck({ notify: false });
-          return;
-      }
-
-      if (result?.success || isRebaseActive) {
-          await onGraphReload?.();
-          await handlePostRebaseConflictCheck({ notify: false });
-          return;
-      }
-
-      // Fallback: surface any operation state that may still be in progress.
+      await rebaseStore.startRebase(baseRef, repoPath);
+      await onGraphReload?.();
       await handlePostRebaseConflictCheck({ notify: false });
   }
 
@@ -506,7 +487,12 @@
           } else {
               conflictBannerMessage = "A file conflict was found when attempting to revert";
           }
-          await ensureWipPanelRefreshedForConflict();
+          // Inline refresh: avoid calling ensureWipPanelRefreshedForConflict() which
+          // would call selectWipRow() a second time (already called at line above),
+          // triggering another loadWipSummary() cascade.
+          await loadWipSummary();
+          await tick();
+          wipPanelRef?.refresh?.();
       } catch (e) {
           console.error("Failed to check post-rebase state", e);
       } finally {
@@ -536,20 +522,26 @@
   });
 
   $effect(() => {
-      localStorage.setItem("gh_table_columns", JSON.stringify(columns));
+      const snapshot = columns;
+      untrack(() => localStorage.setItem("gh_table_columns", JSON.stringify(snapshot)));
   });
 
   $effect(() => {
-      localStorage.setItem(CHANGED_FILES_VIEW_MODE_KEY, changedFilesViewMode);
+      const mode = changedFilesViewMode;
+      untrack(() => localStorage.setItem(CHANGED_FILES_VIEW_MODE_KEY, mode));
   });
 
+  let wipSummaryDebounceTimer: number | undefined;
   $effect(() => {
       repoPath;
       nodes;
       const active = isActive;
       untrack(() => {
+          clearTimeout(wipSummaryDebounceTimer);
           if (!active) return;
-          void loadWipSummary();
+          wipSummaryDebounceTimer = window.setTimeout(() => {
+              void loadWipSummary();
+          }, 150);
       });
   });
 

@@ -69,6 +69,7 @@
   const FILE_VIEW_MODE_KEY = "graph_wip_file_view_mode";
   let statusLoadInFlight = false;
   let pendingStatusRefresh = false;
+  let statusLoadGeneration = 0;
 
   function errorToMessage(value: unknown): string {
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -143,6 +144,7 @@
     statusLoadInFlight = true;
     loadingStatus = true;
     const requestRepoPath = repoPath;
+    const currentGeneration = ++statusLoadGeneration;
     try {
       const [filesResult, conflictsResult, operationResult] = await Promise.allSettled([
         GitService.getStatusFiles(requestRepoPath),
@@ -150,7 +152,8 @@
         GitService.getOperationState(requestRepoPath),
       ]);
 
-      if (repoPath !== requestRepoPath) {
+      // Bail out if repo changed or a newer load was started during our async work
+      if (repoPath !== requestRepoPath || statusLoadGeneration !== currentGeneration) {
         return;
       }
 
@@ -400,6 +403,10 @@
       selectedFile = null;
       onCommitSuccess?.();
     } catch (e: any) {
+      // On error (e.g. rebase continue failed with new conflicts),
+      // still refresh status so the user sees the current conflict state
+      // rather than stale data.
+      await loadStatus().catch(() => {});
       throw e;
     } finally {
       commitActionState = "idle";

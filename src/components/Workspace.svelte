@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { GitService, type RepoEntry, type FileStatus } from '../lib/GitService';
   import { parseGitLog, calculateGraphLayout, type GraphNode, type LanePath, type ConnectionPath } from "../lib/graph-layout";
   import { getAuthRequiredMessage } from "../lib/git-errors";
@@ -14,7 +15,7 @@
   import SettingsView from './SettingsView.svelte';
 
   // Stores
-  import { graphReloadRequested } from '../lib/stores/git-events';
+  import { graphReloadRequested, triggerGraphReload } from '../lib/stores/git-events';
 
   interface Props {
     repoId: string;
@@ -184,10 +185,28 @@
   // Subscribe to global reload events, but check if they apply to us (or just reload all)
   // Ideally events should be scoped, but for now global refresh is okay
   let reloadTrigger = $state(0);
+  let gitEventDebounceTimer: number | undefined;
+  let unlistenGitEvent: UnlistenFn | undefined;
+
   onMount(() => {
     // Graph initial load is handled by the reactive tab effect below.
     const unsub = graphReloadRequested.subscribe(v => reloadTrigger = v);
-    return unsub;
+
+    // Listen for backend git-event emissions (e.g. after rebase continue/skip/abort)
+    // Debounce to avoid hammering on rapid successive events
+    listen("git-event", () => {
+        if (!isActive) return;
+        clearTimeout(gitEventDebounceTimer);
+        gitEventDebounceTimer = window.setTimeout(() => {
+            triggerGraphReload();
+        }, 300);
+    }).then(fn => { unlistenGitEvent = fn; });
+
+    return () => {
+        unsub();
+        clearTimeout(gitEventDebounceTimer);
+        unlistenGitEvent?.();
+    };
   });
 
   $effect(() => {
