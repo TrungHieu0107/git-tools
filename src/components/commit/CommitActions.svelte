@@ -2,6 +2,7 @@
   interface Props {
     stagedCount: number;
     busy: boolean;
+    abortBusy?: boolean;
     generating: boolean;
     onCommit: (message: string, push: boolean) => Promise<void> | void;
     onGenerate: () => Promise<void> | void;
@@ -15,6 +16,7 @@
   let {
     stagedCount,
     busy,
+    abortBusy = false,
     generating,
     onCommit,
     onGenerate,
@@ -70,9 +72,9 @@
   });
 
   let summaryTooLong = $derived(summary.length > 72);
-  let canGenerate = $derived(stagedCount > 0 && !busy && !generating);
-  let canCommit = $derived(stagedCount > 0 && !!summary.trim() && !busy && !generating);
-  let canAbortOperation = $derived(showAbortOperation && !busy && !generating);
+  let canGenerate = $derived(stagedCount > 0 && !busy && !generating && !abortBusy);
+  let canCommit = $derived(stagedCount > 0 && !!summary.trim() && !busy && !generating && !abortBusy);
+  let canAbortOperation = $derived(showAbortOperation && !abortBusy);
   let commitButtonLabel = $derived(
     stagedCount === 0
       ? "Stage Changes to Commit"

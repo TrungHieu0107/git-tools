@@ -41,6 +41,7 @@
     lanes?: LanePath[];
     connections?: ConnectionPath[];
     repoPath?: string;
+    isActive?: boolean;
     pendingPushCount?: number;
     onGraphReload?: () => Promise<void>;
     onLoadMoreCommits?: () => Promise<boolean>;
@@ -55,6 +56,7 @@
       lanes = [],
       connections = [],
       repoPath,
+      isActive = true,
       pendingPushCount = 0,
       onGraphReload,
       onLoadMoreCommits,
@@ -461,25 +463,50 @@
       try {
           const notify = options?.notify !== false;
           const opState = await GitService.getOperationState(repoPath);
-          if (opState.isRebasing && opState.hasConflicts) {
-              if (notify) {
-                  toast.error("Rebase encountered conflicts. Resolve them to continue.");
-              }
-              conflictBannerMessage = "A file conflict was found when attempting to rebase";
-              await ensureWipPanelRefreshedForConflict();
-          } else if (opState.isMerging && opState.hasConflicts) {
-              if (notify) {
-                  toast.error("Merge encountered conflicts. Resolve them to continue.");
-              }
-              conflictBannerMessage = "A file conflict was found when attempting to merge into HEAD";
-              await ensureWipPanelRefreshedForConflict();
-          } else if (opState.isRebasing) {
-              if (!isWipRowSelected) {
-                  selectWipRow();
-              }
-          } else {
+          const isOperationInProgress =
+              opState.isRebasing ||
+              opState.isMerging ||
+              opState.isCherryPicking ||
+              opState.isReverting;
+
+          if (!isOperationInProgress) {
               conflictBannerMessage = null;
+              return;
           }
+
+          if (!isWipRowSelected) {
+              selectWipRow();
+          }
+
+          if (!opState.hasConflicts) {
+              conflictBannerMessage = null;
+              await tick();
+              wipPanelRef?.refresh?.();
+              return;
+          }
+
+          if (notify) {
+              if (opState.isRebasing) {
+                  toast.error("Rebase encountered conflicts. Resolve them to continue.");
+              } else if (opState.isMerging) {
+                  toast.error("Merge encountered conflicts. Resolve them to continue.");
+              } else if (opState.isCherryPicking) {
+                  toast.error("Cherry-pick encountered conflicts. Resolve them to continue.");
+              } else if (opState.isReverting) {
+                  toast.error("Revert encountered conflicts. Resolve them to continue.");
+              }
+          }
+
+          if (opState.isRebasing) {
+              conflictBannerMessage = "A file conflict was found when attempting to rebase";
+          } else if (opState.isMerging) {
+              conflictBannerMessage = "A file conflict was found when attempting to merge into HEAD";
+          } else if (opState.isCherryPicking) {
+              conflictBannerMessage = "A file conflict was found when attempting to cherry-pick";
+          } else {
+              conflictBannerMessage = "A file conflict was found when attempting to revert";
+          }
+          await ensureWipPanelRefreshedForConflict();
       } catch (e) {
           console.error("Failed to check post-rebase state", e);
       } finally {
@@ -519,7 +546,9 @@
   $effect(() => {
       repoPath;
       nodes;
+      const active = isActive;
       untrack(() => {
+          if (!active) return;
           void loadWipSummary();
       });
   });
@@ -529,8 +558,10 @@
   $effect(() => {
       const currentRepo = repoPath?.trim();
       const nodeCount = nodes.length;
+      const active = isActive;
 
       untrack(() => {
+          if (!active) return;
           if (!currentRepo || nodeCount === 0) return;
           if (initialConflictCheckRepo === currentRepo) return;
 
@@ -782,7 +813,9 @@
   $effect(() => {
       const repo = repoPath;
       const _branch = currentBranchLabel;
+      const active = isActive;
       untrack(() => {
+          if (!active) return;
           if (!repo) {
               toolbarLocalBranches = [];
               return;

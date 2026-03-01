@@ -10,6 +10,7 @@ use crate::git::types::{DiagnosticInfo, GitError, GitResponse, GitResponseBytes,
 pub const TIMEOUT_LOCAL: u64 = 30;
 pub const TIMEOUT_NETWORK: u64 = 120;
 pub const TIMEOUT_QUICK: u64 = 15;
+pub const TIMEOUT_STATUS_UI: u64 = 8;
 
 /// Unified async git executor.
 ///

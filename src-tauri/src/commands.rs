@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, State};
 use uuid::Uuid;
 
-use crate::git::service::{TIMEOUT_LOCAL, TIMEOUT_NETWORK, TIMEOUT_QUICK};
+use crate::git::service::{TIMEOUT_LOCAL, TIMEOUT_NETWORK, TIMEOUT_QUICK, TIMEOUT_STATUS_UI};
 use crate::git::{
     ConflictFile, DiagnosticInfo, FullRebaseStatus, GitCommandResult, GitCommandType, GitError,
     GitResponse, GitResult, RebaseStepInfo, RebaseTodoItem,
@@ -59,6 +59,68 @@ fn get_active_repo_path(state: &State<AppState>) -> Result<String, String> {
         .find(|r| &r.id == active_id)
         .ok_or("Active repository not found in settings")?;
     Ok(repo.path.clone())
+}
+
+pub(crate) fn resolve_git_dir(repo_path: &Path) -> PathBuf {
+    let dot_git = repo_path.join(".git");
+    if dot_git.is_dir() {
+        return dot_git;
+    }
+
+    if dot_git.is_file() {
+        if let Ok(contents) = std::fs::read_to_string(&dot_git) {
+            for line in contents.lines() {
+                if let Some(value) = line.strip_prefix("gitdir:") {
+                    let gitdir = value.trim();
+                    if gitdir.is_empty() {
+                        continue;
+                    }
+                    let parsed = Path::new(gitdir);
+                    if parsed.is_absolute() {
+                        return parsed.to_path_buf();
+                    }
+                    return repo_path.join(parsed);
+                }
+            }
+        }
+    }
+
+    dot_git
+}
+
+fn parse_unmerged_paths_from_ls_files(output: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut seen = HashSet::<String>::new();
+
+    for line in output.lines() {
+        let Some((_, path_part)) = line.split_once('\t') else {
+            continue;
+        };
+        let path = path_part.trim();
+        if path.is_empty() {
+            continue;
+        }
+        let normalized = path.replace('\\', "/");
+        if seen.insert(normalized.clone()) {
+            paths.push(normalized);
+        }
+    }
+
+    paths
+}
+
+pub(crate) async fn get_unmerged_paths_from_index(
+    state: &State<'_, AppState>,
+    repo_path: &str,
+) -> Result<Vec<String>, String> {
+    let resp = git_run(
+        state,
+        Some(repo_path.to_string()),
+        &["ls-files", "-u"],
+        TIMEOUT_QUICK,
+    )
+    .await?;
+    Ok(parse_unmerged_paths_from_ls_files(&resp.stdout))
 }
 
 /// Shorthand: resolve path → PathBuf, run git, return GitResponse.
@@ -916,7 +978,7 @@ async fn fetch_raw_status_output(
     let args = vec!["status".to_string(), "--porcelain".to_string()];
     let resp = state
         .git
-        .run(Path::new(&path), &args, TIMEOUT_LOCAL)
+        .run(Path::new(&path), &args, TIMEOUT_STATUS_UI)
         .await
         .map_err(|e| e.to_string())?;
     Ok(resp.stdout)
@@ -2050,7 +2112,7 @@ pub async fn cmd_abort_operation(
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
     let path = resolve_repo_path(&state, repo_path)?;
-    let git_dir = Path::new(&path).join(".git");
+    let git_dir = resolve_git_dir(Path::new(&path));
 
     let is_merging = git_dir.join("MERGE_HEAD").exists();
     let is_rebasing = git_dir.join("REBASE_HEAD").exists()

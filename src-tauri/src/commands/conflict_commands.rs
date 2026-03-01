@@ -16,52 +16,6 @@ pub struct GitOperationState {
     pub theirs_branch: Option<String>,
 }
 
-fn is_unmerged_status(status: &str) -> bool {
-    matches!(status, "DD" | "AU" | "UD" | "UA" | "DU" | "AA" | "UU")
-}
-
-fn parse_status_path(line: &str) -> Option<String> {
-    if line.len() < 4 {
-        return None;
-    }
-
-    let mut path = line[3..].trim().to_string();
-    if path.starts_with('"') && path.ends_with('"') && path.len() >= 2 {
-        path = path[1..path.len() - 1].to_string();
-    }
-    if path.is_empty() {
-        None
-    } else {
-        Some(path)
-    }
-}
-
-fn collect_conflict_paths(porcelain_status: &str) -> Vec<String> {
-    let mut paths = Vec::new();
-    let mut seen = HashSet::<String>::new();
-
-    for line in porcelain_status.lines() {
-        if line.len() < 2 {
-            continue;
-        }
-
-        let status = &line[0..2];
-        if !is_unmerged_status(status) {
-            continue;
-        }
-
-        let Some(path) = parse_status_path(line) else {
-            continue;
-        };
-
-        if seen.insert(path.clone()) {
-            paths.push(path);
-        }
-    }
-
-    paths
-}
-
 fn detect_operation_flags(git_dir: &Path) -> (bool, bool, bool, bool) {
     let is_merging = git_dir.join("MERGE_HEAD").exists();
     let is_rebasing = git_dir.join("REBASE_HEAD").exists()
@@ -76,8 +30,8 @@ pub async fn cmd_get_conflicts_impl(
     state: State<'_, AppState>,
     repo_path: Option<String>,
 ) -> Result<Vec<String>, String> {
-    let resp = git_run(&state, repo_path, &["status", "--porcelain"], TIMEOUT_LOCAL).await?;
-    Ok(collect_conflict_paths(&resp.stdout))
+    let path = resolve_repo_path(&state, repo_path)?;
+    get_unmerged_paths_from_index(&state, &path).await
 }
 
 pub async fn cmd_get_conflict_file_impl(
@@ -202,7 +156,7 @@ pub async fn cmd_check_conflict_state_impl(
 ) -> Result<bool, String> {
     let path = resolve_repo_path(&state, repo_path)?;
     let p = Path::new(&path);
-    let git_dir = p.join(".git");
+    let git_dir = resolve_git_dir(p);
 
     let (is_merging, is_rebasing, is_cherry_picking, is_reverting) =
         detect_operation_flags(&git_dir);
@@ -211,15 +165,8 @@ pub async fn cmd_check_conflict_state_impl(
         return Ok(false);
     }
 
-    let resp = git_run(
-        &state,
-        Some(path),
-        &["status", "--porcelain"],
-        TIMEOUT_LOCAL,
-    )
-    .await?;
-
-    Ok(!collect_conflict_paths(&resp.stdout).is_empty())
+    let paths = get_unmerged_paths_from_index(&state, &path).await?;
+    Ok(!paths.is_empty())
 }
 
 fn read_git_file(git_dir: &Path, name: &str) -> Option<String> {
@@ -323,19 +270,12 @@ pub async fn cmd_get_operation_state_impl(
 ) -> Result<GitOperationState, String> {
     let path = resolve_repo_path(&state, repo_path)?;
     let p = Path::new(&path);
-    let git_dir = p.join(".git");
+    let git_dir = resolve_git_dir(p);
 
     let (is_merging, is_rebasing, is_cherry_picking, is_reverting) =
         detect_operation_flags(&git_dir);
 
-    let resp = git_run(
-        &state,
-        Some(path.clone()),
-        &["status", "--porcelain"],
-        TIMEOUT_LOCAL,
-    )
-    .await?;
-    let conflict_paths = collect_conflict_paths(&resp.stdout);
+    let conflict_paths = get_unmerged_paths_from_index(&state, &path).await?;
     let has_conflicts = !conflict_paths.is_empty();
 
     let (ours_commit, ours_branch, theirs_commit, theirs_branch) =

@@ -36,6 +36,8 @@
   let baseContent = $state<string>("");
   let modifiedContent = $state<string>("");
   let loadingStatus = $state(false);
+  let statusDegraded = $state(false);
+  let statusDegradedMessage = $state("");
   let loadingDiff = $state(false);
   type CommitActionState = "idle" | "committing" | "generatingMessage" | "aborting";
   let commitActionState = $state<CommitActionState>("idle");
@@ -70,6 +72,12 @@
   let statusLoadInFlight = false;
   let pendingStatusRefresh = false;
   let pendingStatusRefreshDiff = false;
+
+  function errorToMessage(value: unknown): string {
+      if (typeof value === "string" && value.trim()) return value.trim();
+      if (value instanceof Error && value.message.trim()) return value.message.trim();
+      return "Status is partially loaded due to a git command error.";
+  }
 
   function resolvePathForActions(path: string): string {
       const normalized = path.replaceAll("\\", "/").trim();
@@ -171,33 +179,57 @@
       loadingStatus = true;
       const requestRepoPath = repoPath;
       try {
-          const [files, conflicts, nextOperationState] = await Promise.all([
+          const [filesResult, conflictsResult, operationResult] = await Promise.allSettled([
               GitService.getStatusFiles(requestRepoPath),
-              GitService.getConflicts(requestRepoPath).catch(() => [] as string[]),
-              GitService.getOperationState(requestRepoPath).catch(() => DEFAULT_OPERATION_STATE)
+              GitService.getConflicts(requestRepoPath),
+              GitService.getOperationState(requestRepoPath)
           ]);
 
           if (repoPath !== requestRepoPath) {
               return;
           }
 
-          const normalizedOperationState = normalizeOperationState(nextOperationState);
+          const degradedMessages: string[] = [];
+
+          if (filesResult.status === "rejected") {
+              degradedMessages.push(errorToMessage(filesResult.reason));
+          }
+          if (conflictsResult.status === "rejected") {
+              degradedMessages.push(errorToMessage(conflictsResult.reason));
+          }
+          if (operationResult.status === "rejected") {
+              degradedMessages.push(errorToMessage(operationResult.reason));
+          }
+
+          const normalizedOperationState = normalizeOperationState(
+              operationResult.status === "fulfilled" ? operationResult.value : operationState
+          );
           operationState = normalizedOperationState;
+
+          const conflictsFromCommand = conflictsResult.status === "fulfilled"
+              ? conflictsResult.value
+              : [];
 
           const conflictCandidates = normalizedOperationState.conflictPaths.length > 0
               ? normalizedOperationState.conflictPaths
-              : conflicts.map((path) => resolvePathForActions(path));
+              : conflictsFromCommand.map((path) => resolvePathForActions(path));
 
-          const mergedFiles = mergeStatusFilesWithConflictPaths(files, conflictCandidates);
+          const statusFiles = filesResult.status === "fulfilled"
+              ? filesResult.value
+              : [...stagedFiles, ...unstagedFiles];
+
+          const mergedFiles = mergeStatusFilesWithConflictPaths(statusFiles, conflictCandidates);
 
           stagedFiles = mergedFiles.filter(f => f.staged);
           unstagedFiles = mergedFiles.filter(f => !f.staged);
           conflictPaths = new Set(conflictCandidates.map((path) => resolvePathForActions(path)));
+          statusDegraded = degradedMessages.length > 0;
+          statusDegradedMessage = degradedMessages[0] ?? "";
           await reconcileSelectedFile(mergedFiles, refreshDiff);
       } catch (e: any) {
           console.error("Failed to load status:", e);
-          conflictPaths = new Set();
-          operationState = DEFAULT_OPERATION_STATE;
+          statusDegraded = true;
+          statusDegradedMessage = errorToMessage(e);
       } finally {
           loadingStatus = false;
           statusLoadInFlight = false;
@@ -680,7 +712,7 @@
   );
 
   let showAbortOperationButton = $derived(
-      isOperationInProgress && (operationState.hasConflicts || conflictPaths.size > 0)
+      isOperationInProgress
   );
 
   let abortOperationLabel = $derived.by(() => {
@@ -737,6 +769,19 @@
                 </button>
             </div>
         </div>
+
+        {#if statusDegraded}
+            <div class="mx-3 mt-2 mb-1 rounded border border-[#f0883e]/40 bg-[#3a2a1a] px-2.5 py-1.5 text-[11px] text-[#ffb86b] flex items-center gap-2">
+                <span class="truncate min-w-0">Partial status loaded. {statusDegradedMessage || "Some git reads failed."}</span>
+                <button
+                    type="button"
+                    class="ml-auto shrink-0 px-2 py-0.5 rounded border border-[#f0883e]/50 text-[#ffd6a1] hover:bg-[#4a3421] transition-colors"
+                    onclick={() => void loadStatus(true)}
+                >
+                    Refresh
+                </button>
+            </div>
+        {/if}
 
         <!-- Resizable file list sections (scrollable region) -->
         <div bind:this={fileListsContainerEl} class="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -830,7 +875,8 @@
         <div class="shrink-0 border-t border-[#30363d]">
             <CommitActions
                 stagedCount={stagedFiles.length}
-                busy={committing || abortingOperation || loadingStatus}
+                busy={committing}
+                abortBusy={abortingOperation}
                 generating={generatingCommitMessage}
                 bind:message={commitMessage}
                 onCommit={handleCommit}

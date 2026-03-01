@@ -33,6 +33,8 @@
   let unstagedFiles = $state<FileStatus[]>([]);
   let selectedFile = $state<FileStatus | null>(null);
   let loadingStatus = $state(false);
+  let statusDegraded = $state(false);
+  let statusDegradedMessage = $state("");
   let conflictPaths = $state<Set<string>>(new Set());
   let fileViewMode = $state<"tree" | "path">("path");
   let commitMessage = $state("");
@@ -67,6 +69,12 @@
   const FILE_VIEW_MODE_KEY = "graph_wip_file_view_mode";
   let statusLoadInFlight = false;
   let pendingStatusRefresh = false;
+
+  function errorToMessage(value: unknown): string {
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (value instanceof Error && value.message.trim()) return value.message.trim();
+    return "Status is partially loaded due to a git command error.";
+  }
 
   // --- Utility functions ---
 
@@ -136,32 +144,55 @@
     loadingStatus = true;
     const requestRepoPath = repoPath;
     try {
-      const [files, conflicts, nextOperationState] = await Promise.all([
+      const [filesResult, conflictsResult, operationResult] = await Promise.allSettled([
         GitService.getStatusFiles(requestRepoPath),
-        GitService.getConflicts(requestRepoPath).catch(() => [] as string[]),
-        GitService.getOperationState(requestRepoPath).catch(() => DEFAULT_OPERATION_STATE),
+        GitService.getConflicts(requestRepoPath),
+        GitService.getOperationState(requestRepoPath),
       ]);
 
       if (repoPath !== requestRepoPath) {
         return;
       }
 
-      const normalizedOperationState = normalizeOperationState(nextOperationState);
+      const degradedMessages: string[] = [];
+      if (filesResult.status === "rejected") {
+        degradedMessages.push(errorToMessage(filesResult.reason));
+      }
+      if (conflictsResult.status === "rejected") {
+        degradedMessages.push(errorToMessage(conflictsResult.reason));
+      }
+      if (operationResult.status === "rejected") {
+        degradedMessages.push(errorToMessage(operationResult.reason));
+      }
+
+      const normalizedOperationState = normalizeOperationState(
+        operationResult.status === "fulfilled" ? operationResult.value : operationState
+      );
       operationState = normalizedOperationState;
+
+      const conflictsFromCommand = conflictsResult.status === "fulfilled"
+        ? conflictsResult.value
+        : [];
 
       const conflictCandidates =
         normalizedOperationState.conflictPaths.length > 0
           ? normalizedOperationState.conflictPaths
-          : conflicts.map((p) => resolvePathForActions(p));
+          : conflictsFromCommand.map((p) => resolvePathForActions(p));
 
-      const mergedFiles = mergeStatusFilesWithConflictPaths(files, conflictCandidates);
+      const statusFiles = filesResult.status === "fulfilled"
+        ? filesResult.value
+        : [...stagedFiles, ...unstagedFiles];
+
+      const mergedFiles = mergeStatusFilesWithConflictPaths(statusFiles, conflictCandidates);
       stagedFiles = mergedFiles.filter((f) => f.staged);
       unstagedFiles = mergedFiles.filter((f) => !f.staged);
       conflictPaths = new Set(conflictCandidates.map((p) => resolvePathForActions(p)));
+      statusDegraded = degradedMessages.length > 0;
+      statusDegradedMessage = degradedMessages[0] ?? "";
     } catch (e: any) {
       console.error("Failed to load status:", e);
-      conflictPaths = new Set();
-      operationState = DEFAULT_OPERATION_STATE;
+      statusDegraded = true;
+      statusDegradedMessage = errorToMessage(e);
     } finally {
       loadingStatus = false;
       statusLoadInFlight = false;
@@ -487,7 +518,7 @@
   );
 
   let showAbortOperationButton = $derived(
-    isOperationInProgress && (operationState.hasConflicts || conflictPaths.size > 0)
+    isOperationInProgress
   );
 
   let abortOperationLabel = $derived.by(() => {
@@ -602,6 +633,17 @@
       </div>
     </div>
 
+    {#if statusDegraded}
+      <div class="shrink-0 px-3 py-1.5 bg-[#3a2a1a] border-b border-[#f0883e]/35 text-[11px] text-[#ffb86b] flex items-center gap-2">
+        <span class="truncate min-w-0">Partial status loaded. {statusDegradedMessage || "Some git reads failed."}</span>
+        <button
+          type="button"
+          class="ml-auto shrink-0 px-2 py-0.5 rounded border border-[#f0883e]/50 text-[#ffd6a1] hover:bg-[#4a3421] transition-colors"
+          onclick={() => void loadStatus()}
+        >Refresh</button>
+      </div>
+    {/if}
+
     <!-- View mode toggle bar -->
     <div class="shrink-0 h-8 px-2 flex items-center justify-between border-b border-[#1e293b] bg-[#111827]">
       <div class="flex items-center gap-2">
@@ -698,7 +740,8 @@
     <div class="shrink-0 border-t border-[#30363d] bg-[#1c2128]">
       <CommitActions
         stagedCount={stagedFiles.length}
-        busy={committing || abortingOperation || loadingStatus}
+        busy={committing}
+        abortBusy={abortingOperation}
         generating={generatingCommitMessage}
         bind:message={commitMessage}
         onCommit={handleCommit}
@@ -749,6 +792,17 @@
         {/if}
       </div>
     </div>
+
+    {#if statusDegraded}
+      <div class="shrink-0 px-2 py-1.5 bg-[#3a2a1a] border-b border-[#f0883e]/35 text-[11px] text-[#ffb86b] flex items-center gap-2">
+        <span class="truncate min-w-0">Partial status loaded. {statusDegradedMessage || "Some git reads failed."}</span>
+        <button
+          type="button"
+          class="ml-auto shrink-0 px-2 py-0.5 rounded border border-[#f0883e]/50 text-[#ffd6a1] hover:bg-[#4a3421] transition-colors"
+          onclick={() => void loadStatus()}
+        >Refresh</button>
+      </div>
+    {/if}
 
     <!-- File lists (resizable) -->
     <div bind:this={fileListsContainerEl} class="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -842,7 +896,8 @@
     <div class="shrink-0">
       <CommitActions
         stagedCount={stagedFiles.length}
-        busy={committing || abortingOperation || loadingStatus}
+        busy={committing}
+        abortBusy={abortingOperation}
         generating={generatingCommitMessage}
         bind:message={commitMessage}
         onCommit={handleCommit}

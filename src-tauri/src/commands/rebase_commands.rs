@@ -105,7 +105,7 @@ pub async fn cmd_get_rebase_status_impl(
 ) -> Result<FullRebaseStatus, String> {
     let path = resolve_repo_path(&state, repo_path)?;
     let p = Path::new(&path);
-    let git_dir = p.join(".git");
+    let git_dir = resolve_git_dir(p);
 
     let rebase_merge = git_dir.join("rebase-merge");
     let rebase_apply = git_dir.join("rebase-apply");
@@ -191,23 +191,8 @@ async fn cmd_check_conflict_state_internal(
     state: &State<'_, AppState>,
     repo_path: &str,
 ) -> Result<bool, String> {
-    let resp = git_run(
-        state,
-        Some(repo_path.to_string()),
-        &["status", "--porcelain"],
-        TIMEOUT_LOCAL,
-    )
-    .await?;
-
-    for line in resp.stdout.lines() {
-        if line.len() >= 2 {
-            let status = &line[0..2];
-            if matches!(status, "DD" | "AU" | "UD" | "UA" | "DU" | "AA" | "UU") {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
+    let paths = get_unmerged_paths_from_index(state, repo_path).await?;
+    Ok(!paths.is_empty())
 }
 
 fn read_git_file(git_dir: &Path, name: &str) -> Option<String> {

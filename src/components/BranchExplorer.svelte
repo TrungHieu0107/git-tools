@@ -60,7 +60,9 @@
       contextMenu = null;
   }
 
-  async function loadBranches() {
+  async function loadBranches(options?: { force?: boolean }) {
+    const force = options?.force ?? false;
+    if (!force && !isActive) return;
     if (!repoPath) {
         branches = [];
         tree = [];
@@ -91,7 +93,12 @@
   }
 
   $effect(() => {
-      if (repoPath) loadBranches();
+      const currentRepo = repoPath?.trim();
+      const active = isActive;
+      if (!currentRepo || !active) return;
+      untrack(() => {
+          void loadBranches();
+      });
   });
 
   function expandPathToBranch(nodes: BranchNode[], target: string, parentPath = ""): boolean {
@@ -134,9 +141,12 @@
   }
 
   onMount(() => {
-    loadBranches();
-    window.addEventListener('repo-activated', loadBranches);
-    return () => window.removeEventListener('repo-activated', loadBranches);
+    const handleRepoActivated = () => {
+      if (!isActive) return;
+      void loadBranches();
+    };
+    window.addEventListener('repo-activated', handleRepoActivated);
+    return () => window.removeEventListener('repo-activated', handleRepoActivated);
   });
 
   function openCreateBranch() {
@@ -151,7 +161,7 @@
   $effect(() => {
     if (!isActive) return;
     const handleOpenCreate = () => openCreateBranch();
-    const handleBranchCreated = () => loadBranches();
+    const handleBranchCreated = () => void loadBranches();
     window.addEventListener('open-create-branch', handleOpenCreate);
     window.addEventListener('branch-created', handleBranchCreated);
     return () => {
@@ -210,7 +220,7 @@
                 const result = await rebaseStore.startRebase(menu.commitHash, repoPath);
                 const navigated = await navigateToCommitWhenRebaseBlocked();
                 if (!navigated && result?.success) {
-                    await loadBranches();
+                    await loadBranches({ force: true });
                 }
                 break;
             }
@@ -266,7 +276,7 @@
 
   async function navigateToCommitWhenRebaseBlocked(): Promise<boolean> {
       const operationState = await GitService.getOperationState(repoPath).catch(() => null);
-      if (operationState?.isRebasing && operationState.hasConflicts) {
+      if (operationState?.isRebasing || operationState?.isMerging || operationState?.isCherryPicking || operationState?.isReverting) {
           await onNavigateToCommitPanel?.();
           return true;
       }
@@ -400,7 +410,7 @@
                 <button onclick={openCreateBranch} class="text-[#8b949e] hover:text-white p-1 rounded hover:bg-[#30363d]" title="Create Branch (Ctrl+B)">
                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </button>
-                <button onclick={loadBranches} class="text-[#8b949e] hover:text-white p-1 rounded hover:bg-[#30363d]" title="Refresh">
+                <button onclick={() => void loadBranches({ force: true })} class="text-[#8b949e] hover:text-white p-1 rounded hover:bg-[#30363d]" title="Refresh">
                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg>
                 </button>
             </div>

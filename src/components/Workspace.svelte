@@ -68,9 +68,12 @@
 
   // Load initial data when repoPath changes or component mounts
   $effect(() => {
-     if (repoPath) {
-         handleConflictDetection();
-     }
+     const currentRepo = repoPath?.trim();
+     const active = isActive;
+     if (!currentRepo || !active) return;
+     untrack(() => {
+        void handleConflictDetection();
+     });
   });
 
   async function loadGraph(options: { switchToGraph?: boolean; limit?: number } = {}) {
@@ -177,7 +180,7 @@
   });
 
   $effect(() => {
-    if (reloadTrigger > 0 && repoPath) {
+    if (reloadTrigger > 0 && repoPath && isActive) {
         // Reload graph if we are looking at it, or just strictly reload data
         // For now, reloading graph data is cheap enough
         if (activeTab === 'graph') {
@@ -193,8 +196,10 @@
     const repo = repoPath?.trim();
     const hasNodes = graphNodes.length > 0;
     const loading = graphLoading;
+    const active = isActive;
 
     untrack(() => {
+      if (!active) return;
       if (tab !== 'graph') {
           autoLoadedGraphRepo = null;
           return;
@@ -354,6 +359,7 @@
                   lanes={graphLanes}
                   connections={graphConnections}
                   repoPath={repoPath}
+                  isActive={isActive && activeTab === 'graph'}
                   pendingPushCount={pendingPushCount}
                   onGraphReload={loadGraph}
                   onLoadMoreCommits={handleLoadMoreCommits}
