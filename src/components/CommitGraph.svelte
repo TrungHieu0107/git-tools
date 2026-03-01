@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getAvatarUrl, type GraphNode, type LanePath, type ConnectionPath } from "../lib/graph-layout";
-  import { onMount } from "svelte";
-  import { GitService, type CommitChangedFile, type FileStatus } from "../lib/GitService";
+  import { onMount, tick, untrack } from "svelte";
+  import { GitService, type CommitChangedFile, type FileStatus, type GitOperationState } from "../lib/GitService";
   import { confirm } from "../lib/confirmation.svelte";
   import { prompt } from "../lib/prompt.svelte";
   import { toast } from "../lib/toast.svelte";
@@ -122,17 +122,20 @@
   let avatarCache = $state<Map<string, string>>(new Map());
   let uniqueAuthors = $derived([...new Set(nodes.map(n => n.author))]);
   $effect(() => {
-    let cacheChanged = false;
-    for (const author of uniqueAuthors) {
-      const nextUrl = getAvatarUrl(author);
-      if (avatarCache.get(author) !== nextUrl) {
-        avatarCache.set(author, nextUrl);
-        cacheChanged = true;
+    const authors = uniqueAuthors;
+    untrack(() => {
+      let cacheChanged = false;
+      for (const author of authors) {
+        const nextUrl = getAvatarUrl(author);
+        if (avatarCache.get(author) !== nextUrl) {
+          avatarCache.set(author, nextUrl);
+          cacheChanged = true;
+        }
       }
-    }
-    if (cacheChanged) {
-      avatarCache = new Map(avatarCache);
-    }
+      if (cacheChanged) {
+        avatarCache = new Map(avatarCache);
+      }
+    });
   });
 
   // Selection & Details
@@ -160,6 +163,8 @@
 
   let wipSummary = $state<WipSummary>(EMPTY_WIP_SUMMARY);
   let hasWipRow = $state(true);
+  let initialConflictCheckRepo: string | null = null;
+  let postRebaseCheckInFlight = false;
 
   // Diff View State
   let leftPanelMode = $state<'graph' | 'diff'>('graph');
@@ -416,25 +421,69 @@
       await loadWipSummary();
   }
 
-  async function handlePostRebaseConflictCheck() {
+  async function ensureWipPanelRefreshedForConflict(): Promise<void> {
+      if (!isWipRowSelected) {
+          selectWipRow();
+      }
+      await loadWipSummary();
+      await tick();
+      wipPanelRef?.refresh?.();
+  }
+
+  async function startRebaseFromGraph(baseRef: string): Promise<void> {
       if (!repoPath) return;
+
+      const result = await rebaseStore.startRebase(baseRef, repoPath);
+      const operationState = await GitService.getOperationState(repoPath).catch(() => null as GitOperationState | null);
+      const isRebaseActive = !!operationState?.isRebasing;
+      const hasRebaseConflicts = !!operationState?.isRebasing && !!operationState?.hasConflicts;
+
+      if (hasRebaseConflicts) {
+          await ensureWipPanelRefreshedForConflict();
+          await handlePostRebaseConflictCheck({ notify: false });
+          return;
+      }
+
+      if (result?.success || isRebaseActive) {
+          await onGraphReload?.();
+          await handlePostRebaseConflictCheck({ notify: false });
+          return;
+      }
+
+      // Fallback: surface any operation state that may still be in progress.
+      await handlePostRebaseConflictCheck({ notify: false });
+  }
+
+  async function handlePostRebaseConflictCheck(options?: { notify?: boolean }) {
+      if (!repoPath) return;
+      if (postRebaseCheckInFlight) return;
+      postRebaseCheckInFlight = true;
       try {
+          const notify = options?.notify !== false;
           const opState = await GitService.getOperationState(repoPath);
           if (opState.isRebasing && opState.hasConflicts) {
-              toast.error("Rebase encountered conflicts. Resolve them to continue.");
+              if (notify) {
+                  toast.error("Rebase encountered conflicts. Resolve them to continue.");
+              }
               conflictBannerMessage = "A file conflict was found when attempting to rebase";
-              selectWipRow();
+              await ensureWipPanelRefreshedForConflict();
           } else if (opState.isMerging && opState.hasConflicts) {
-              toast.error("Merge encountered conflicts. Resolve them to continue.");
+              if (notify) {
+                  toast.error("Merge encountered conflicts. Resolve them to continue.");
+              }
               conflictBannerMessage = "A file conflict was found when attempting to merge into HEAD";
-              selectWipRow();
+              await ensureWipPanelRefreshedForConflict();
           } else if (opState.isRebasing) {
-              selectWipRow();
+              if (!isWipRowSelected) {
+                  selectWipRow();
+              }
           } else {
               conflictBannerMessage = null;
           }
       } catch (e) {
           console.error("Failed to check post-rebase state", e);
+      } finally {
+          postRebaseCheckInFlight = false;
       }
   }
 
@@ -470,7 +519,24 @@
   $effect(() => {
       repoPath;
       nodes;
-      void loadWipSummary();
+      untrack(() => {
+          void loadWipSummary();
+      });
+  });
+
+  // Run a single startup conflict check per repository after graph data exists.
+  // This avoids repeated heavy git calls while the graph is still initializing.
+  $effect(() => {
+      const currentRepo = repoPath?.trim();
+      const nodeCount = nodes.length;
+
+      untrack(() => {
+          if (!currentRepo || nodeCount === 0) return;
+          if (initialConflictCheckRepo === currentRepo) return;
+
+          initialConflictCheckRepo = currentRepo;
+          void handlePostRebaseConflictCheck({ notify: false });
+      });
   });
 
 
@@ -714,12 +780,15 @@
   }
 
   $effect(() => {
-      if (!repoPath) {
-          toolbarLocalBranches = [];
-          return;
-      }
-      currentBranchLabel;
-      void loadToolbarBranches();
+      const repo = repoPath;
+      const _branch = currentBranchLabel;
+      untrack(() => {
+          if (!repo) {
+              toolbarLocalBranches = [];
+              return;
+          }
+          void loadToolbarBranches();
+      });
   });
 
   async function handleToolbarBranchChange(event: Event) {
@@ -1712,9 +1781,7 @@
               cancelLabel: "Cancel"
           });
           if (!confirmed) return;
-          await rebaseStore.startRebase(menu.node.hash, repoPath);
-          await onGraphReload?.();
-          await handlePostRebaseConflictCheck();
+          await startRebaseFromGraph(menu.node.hash);
       },
       "interactive-rebase": async (_, menu) => {
           if (!repoPath) return;
@@ -2046,9 +2113,7 @@
                       cancelLabel: "Cancel"
                   });
                   if (!confirmed) return;
-                  await rebaseStore.startRebase(menu.branchName, repoPath);
-                  await onGraphReload?.();
-                  await handlePostRebaseConflictCheck();
+                  await startRebaseFromGraph(menu.branchName);
                   break;
               }
               case "interactive-rebase": {
@@ -3249,4 +3314,3 @@
     background: #334155;
   }
 </style>
-

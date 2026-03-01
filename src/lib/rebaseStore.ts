@@ -103,7 +103,7 @@ function createRebaseStore() {
     operationName: string
   ) {
     if (res.success) {
-      // Command succeeded — check if rebase is fully done or still going
+      // Command succeeded - check if rebase is fully done or still going
       try {
         const status: FullRebaseStatus = await invoke("cmd_get_rebase_status", { repoPath });
         const mapped = status.status as RebaseStatus;
@@ -124,13 +124,13 @@ function createRebaseStore() {
           startPolling();
         }
       } catch {
-        // Couldn't check status — assume done
+        // Couldn't check status - assume done
         toast.success(`${operationName} completed`);
         update(s => ({ ...s, status: "idle", step: null }));
         stopPolling();
       }
     } else {
-      // Command failed (conflict or error) — always check real rebase state
+      // Command failed (conflict or error) - always check real rebase state
       try {
         const status: FullRebaseStatus = await invoke("cmd_get_rebase_status", { repoPath });
         const mapped = status.status as RebaseStatus;
@@ -146,7 +146,7 @@ function createRebaseStore() {
           }));
           startPolling();
         } else if (mapped === "inProgress") {
-          // Rebase in progress (not conflicted) — might need user attention
+          // Rebase in progress (not conflicted) - might need user attention
           update(s => ({
             ...s,
             status: "inProgress",
@@ -156,7 +156,7 @@ function createRebaseStore() {
           }));
           startPolling();
         } else if (mapped === "idle") {
-          // Rebase is not in progress — the error was a real failure
+          // Rebase is not in progress - the error was a real failure
           const errMsg = res.stderr || "Unknown error";
           toast.error(`${operationName} failed: ${errMsg}`);
           update(s => ({ ...s, status: "idle" }));
@@ -167,7 +167,7 @@ function createRebaseStore() {
           startPolling();
         }
       } catch {
-        // Couldn't check status — report the original error
+        // Couldn't check status - report the original error
         const errMsg = res.stderr || "Unknown error";
         toast.error(`${operationName} failed: ${errMsg}`);
         update(s => ({ ...s, status: "idle" }));
@@ -185,11 +185,45 @@ function createRebaseStore() {
         await checkRebaseStateAfterCommand(res, repoPath, "Rebase");
         return res;
       } catch (e: any) {
-        // invoke itself threw — this means a truly fatal backend error (not a conflict)
+        // invoke threw: recover from real repository state before deciding this is fatal.
         console.error("Rebase invoke threw:", e);
         const errMsg = typeof e === "string" ? e : e?.message || "Unknown error";
+
+        try {
+          const status: FullRebaseStatus = await invoke("cmd_get_rebase_status", { repoPath });
+          const mapped = status.status as RebaseStatus;
+          if (mapped === "conflicted") {
+            toast.error("Rebase encountered conflicts. Resolve them in the Commit Panel to continue.");
+            update(s => ({
+              ...s,
+              repoPath,
+              status: "conflicted",
+              step: status.step,
+              ontoBranch: status.ontoBranch,
+              upstreamBranch: status.upstreamBranch,
+            }));
+            startPolling();
+            return undefined;
+          }
+          if (mapped === "inProgress") {
+            update(s => ({
+              ...s,
+              repoPath,
+              status: "inProgress",
+              step: status.step,
+              ontoBranch: status.ontoBranch,
+              upstreamBranch: status.upstreamBranch,
+            }));
+            startPolling();
+            return undefined;
+          }
+        } catch (statusErr) {
+          console.error("Failed to recover rebase status after invoke throw:", statusErr);
+        }
+
         toast.error(`Rebase failed: ${errMsg}`);
-        update(s => ({ ...s, status: "idle" }));
+        update(s => ({ ...s, repoPath, status: "idle" }));
+        stopPolling();
         return undefined;
       }
     },
@@ -198,7 +232,7 @@ function createRebaseStore() {
       try {
         const items: RebaseTodoItem[] = await invoke("cmd_rebase_interactive_prepare", { baseCommit, repoPath });
         if (items.length === 0) {
-          toast.error("No commits to rebase — the target is already an ancestor of HEAD.");
+          toast.error("No commits to rebase - the target is already an ancestor of HEAD.");
           update(s => ({ ...s, status: "idle" }));
           return [];
         }

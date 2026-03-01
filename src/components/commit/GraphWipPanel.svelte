@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { GitService, type FileStatus, type GitOperationState } from "../../lib/GitService";
   import { toast } from "../../lib/toast.svelte";
   import { confirm } from "../../lib/confirmation.svelte";
@@ -65,6 +65,8 @@
   let fileListsResizeObserver: ResizeObserver | null = null;
   const FILE_LIST_MIN_SECTION_HEIGHT = 60;
   const FILE_VIEW_MODE_KEY = "graph_wip_file_view_mode";
+  let statusLoadInFlight = false;
+  let pendingStatusRefresh = false;
 
   // --- Utility functions ---
 
@@ -125,19 +127,31 @@
 
   async function loadStatus() {
     if (!repoPath) return;
+    if (statusLoadInFlight) {
+      pendingStatusRefresh = true;
+      return;
+    }
+
+    statusLoadInFlight = true;
     loadingStatus = true;
+    const requestRepoPath = repoPath;
     try {
       const [files, conflicts, nextOperationState] = await Promise.all([
-        GitService.getStatusFiles(repoPath),
-        GitService.getConflicts(repoPath).catch(() => [] as string[]),
-        GitService.getOperationState(repoPath).catch(() => DEFAULT_OPERATION_STATE),
+        GitService.getStatusFiles(requestRepoPath),
+        GitService.getConflicts(requestRepoPath).catch(() => [] as string[]),
+        GitService.getOperationState(requestRepoPath).catch(() => DEFAULT_OPERATION_STATE),
       ]);
 
-      operationState = normalizeOperationState(nextOperationState);
+      if (repoPath !== requestRepoPath) {
+        return;
+      }
+
+      const normalizedOperationState = normalizeOperationState(nextOperationState);
+      operationState = normalizedOperationState;
 
       const conflictCandidates =
-        operationState.conflictPaths.length > 0
-          ? operationState.conflictPaths
+        normalizedOperationState.conflictPaths.length > 0
+          ? normalizedOperationState.conflictPaths
           : conflicts.map((p) => resolvePathForActions(p));
 
       const mergedFiles = mergeStatusFilesWithConflictPaths(files, conflictCandidates);
@@ -150,6 +164,11 @@
       operationState = DEFAULT_OPERATION_STATE;
     } finally {
       loadingStatus = false;
+      statusLoadInFlight = false;
+      if (pendingStatusRefresh) {
+        pendingStatusRefresh = false;
+        void loadStatus();
+      }
     }
   }
 
@@ -509,9 +528,11 @@
   // --- Lifecycle ---
 
   $effect(() => {
-    if (repoPath) {
-      loadStatus();
-    }
+    const currentRepo = repoPath?.trim();
+    if (!currentRepo) return;
+    untrack(() => {
+      void loadStatus();
+    });
   });
 
   onMount(() => {

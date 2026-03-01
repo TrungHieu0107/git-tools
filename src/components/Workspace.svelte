@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { GitService, type RepoEntry, type FileStatus } from '../lib/GitService';
   import { parseGitLog, calculateGraphLayout, type GraphNode, type LanePath, type ConnectionPath } from "../lib/graph-layout";
   import { getAuthRequiredMessage } from "../lib/git-errors";
@@ -41,6 +41,7 @@
   let graphHasMoreCommits = $state(true);
   let graphLoading = $state(false);
   let graphLoadingMore = $state(false);
+  let autoLoadedGraphRepo: string | null = null;
   
   // Repo State
   let hasConflicts = $state(false);
@@ -170,11 +171,7 @@
   // Ideally events should be scoped, but for now global refresh is okay
   let reloadTrigger = $state(0);
   onMount(() => {
-    // Initial Load?
-    if (activeTab === 'graph') {
-        loadGraph({ switchToGraph: false });
-    }
-    
+    // Graph initial load is handled by the reactive tab effect below.
     const unsub = graphReloadRequested.subscribe(v => reloadTrigger = v);
     return unsub;
   });
@@ -192,9 +189,22 @@
 
   // Auto-load graph when switching to the Graph tab
   $effect(() => {
-    if (activeTab === 'graph' && repoPath && graphNodes.length === 0 && !graphLoading) {
-        loadGraph({ switchToGraph: false });
-    }
+    const tab = activeTab;
+    const repo = repoPath?.trim();
+    const hasNodes = graphNodes.length > 0;
+    const loading = graphLoading;
+
+    untrack(() => {
+      if (tab !== 'graph') {
+          autoLoadedGraphRepo = null;
+          return;
+      }
+      if (!repo || hasNodes || loading) return;
+      if (autoLoadedGraphRepo === repo) return;
+
+      autoLoadedGraphRepo = repo;
+      loadGraph({ switchToGraph: false });
+    });
   });
 
   function navigateToRepos() {

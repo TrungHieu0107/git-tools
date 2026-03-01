@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { GitService, type FileStatus, type GitOperationState } from "../lib/GitService";
   import { toast } from "../lib/toast.svelte";
   import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk, type DiffStageLineTarget } from "../lib/diff";
@@ -67,6 +67,9 @@
 
   const FILE_VIEW_MODE_KEY = "commit_panel_file_view_mode";
   const FILE_LIST_MIN_SECTION_HEIGHT = 80;
+  let statusLoadInFlight = false;
+  let pendingStatusRefresh = false;
+  let pendingStatusRefreshDiff = false;
 
   function resolvePathForActions(path: string): string {
       const normalized = path.replaceAll("\\", "/").trim();
@@ -158,18 +161,31 @@
 
   async function loadStatus(refreshDiff = false) {
       if (!repoPath) return;
+      if (statusLoadInFlight) {
+          pendingStatusRefresh = true;
+          pendingStatusRefreshDiff = pendingStatusRefreshDiff || refreshDiff;
+          return;
+      }
+
+      statusLoadInFlight = true;
       loadingStatus = true;
+      const requestRepoPath = repoPath;
       try {
           const [files, conflicts, nextOperationState] = await Promise.all([
-              GitService.getStatusFiles(repoPath),
-              GitService.getConflicts(repoPath).catch(() => [] as string[]),
-              GitService.getOperationState(repoPath).catch(() => DEFAULT_OPERATION_STATE)
+              GitService.getStatusFiles(requestRepoPath),
+              GitService.getConflicts(requestRepoPath).catch(() => [] as string[]),
+              GitService.getOperationState(requestRepoPath).catch(() => DEFAULT_OPERATION_STATE)
           ]);
 
-          operationState = normalizeOperationState(nextOperationState);
+          if (repoPath !== requestRepoPath) {
+              return;
+          }
 
-          const conflictCandidates = operationState.conflictPaths.length > 0
-              ? operationState.conflictPaths
+          const normalizedOperationState = normalizeOperationState(nextOperationState);
+          operationState = normalizedOperationState;
+
+          const conflictCandidates = normalizedOperationState.conflictPaths.length > 0
+              ? normalizedOperationState.conflictPaths
               : conflicts.map((path) => resolvePathForActions(path));
 
           const mergedFiles = mergeStatusFilesWithConflictPaths(files, conflictCandidates);
@@ -184,6 +200,13 @@
           operationState = DEFAULT_OPERATION_STATE;
       } finally {
           loadingStatus = false;
+          statusLoadInFlight = false;
+          if (pendingStatusRefresh) {
+              const nextRefreshDiff = pendingStatusRefreshDiff;
+              pendingStatusRefresh = false;
+              pendingStatusRefreshDiff = false;
+              void loadStatus(nextRefreshDiff);
+          }
       }
   }
 
@@ -588,9 +611,11 @@
 
 
   $effect(() => {
-      if (repoPath) {
-          loadStatus();
-      }
+      const currentRepo = repoPath?.trim();
+      if (!currentRepo) return;
+      untrack(() => {
+          void loadStatus();
+      });
   });
 
   onMount(() => {
@@ -634,7 +659,9 @@
           const now = Date.now();
           if (now - lastRefreshTime > DEBOUNCE_MS) {
               lastRefreshTime = now;
-              loadStatus(true);
+              untrack(() => {
+                  void loadStatus(true);
+              });
           }
       }
       prevIsActive = isActive ?? false;

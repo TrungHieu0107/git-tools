@@ -207,7 +207,11 @@
                     confirmLabel: "Rebase"
                 });
                 if (!confirmed) return;
-                await rebaseStore.startRebase(menu.commitHash, repoPath);
+                const result = await rebaseStore.startRebase(menu.commitHash, repoPath);
+                const navigated = await navigateToCommitWhenRebaseBlocked();
+                if (!navigated && result?.success) {
+                    await loadBranches();
+                }
                 break;
             }
         }
@@ -254,6 +258,15 @@
   async function navigateToCommitWhenMergeBlocked(message: string): Promise<boolean> {
       const hasConflicts = await GitService.checkConflictState(repoPath).catch(() => false);
       if (hasConflicts || isMergeOrRebaseInProgressMessage(message)) {
+          await onNavigateToCommitPanel?.();
+          return true;
+      }
+      return false;
+  }
+
+  async function navigateToCommitWhenRebaseBlocked(): Promise<boolean> {
+      const operationState = await GitService.getOperationState(repoPath).catch(() => null);
+      if (operationState?.isRebasing && operationState.hasConflicts) {
           await onNavigateToCommitPanel?.();
           return true;
       }
