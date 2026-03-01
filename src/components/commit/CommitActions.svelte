@@ -3,6 +3,7 @@
     stagedCount: number;
     busy: boolean;
     abortBusy?: boolean;
+    allowEmptyMessage?: boolean;
     generating: boolean;
     onCommit: (message: string, push: boolean) => Promise<void> | void;
     onGenerate: () => Promise<void> | void;
@@ -17,6 +18,7 @@
     stagedCount,
     busy,
     abortBusy = false,
+    allowEmptyMessage = false,
     generating,
     onCommit,
     onGenerate,
@@ -73,7 +75,13 @@
 
   let summaryTooLong = $derived(summary.length > 72);
   let canGenerate = $derived(stagedCount > 0 && !busy && !generating && !abortBusy);
-  let canCommit = $derived(stagedCount > 0 && !!summary.trim() && !busy && !generating && !abortBusy);
+  let canCommit = $derived(
+    stagedCount > 0 &&
+      (allowEmptyMessage || !!summary.trim()) &&
+      !busy &&
+      !generating &&
+      !abortBusy
+  );
   let canAbortOperation = $derived(showAbortOperation && !abortBusy);
   let commitButtonLabel = $derived(
     stagedCount === 0

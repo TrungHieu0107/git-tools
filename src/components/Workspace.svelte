@@ -49,6 +49,7 @@
   let commitGraph = $state<any>(null);
   let selectedFile = $state<FileStatus | null>(null);
   let pendingCommitFocusHash = $state<string | null>(null);
+  let conflictAutoNavigatedRepo: string | null = null;
 
   async function handleConflictDetection() {
     if (!repoPath) {
@@ -57,8 +58,14 @@
     }
     try {
         hasConflicts = await GitService.checkConflictState(repoPath);
-        if (hasConflicts && currentView === 'repos') {
+        if (hasConflicts) {
              currentView = 'conflicts';
+             if (isActive && conflictAutoNavigatedRepo !== repoPath) {
+                 conflictAutoNavigatedRepo = repoPath;
+                 await navigateToCommitPanel();
+             }
+        } else if (conflictAutoNavigatedRepo === repoPath) {
+             conflictAutoNavigatedRepo = null;
         }
     } catch (e) {
         console.error("Failed to check conflict state:", e);
@@ -136,6 +143,10 @@
   async function navigateToCommitPanel(): Promise<void> {
       activeTab = "graph";
       await tick();
+      if (!commitGraph && !graphLoading) {
+          await loadGraph({ switchToGraph: false });
+          await tick();
+      }
       if (commitGraph?.selectWipRow) {
           commitGraph.selectWipRow();
       }

@@ -388,9 +388,13 @@
     if (!repoPath || commitActionState !== "idle") return;
     commitActionState = "committing";
     try {
-      await GitService.commit(message, repoPath);
-      if (push) {
-        await GitService.push(repoPath);
+      if (operationState.isRebasing) {
+        await rebaseStore.continue(repoPath);
+      } else {
+        await GitService.commit(message, repoPath);
+        if (push) {
+          await GitService.push(repoPath);
+        }
       }
       await loadStatus();
       selectedFile = null;
@@ -742,6 +746,7 @@
         stagedCount={stagedFiles.length}
         busy={committing}
         abortBusy={abortingOperation}
+        allowEmptyMessage={operationState.isRebasing}
         generating={generatingCommitMessage}
         bind:message={commitMessage}
         onCommit={handleCommit}
@@ -898,6 +903,7 @@
         stagedCount={stagedFiles.length}
         busy={committing}
         abortBusy={abortingOperation}
+        allowEmptyMessage={operationState.isRebasing}
         generating={generatingCommitMessage}
         bind:message={commitMessage}
         onCommit={handleCommit}
