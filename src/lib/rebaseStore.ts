@@ -340,6 +340,32 @@ function createRebaseStore() {
     },
     cancelEditing: () => {
       update(s => ({ ...s, status: "idle", todoItems: [], baseCommit: null }));
+    },
+    /**
+     * Hydrate rebaseStore when the app starts with an already in-progress rebase.
+     * Without this, the overlay buttons (Abort/Skip/Continue) silently no-op
+     * because state.repoPath is null.
+     */
+    syncFromExistingRebase: async (repoPath: string) => {
+      const state = get(rebaseStore);
+      if (state.repoPath === repoPath && state.status !== "idle") return;
+      try {
+        const status: FullRebaseStatus = await invoke("cmd_get_rebase_status", { repoPath });
+        const mapped = status.status as RebaseStatus;
+        if (mapped !== "idle") {
+          update(s => ({
+            ...s,
+            repoPath,
+            status: mapped,
+            step: status.step,
+            ontoBranch: status.ontoBranch,
+            upstreamBranch: status.upstreamBranch,
+          }));
+          startPolling();
+        }
+      } catch (e) {
+        console.error("Failed to sync rebase state from existing rebase:", e);
+      }
     }
   };
 }

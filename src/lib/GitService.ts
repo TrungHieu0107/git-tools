@@ -25,6 +25,9 @@ export interface GitOperationState {
   oursBranch?: string | null;
   theirsCommit?: string | null;
   theirsBranch?: string | null;
+  rebaseCurrent?: number | null;
+  rebaseTotal?: number | null;
+  rebaseMessage?: string | null;
 }
 
 export interface RepoEntry {

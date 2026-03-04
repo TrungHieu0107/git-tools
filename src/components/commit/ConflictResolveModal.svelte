@@ -793,17 +793,17 @@
                 </div>
                 <div class="px-1 text-right text-[#7d8590] select-none text-xs">{row.lineNo}</div>
                 <div class="pr-3 pl-2 whitespace-pre overflow-hidden text-ellipsis {isTheirs ? 'text-[#fff3bf]' : isOurs ? 'text-[#d5f5ff]' : 'text-[#d2d9e7]'}">
-                {#if isConflict && (isOurs || isTheirs)}
-                  <span class="inline-flex items-center gap-1">
-                    <svg class="w-3.5 h-3.5 text-green-400 shrink-0 inline" viewBox="0 0 20 20" fill="none">
-                      <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
-                      <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
+                  {#if isConflict && (isOurs || isTheirs)}
+                    <span class="inline-flex items-center gap-1">
+                      <svg class="w-3.5 h-3.5 text-green-400 shrink-0 inline" viewBox="0 0 20 20" fill="none">
+                        <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
+                        <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                      {row.text || " "}
+                    </span>
+                  {:else}
                     {row.text || " "}
-                  </span>
-                {:else}
-                  {row.text || " "}
-                {/if}
+                  {/if}
                 </div>
               </div>
             {/each}

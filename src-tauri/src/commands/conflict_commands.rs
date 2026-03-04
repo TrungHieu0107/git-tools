@@ -14,6 +14,9 @@ pub struct GitOperationState {
     pub ours_branch: Option<String>,
     pub theirs_commit: Option<String>,
     pub theirs_branch: Option<String>,
+    pub rebase_current: Option<usize>,
+    pub rebase_total: Option<usize>,
+    pub rebase_message: Option<String>,
 }
 
 fn detect_operation_flags(git_dir: &Path) -> (bool, bool, bool, bool) {
@@ -201,10 +204,18 @@ async fn resolve_conflict_metadata(
     is_rebasing: bool,
     is_cherry_picking: bool,
     is_reverting: bool,
-) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<usize>,
+    Option<usize>,
+    Option<String>,
+) {
     let has_operation = is_merging || is_rebasing || is_cherry_picking || is_reverting;
     if !has_operation {
-        return (None, None, None, None);
+        return (None, None, None, None, None, None, None);
     }
 
     // ours commit: git rev-parse --short HEAD
@@ -223,6 +234,9 @@ async fn resolve_conflict_metadata(
 
     let mut theirs_commit: Option<String> = None;
     let mut theirs_branch: Option<String> = None;
+    let mut rebase_current: Option<usize> = None;
+    let mut rebase_total: Option<usize> = None;
+    let mut rebase_message: Option<String> = None;
 
     if is_merging {
         if let Some(hash) = read_git_file(git_dir, "MERGE_HEAD") {
@@ -241,8 +255,20 @@ async fn resolve_conflict_metadata(
                 .map(|r| r.stdout.trim().to_string())
                 .filter(|s| !s.is_empty());
         }
-        theirs_branch = read_git_file(git_dir, "rebase-merge/head-name")
-            .and_then(|s| s.strip_prefix("refs/heads/").map(|b| b.to_string()));
+        let merge_dir = git_dir.join("rebase-merge");
+        let apply_dir = git_dir.join("rebase-apply");
+        if merge_dir.exists() {
+            theirs_branch = read_git_file(git_dir, "rebase-merge/head-name")
+                .and_then(|s| s.strip_prefix("refs/heads/").map(|b| b.to_string()));
+            rebase_current = read_git_file(git_dir, "rebase-merge/msgnum").and_then(|s| s.parse().ok());
+            rebase_total = read_git_file(git_dir, "rebase-merge/end").and_then(|s| s.parse().ok());
+            rebase_message = read_git_file(git_dir, "rebase-merge/message");
+        } else if apply_dir.exists() {
+            rebase_current = read_git_file(git_dir, "rebase-apply/next").and_then(|s| s.parse().ok());
+            rebase_total = read_git_file(git_dir, "rebase-apply/last").and_then(|s| s.parse().ok());
+            rebase_message = read_git_file(git_dir, "rebase-apply/msg-clean")
+                .or_else(|| read_git_file(git_dir, "rebase-apply/final-commit"));
+        }
     } else if is_cherry_picking {
         if let Some(hash) = read_git_file(git_dir, "CHERRY_PICK_HEAD") {
             theirs_commit = git_run(state, Some(repo_path.to_string()), &["rev-parse", "--short", &hash], TIMEOUT_QUICK)
@@ -261,7 +287,7 @@ async fn resolve_conflict_metadata(
         }
     }
 
-    (ours_commit, ours_branch, theirs_commit, theirs_branch)
+    (ours_commit, ours_branch, theirs_commit, theirs_branch, rebase_current, rebase_total, rebase_message)
 }
 
 pub async fn cmd_get_operation_state_impl(
@@ -278,7 +304,7 @@ pub async fn cmd_get_operation_state_impl(
     let conflict_paths = get_unmerged_paths_from_index(&state, &path).await?;
     let has_conflicts = !conflict_paths.is_empty();
 
-    let (ours_commit, ours_branch, theirs_commit, theirs_branch) =
+    let (ours_commit, ours_branch, theirs_commit, theirs_branch, rebase_current, rebase_total, rebase_message) =
         resolve_conflict_metadata(&state, &path, &git_dir, is_merging, is_rebasing, is_cherry_picking, is_reverting).await;
 
     Ok(GitOperationState {
@@ -292,5 +318,8 @@ pub async fn cmd_get_operation_state_impl(
         ours_branch,
         theirs_commit,
         theirs_branch,
+        rebase_current,
+        rebase_total,
+        rebase_message,
     })
 }

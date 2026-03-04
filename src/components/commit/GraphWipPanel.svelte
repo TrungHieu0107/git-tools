@@ -98,6 +98,9 @@
       oursBranch: state.oursBranch ?? null,
       theirsCommit: state.theirsCommit ?? null,
       theirsBranch: state.theirsBranch ?? null,
+      rebaseCurrent: state.rebaseCurrent ?? null,
+      rebaseTotal: state.rebaseTotal ?? null,
+      rebaseMessage: state.rebaseMessage ?? null,
     };
   }
 
@@ -438,6 +441,11 @@
       await loadStatus();
       selectedFile = null;
       onCommitSuccess?.();
+    } catch (e: any) {
+      console.error("Abort operation failed:", e);
+      toast.error(`Abort failed: ${e?.message || e || "Unknown error"}`);
+      // Still try to reload status even on error
+      try { await loadStatus(); } catch { /* ignore */ }
     } finally {
       commitActionState = "idle";
     }
@@ -450,6 +458,10 @@
       await rebaseStore.skip(repoPath);
       await loadStatus();
       onCommitSuccess?.();
+    } catch (e: any) {
+      console.error("Skip rebase failed:", e);
+      toast.error(`Skip failed: ${e?.message || e || "Unknown error"}`);
+      try { await loadStatus(); } catch { /* ignore */ }
     } finally {
       commitActionState = "idle";
     }
@@ -749,29 +761,78 @@
 
     <!-- Commit section for conflict mode -->
     <div class="shrink-0 border-t border-[#30363d] bg-[#1c2128]">
-      <CommitActions
-        stagedCount={stagedFiles.length}
-        busy={committing}
-        abortBusy={abortingOperation}
-        allowEmptyMessage={operationState.isRebasing}
-        generating={generatingCommitMessage}
-        bind:message={commitMessage}
-        onCommit={handleCommit}
-        onGenerate={handleGenerateCommitMessage}
-        showAbortOperation={true}
-        primaryActionLabel={primaryOperationLabel}
-        {abortOperationLabel}
-        onAbortOperation={handleAbortOperation}
-      />
-      {#if operationState.isRebasing && commitActionState === 'idle'}
-        <div class="px-1.5 pb-2">
+      {#if operationState.isRebasing}
+        <div class="px-1.5 pt-2 pb-2 flex flex-col gap-2">
+          <div class="flex items-center px-1 text-[13px] text-[#d0d7de] font-semibold">
+            <span class="inline-flex items-center gap-1.5">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M3.5 12h4.5M16 12h4.5"></path>
+              </svg>
+              Commit
+            </span>
+          </div>
+          
+          <label class="inline-flex items-center gap-2 px-1 text-[12px] text-[#c9d1d9] select-none cursor-not-allowed w-max">
+            <input type="checkbox" disabled class="h-3.5 w-3.5 rounded-[2px] border border-[#484f58] bg-[#161b22] text-[#58a6ff] focus:ring-0 focus:ring-offset-0 cursor-not-allowed opacity-50" />
+            <span class="opacity-50">Amend previous commit</span>
+          </label>
+
+          <div class="px-1 text-[#c9d1d9] text-[13px]">
+            Rebasing commit {operationState.rebaseCurrent || '?'} out of {operationState.rebaseTotal || '?'}
+          </div>
+
+          <div class="px-2 py-1.5 rounded border border-[#30363d] bg-[#161b22] text-[#c9d1d9] text-[12px] whitespace-pre-wrap max-h-24 overflow-y-auto font-mono">
+            {operationState.rebaseMessage || "No commit message"}
+            
+            {#if conflictPaths.size > 0}
+              <div class="mt-2 text-[#8b949e]">
+                <div># Conflicts:</div>
+                {#each Array.from(conflictPaths) as conflict}
+                  <div>#	{conflict}</div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+
           <button
             type="button"
-            class="w-full h-8 px-3 rounded-sm border border-[#30363d] bg-[#21262d] text-[#c9d1d9] hover:bg-[#30363d] transition-colors text-[12px] font-semibold disabled:opacity-45 disabled:cursor-not-allowed"
-            onclick={handleSkipRebase}
-            disabled={abortingOperation || committing}
-          >Skip Current Commit</button>
+            class="inline-flex items-center gap-1.5 h-7 px-1 text-[12px] text-[#8b949e] hover:text-[#c9d1d9] transition-colors focus:outline-none w-max"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6"></path></svg>
+            Commit options
+          </button>
+
+          <div class="grid grid-cols-2 gap-2 mt-1">
+            <button
+              type="button"
+              class="w-full h-8 px-3 rounded-sm border border-[#2ea043] bg-[#163222] text-[#d0d7de] hover:bg-[#1b3d29] disabled:opacity-45 transition-colors text-[13px] font-semibold"
+              onclick={handleSkipRebase}
+              disabled={abortingOperation || committing}
+            >Skip Commit</button>
+            <button
+              type="button"
+              class="w-full h-8 px-3 rounded-sm border border-[#f85149] bg-[#3a1b23] text-[#f3d7db] hover:bg-[#4a232d] disabled:opacity-45 transition-colors text-[13px] font-semibold"
+              onclick={handleAbortOperation}
+              disabled={abortingOperation || committing}
+            >Abort Rebase</button>
+          </div>
         </div>
+      {:else}
+        <CommitActions
+          stagedCount={stagedFiles.length}
+          busy={committing}
+          abortBusy={abortingOperation}
+          allowEmptyMessage={operationState.isRebasing}
+          generating={generatingCommitMessage}
+          bind:message={commitMessage}
+          onCommit={handleCommit}
+          onGenerate={handleGenerateCommitMessage}
+          showAbortOperation={true}
+          primaryActionLabel={primaryOperationLabel}
+          {abortOperationLabel}
+          onAbortOperation={handleAbortOperation}
+        />
       {/if}
     </div>
 

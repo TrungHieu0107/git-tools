@@ -455,20 +455,29 @@
               return;
           }
 
+          // When app starts with an already in-progress rebase, the rebaseStore
+          // may not have the repoPath set (it's only set when startRebase or
+          // prepareInteractive is called). Sync the store so the RebaseProgress
+          // overlay buttons (Abort/Skip/Continue) actually work.
+          if (opState.isRebasing && repoPath) {
+              void rebaseStore.syncFromExistingRebase(repoPath);
+          }
+
           if (!isWipRowSelected) {
               selectWipRow();
           }
 
           if (!opState.hasConflicts) {
               conflictBannerMessage = null;
-              await tick();
-              wipPanelRef?.refresh?.();
+              // Defer refresh to next macrotask to avoid blocking the UI thread
+              // and prevent cascading synchronous reactive updates
+              setTimeout(() => wipPanelRef?.refresh?.(), 0);
               return;
           }
 
           if (notify) {
               if (opState.isRebasing) {
-                  toast.error("Rebase encountered conflicts. Resolve them to continue.");
+                  toast.error("Rebase encountered conflicts. Resolve them in the Commit Panel to continue.");
               } else if (opState.isMerging) {
                   toast.error("Merge encountered conflicts. Resolve them to continue.");
               } else if (opState.isCherryPicking) {
@@ -487,12 +496,12 @@
           } else {
               conflictBannerMessage = "A file conflict was found when attempting to revert";
           }
-          // Inline refresh: avoid calling ensureWipPanelRefreshedForConflict() which
-          // would call selectWipRow() a second time (already called at line above),
-          // triggering another loadWipSummary() cascade.
-          await loadWipSummary();
-          await tick();
-          wipPanelRef?.refresh?.();
+          // Defer all heavy state-mutating work to the next macrotask so
+          // Svelte can finish its current tick without cascading effects.
+          setTimeout(() => {
+              void loadWipSummary();
+              wipPanelRef?.refresh?.();
+          }, 0);
       } catch (e) {
           console.error("Failed to check post-rebase state", e);
       } finally {
