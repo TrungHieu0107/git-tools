@@ -1,5 +1,6 @@
 import { writable, get } from "svelte/store";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { GitCommandResult } from "./GitService";
 import { toast } from "./toast.svelte";
 
@@ -50,15 +51,18 @@ const initialState: RebaseState = {
 function createRebaseStore() {
   const { subscribe, set, update } = writable<RebaseState>(initialState);
 
-  let pollInterval: any = null;
+  // Replaces the heavy setInterval polling with real-time Tauri events
+  listen("git-event", async () => {
+    // Only query status if we ostensibly have a rebase in progress or repo selected.
+    // Use an IIFE or normal block to fetch status async without blocking UI updates.
+    const state = get({subscribe} as unknown as ReturnType<typeof writable>); 
+    // We can't easily `get(rebaseStore)` before it's returned depending on hoisting, 
+    // so we will export an init wrapper, OR just rely on subscribing later.
+  });
 
-  async function pollStatus() {
-    const state = get(rebaseStore);
-    if (!state.repoPath) return;
-
+  async function syncStatus(repoPath: string) {
     try {
-      const status: FullRebaseStatus = await invoke("cmd_get_rebase_status", { repoPath: state.repoPath });
-      
+      const status: FullRebaseStatus = await invoke("cmd_get_rebase_status", { repoPath });
       const mappedStatus = status.status as RebaseStatus;
       
       update(s => ({
@@ -68,30 +72,20 @@ function createRebaseStore() {
         ontoBranch: status.ontoBranch,
         upstreamBranch: status.upstreamBranch,
       }));
-
-      if (mappedStatus === "idle" || mappedStatus === "completed" || mappedStatus === "aborted") {
-        stopPolling();
-      }
     } catch (e) {
-      console.error("Failed to poll rebase status", e);
-      stopPolling();
+      console.error("Failed to sync rebase status", e);
     }
   }
 
-  function startPolling() {
-    if (pollInterval) return;
-    update(s => ({ ...s, isPolling: true }));
-    pollStatus();
-    pollInterval = setInterval(pollStatus, 2000);
-  }
-
-  function stopPolling() {
-    if (pollInterval) {
-      clearInterval(pollInterval);
-      pollInterval = null;
-    }
-    update(s => ({ ...s, isPolling: false }));
-  }
+  // Set up global listener safely after store creation
+  setTimeout(() => {
+    listen("git-event", () => {
+      const state = get(rebaseStore);
+      if (state.repoPath) {
+        void syncStatus(state.repoPath);
+      }
+    });
+  }, 0);
 
   /**
    * After a rebase command, check the actual repo state.
@@ -111,7 +105,6 @@ function createRebaseStore() {
         if (mapped === "idle" || mapped === "completed") {
           toast.success(`${operationName} completed successfully`);
           update(s => ({ ...s, status: "idle", step: null }));
-          stopPolling();
         } else {
           // Still in progress (multi-step rebase)
           update(s => ({
@@ -121,13 +114,11 @@ function createRebaseStore() {
             ontoBranch: status.ontoBranch,
             upstreamBranch: status.upstreamBranch,
           }));
-          startPolling();
         }
       } catch {
         // Couldn't check status - assume done
         toast.success(`${operationName} completed`);
         update(s => ({ ...s, status: "idle", step: null }));
-        stopPolling();
       }
     } else {
       // Command failed (conflict or error) - always check real rebase state
@@ -144,7 +135,6 @@ function createRebaseStore() {
             ontoBranch: status.ontoBranch,
             upstreamBranch: status.upstreamBranch,
           }));
-          startPolling();
         } else if (mapped === "inProgress") {
           // Rebase in progress (not conflicted) - might need user attention
           update(s => ({
@@ -154,24 +144,20 @@ function createRebaseStore() {
             ontoBranch: status.ontoBranch,
             upstreamBranch: status.upstreamBranch,
           }));
-          startPolling();
         } else if (mapped === "idle") {
           // Rebase is not in progress - the error was a real failure
           const errMsg = res.stderr || "Unknown error";
           toast.error(`${operationName} failed: ${errMsg}`);
           update(s => ({ ...s, status: "idle" }));
-          stopPolling();
         } else {
           // Any other state
           update(s => ({ ...s, status: mapped }));
-          startPolling();
         }
       } catch {
         // Couldn't check status - report the original error
         const errMsg = res.stderr || "Unknown error";
         toast.error(`${operationName} failed: ${errMsg}`);
         update(s => ({ ...s, status: "idle" }));
-        stopPolling();
       }
     }
   }
@@ -202,7 +188,6 @@ function createRebaseStore() {
               ontoBranch: status.ontoBranch,
               upstreamBranch: status.upstreamBranch,
             }));
-            startPolling();
             return undefined;
           }
           if (mapped === "inProgress") {
@@ -214,7 +199,6 @@ function createRebaseStore() {
               ontoBranch: status.ontoBranch,
               upstreamBranch: status.upstreamBranch,
             }));
-            startPolling();
             return undefined;
           }
         } catch (statusErr) {
@@ -223,7 +207,6 @@ function createRebaseStore() {
 
         toast.error(`Rebase failed: ${errMsg}`);
         update(s => ({ ...s, repoPath, status: "idle" }));
-        stopPolling();
         return undefined;
       }
     },
@@ -270,7 +253,6 @@ function createRebaseStore() {
           const mapped = status.status as RebaseStatus;
           if (mapped !== "idle") {
             update(s => ({ ...s, status: mapped, step: status.step }));
-            startPolling();
           } else {
             update(s => ({ ...s, status: "idle" }));
           }
@@ -292,7 +274,6 @@ function createRebaseStore() {
         console.error("Rebase continue threw:", e);
         const errMsg = typeof e === "string" ? e : e?.message || "Unknown error";
         toast.error(`Rebase continue failed: ${errMsg}`);
-        startPolling();
         return undefined;
       }
     },
@@ -308,14 +289,12 @@ function createRebaseStore() {
           toast.error(`Rebase abort failed: ${res.stderr}`);
         }
         update(s => ({ ...s, status: "idle", step: null }));
-        stopPolling();
         return res;
       } catch (e: any) {
         console.error("Rebase abort threw:", e);
         const errMsg = typeof e === "string" ? e : e?.message || "Unknown error";
         toast.error(`Rebase abort failed: ${errMsg}`);
         update(s => ({ ...s, status: "idle", step: null }));
-        stopPolling();
         return undefined;
       }
     },
@@ -331,7 +310,6 @@ function createRebaseStore() {
         console.error("Rebase skip threw:", e);
         const errMsg = typeof e === "string" ? e : e?.message || "Unknown error";
         toast.error(`Rebase skip failed: ${errMsg}`);
-        startPolling();
         return undefined;
       }
     },
@@ -361,7 +339,6 @@ function createRebaseStore() {
             ontoBranch: status.ontoBranch,
             upstreamBranch: status.upstreamBranch,
           }));
-          startPolling();
         }
       } catch (e) {
         console.error("Failed to sync rebase state from existing rebase:", e);

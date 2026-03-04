@@ -240,6 +240,18 @@
     } catch (_e) { /* toast handled */ }
   }
 
+  async function handleStageAllConflicts() {
+    if (!repoPath) return;
+    try {
+      const promises = conflictedFiles.map(f => GitService.stageFile(f.path, repoPath!));
+      await Promise.all(promises);
+      await loadStatus();
+    } catch (e: any) {
+      console.error("Failed to stage all conflicts:", e);
+      toast.error(`Failed to stage all conflicts: ${e}`);
+    }
+  }
+
   async function handleUnstageAll() {
     if (!repoPath) return;
     try {
@@ -709,18 +721,42 @@
           <div class="p-1">
             {#each conflictedFiles as file (file.path)}
               <div
-                class="flex items-center gap-2 px-2 py-1.5 text-xs rounded cursor-pointer transition-colors hover:bg-[#111827] {selectedFile?.path === file.path ? 'bg-[#1e293b] text-white' : ''}"
+                class="flex items-center gap-2 px-2 py-1.5 text-xs rounded cursor-pointer transition-colors hover:bg-[#111827] {selectedFile?.path === file.path ? 'bg-[#1e293b] text-white' : ''} group"
                 onclick={() => handleSelect(file)}
                 role="button"
                 tabindex="0"
               >
                 <FileChangeStatusBadge status="U" compact={true} showCode={true} className="shrink-0" />
-                <span class="truncate text-[#c9d1d9] min-w-0">{resolvePathForActions(file.path)}</span>
-                <button
-                  type="button"
-                  class="ml-auto shrink-0 text-[10px] font-medium text-[#8b949e] hover:text-[#58a6ff] px-1.5 py-0.5 rounded hover:bg-[#1f2f45] transition-colors"
-                  onclick={(e) => { e.stopPropagation(); handleResolveConflict(file); }}
-                >Resolve</button>
+                <span class="truncate text-[#c9d1d9] min-w-0 flex-1">{resolvePathForActions(file.path)}</span>
+                
+                <!-- Quick actions group -->
+                <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-auto shrink-0" style="{selectedFile?.path === file.path ? 'opacity: 1;' : ''}">
+                  <!-- Open in Editor -->
+                  <button 
+                    type="button"
+                    class="p-1 px-1.5 text-[#8b949e] hover:text-[#c9d1d9] hover:bg-[#30363d] rounded transition-colors"
+                    title="Open in Editor"
+                    onclick={(e) => { e.stopPropagation(); handleOpenInEditor(file); }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                  </button>
+                  <!-- Resolve in internal editor -->
+                  <button
+                    type="button"
+                    class="text-[10px] font-medium text-[#8b949e] hover:text-[#58a6ff] px-1.5 py-0.5 rounded hover:bg-[#1f2f45] transition-colors"
+                    title="Resolve in split view"
+                    onclick={(e) => { e.stopPropagation(); handleResolveConflict(file); }}
+                  >Resolve</button>
+                  <!-- Mark as Resolved (Stage) -->
+                  <button 
+                    type="button"
+                    class="p-1 px-1.5 text-[#8b949e] hover:text-[#3fb950] hover:bg-[#163222] rounded transition-colors"
+                    title="Mark as Resolved"
+                    onclick={(e) => { e.stopPropagation(); handleStage(file); }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </button>
+                </div>
               </div>
             {/each}
           </div>
@@ -741,7 +777,7 @@
           <div class="p-1">
             {#each resolvedFiles as file (file.path)}
               <div
-                class="flex items-center gap-2 px-2 py-1.5 text-xs rounded cursor-pointer transition-colors hover:bg-[#111827] {selectedFile?.path === file.path ? 'bg-[#1e293b] text-white' : ''}"
+                class="flex items-center gap-2 px-2 py-1.5 text-xs rounded cursor-pointer transition-colors hover:bg-[#111827] {selectedFile?.path === file.path ? 'bg-[#1e293b] text-white' : ''} group"
                 onclick={() => handleSelect(file)}
                 role="button"
                 tabindex="0"
@@ -749,7 +785,18 @@
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="20 6 9 17 4 12"/>
                 </svg>
-                <span class="truncate text-[#c9d1d9] min-w-0">{resolvePathForActions(file.path)}</span>
+                <span class="truncate text-[#c9d1d9] min-w-0 flex-1">{resolvePathForActions(file.path)}</span>
+                
+                <!-- Mark as Unresolved (Undo) -->
+                <button 
+                  type="button"
+                  class="ml-auto p-1 px-1.5 text-[#8b949e] hover:text-[#f85149] hover:bg-[#3a1b23] rounded opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                  style="{selectedFile?.path === file.path ? 'opacity: 1;' : ''}"
+                  title="Mark as Unresolved"
+                  onclick={(e) => { e.stopPropagation(); handleUnstage(file); }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+                </button>
               </div>
             {/each}
           </div>
