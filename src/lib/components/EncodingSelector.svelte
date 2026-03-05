@@ -47,9 +47,11 @@
         <span class="prefix">Encoding:</span>
         <select 
             id="encoding-select"
-            value={selectedEncoding || "UTF-8"} 
+            value={selectedEncoding || "default"} 
             on:change={handleChange}
         >
+            <option value="default">Repository Default</option>
+            <hr />
             {#each encodingGroups as group}
                 <optgroup label={group.group}>
                     {#each group.items as enc}

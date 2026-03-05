@@ -62,4 +62,8 @@ export class RepositoryService {
   static async setRepoDefaultEncoding(repoPath: string, encoding: string): Promise<AppSettings> {
     return invoke("cmd_set_repo_default_encoding", { repoPath, encoding });
   }
+
+  static async setFileEncodingOverride(repoPath: string, filePath: string, encoding: string): Promise<AppSettings> {
+    return invoke("cmd_set_file_encoding_override", { repoPath, filePath, encoding });
+  }
 }

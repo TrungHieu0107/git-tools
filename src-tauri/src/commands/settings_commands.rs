@@ -251,3 +251,36 @@ pub fn cmd_set_repo_default_encoding_impl(
     save_settings(&app_handle, &settings)?;
     Ok(settings.clone())
 }
+
+pub fn cmd_set_file_encoding_override_impl(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    repo_path: String,
+    file_path: String,
+    encoding: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    
+    // Normalize paths
+    let normalized_repo = repo_path.replace('\\', "/");
+    let normalized_file = file_path.replace('\\', "/");
+    
+    // Construct the exact path lookup key that encoding.rs globs or exact matches against.
+    // For file_encodings, the app expects either a glob or exact path.
+    // The previous implementation of `resolve_file_encoding` just checks `pattern.matches(&path_str)`
+    // where path_str is the absolute path.
+    
+    let path = std::path::Path::new(&normalized_repo).join(&normalized_file);
+    let path_str = path.to_string_lossy().replace('\\', "/");
+    
+    let trimmed = encoding.trim().to_string();
+
+    if trimmed.is_empty() || trimmed.to_lowercase() == "default" {
+        settings.file_encodings.remove(&path_str);
+    } else {
+        settings.file_encodings.insert(path_str, trimmed);
+    }
+
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}

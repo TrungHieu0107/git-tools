@@ -114,6 +114,14 @@ export class GitService {
     return RepositoryService.closeRepo(id);
   }
 
+  static async setRepoDefaultEncoding(repoPath: string, encoding: string): Promise<AppSettings> {
+    return RepositoryService.setRepoDefaultEncoding(repoPath, encoding);
+  }
+
+  static async setFileEncodingOverride(repoPath: string, filePath: string, encoding: string): Promise<AppSettings> {
+    return RepositoryService.setFileEncodingOverride(repoPath, filePath, encoding);
+  }
+
   static async getActiveRepo(): Promise<RepoEntry | null> {
     return RepositoryService.getActiveRepo();
   }

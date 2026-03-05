@@ -344,6 +344,21 @@
       modifiedContent = "";
 
       try {
+          const settings = await GitService.getSettings();
+          const normalizedRepo = (repoPath || "").replace(/\\/g, "/");
+          const normalizedFile = file.replace(/\\/g, "/");
+          const fullPath = `${normalizedRepo}/${normalizedFile}`;
+          
+          if (settings.file_encodings?.[fullPath]) {
+              selectedEncoding = settings.file_encodings[fullPath];
+          } else {
+              selectedEncoding = settings.repo_default_encodings?.[normalizedRepo] || undefined;
+          }
+      } catch {
+          selectedEncoding = undefined;
+      }
+
+      try {
           const [mod, parentContents] = await Promise.all([
               GitService.getFileAtCommit(targetCommitHash, file, repoPath, selectedEncoding)
                   .catch(() => ""), // Deleted file at selected commit
@@ -379,7 +394,17 @@
   }
 
   function handleEncodingChange(encoding: string) {
-      selectedEncoding = encoding;
+      // If it's "default", map it to empty string so the backend clears the override.
+      const encodingToSave = encoding === "default" ? "" : encoding;
+      // Keep visual state as undefined for fallback mode.
+      selectedEncoding = encoding === "default" ? undefined : encoding;
+
+      if (repoPath && selectedDiffFile) {
+          GitService.setFileEncodingOverride(repoPath, selectedDiffFile, encodingToSave).catch(e => {
+              console.error("Failed to save file encoding override", e);
+          });
+      }
+
       if (selectedDiffFile) {
           if (isWipRowSelected) {
               openWipDiff({ path: selectedDiffFile, status: "", staged: false });
@@ -398,6 +423,21 @@
       isLoadingDiff = true;
       baseContent = "";
       modifiedContent = "";
+
+      try {
+          const settings = await GitService.getSettings();
+          const normalizedRepo = (repoPath || "").replace(/\\/g, "/");
+          const normalizedFile = file.path.replace(/\\/g, "/");
+          const fullPath = `${normalizedRepo}/${normalizedFile}`;
+          
+          if (settings.file_encodings?.[fullPath]) {
+              selectedEncoding = settings.file_encodings[fullPath];
+          } else {
+              selectedEncoding = settings.repo_default_encodings?.[normalizedRepo] || undefined;
+          }
+      } catch {
+          selectedEncoding = undefined;
+      }
       try {
           const [base, mod] = await Promise.all([
               GitService.getFileBaseContent(file.path, file.staged, repoPath, selectedEncoding),

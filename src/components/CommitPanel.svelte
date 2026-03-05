@@ -268,15 +268,37 @@
 
   function handleSelect(file: FileStatus) {
       selectedFile = file;
-      selectedEncoding = undefined; // Reset encoding on new file
-      // Refresh file lists so changes made outside the app (e.g. in an
-      // editor) are picked up whenever the user switches files.
-      loadStatus(true);
+      
+      // Default to the repo's configured default encoding, if any, when switching files.
+      // We don't await because loadStatus is already spinning and loadDiff doesn't need to block UI here immediately.
+      // But actually, we want the dropdown to be in sync when diff loads.
+      GitService.getSettings().then(settings => {
+          const normalizedRepo = (repoPath || "").replace(/\\/g, "/");
+          const normalizedFile = file.path.replace(/\\/g, "/");
+          const fullPath = `${normalizedRepo}/${normalizedFile}`;
+          
+          if (settings.file_encodings?.[fullPath]) {
+              selectedEncoding = settings.file_encodings[fullPath];
+          } else {
+              selectedEncoding = settings.repo_default_encodings?.[normalizedRepo] || undefined;
+          }
+          loadStatus(true);
+      }).catch(() => {
+          selectedEncoding = undefined;
+          loadStatus(true);
+      });
   }
 
   function handleEncodingChange(encoding: string) {
-      selectedEncoding = encoding;
-      if (selectedFile) {
+      // If it's "default", map it to empty string so the backend clears the override.
+      const encodingToSave = encoding === "default" ? "" : encoding;
+      // We keep the visual state as undefined if "default" so the selector matches the Repo fallback behavior visually if no group matches.
+      selectedEncoding = encoding === "default" ? undefined : encoding;
+
+      if (selectedFile && repoPath) {
+          GitService.setFileEncodingOverride(repoPath, selectedFile.path, encodingToSave).catch(e => {
+              console.error("Failed to save file encoding override", e);
+          });
           loadDiff(selectedFile);
       }
   }

@@ -405,7 +405,17 @@
   }
 
   function handleEncodingChange(encoding: string): void {
-    selectedEncoding = encoding;
+    // If it's "default", map it to empty string so the backend clears the override.
+    const encodingToSave = encoding === "default" ? "" : encoding;
+    // Keep visual state as undefined for fallback mode.
+    selectedEncoding = encoding === "default" ? undefined : encoding;
+
+    if (repoPath && filePath) {
+        GitService.setFileEncodingOverride(repoPath, filePath, encodingToSave).catch(e => {
+            console.error("Failed to save file encoding override", e);
+        });
+    }
+
     if (filePath) {
       void loadConflict(filePath);
     }
@@ -440,6 +450,21 @@
     activeConflictIndex = 0;
     selectionStacks = {};
     resolvedLineSources = {};
+
+    try {
+      const settings = await GitService.getSettings();
+      const normalizedRepo = (repoPath || "").replace(/\\/g, "/");
+      const normalizedFile = targetPath.replace(/\\/g, "/");
+      const fullPath = `${normalizedRepo}/${normalizedFile}`;
+      
+      if (settings.file_encodings?.[fullPath]) {
+          selectedEncoding = settings.file_encodings[fullPath];
+      } else {
+          selectedEncoding = settings.repo_default_encodings?.[normalizedRepo] || undefined;
+      }
+    } catch {
+      selectedEncoding = undefined;
+    }
 
     try {
       const [conflictResult, modifiedContentResult] = await Promise.allSettled([

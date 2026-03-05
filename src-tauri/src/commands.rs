@@ -518,6 +518,17 @@ pub fn cmd_set_repo_default_encoding(
 }
 
 #[tauri::command]
+pub fn cmd_set_file_encoding_override(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    repo_path: String,
+    file_path: String,
+    encoding: String,
+) -> Result<AppSettings, String> {
+    settings_commands::cmd_set_file_encoding_override_impl(app_handle, state, repo_path, file_path, encoding)
+}
+
+#[tauri::command]
 pub async fn cmd_get_gemini_models(
     state: State<'_, AppState>,
     token: Option<String>,

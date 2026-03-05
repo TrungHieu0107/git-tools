@@ -100,6 +100,7 @@ fn main() {
             commands::cmd_create_patch_from_commit,
             commands::cmd_delete_file,
             commands::cmd_set_repo_default_encoding,
+            commands::cmd_set_file_encoding_override,
             commands::cmd_git_blame,
             commands::cmd_git_unstage_all,
             commands::cmd_get_file_history,

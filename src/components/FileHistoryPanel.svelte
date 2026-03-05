@@ -131,7 +131,7 @@
     }
   }
 
-  function selectFile(path: string) {
+  async function selectFile(path: string) {
     searchQuery = ""; // Optionally keep the query or clear it? Keeping it clear for now.
     showDropdown = false;
     selectedIndex = -1;
@@ -139,13 +139,40 @@
     baseContent = "";
     modifiedContent = "";
     commitHunks = [];
+    
+    // Default to repo's configured encoding visually
+    try {
+        const settings = await GitService.getSettings();
+        const normalizedRepo = (repoPath || "").replace(/\\/g, "/");
+        const normalizedFile = path.replace(/\\/g, "/");
+        const fullPath = `${normalizedRepo}/${normalizedFile}`;
+        
+        if (settings.file_encodings?.[fullPath]) {
+            selectedEncoding = settings.file_encodings[fullPath];
+        } else {
+            selectedEncoding = settings.repo_default_encodings?.[normalizedRepo] || undefined;
+        }
+    } catch {
+        selectedEncoding = undefined;
+    }
+
     if (onFileSelect) {
       onFileSelect(path);
     }
   }
 
   function handleEncodingChange(encoding: string) {
-      selectedEncoding = encoding;
+      // If it's "default", map it to empty string so the backend clears the override.
+      const encodingToSave = encoding === "default" ? "" : encoding;
+      // Keep visual state as undefined for fallback mode.
+      selectedEncoding = encoding === "default" ? undefined : encoding;
+
+      if (repoPath && filePath) {
+          GitService.setFileEncodingOverride(repoPath, filePath, encodingToSave).catch(e => {
+              console.error("Failed to save file encoding override", e);
+          });
+      }
+
       // Re-load current commit if selected
       const currentCommit = commits.find(c => c.hash === selectedCommitHash);
       if (currentCommit) {
