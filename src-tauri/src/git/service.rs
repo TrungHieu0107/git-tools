@@ -291,6 +291,15 @@ impl GitExecutor {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         let exit_code = output.status.code().unwrap_or(-1);
 
+        println!(
+            "[GIT END] exit={} | {}ms | stdout={}b stderr={}b | git {} (with env)",
+            exit_code,
+            duration.as_millis(),
+            stdout.len(),
+            stderr.len(),
+            args_display,
+        );
+
         if output.status.success() {
             return Ok(GitResponse {
                 stdout,
@@ -298,6 +307,14 @@ impl GitExecutor {
                 exit_code,
                 duration_ms: duration.as_millis() as u64,
             });
+        }
+
+        // Parse well-known error patterns (same as run())
+        if stderr.contains("not a git repository") {
+            return Err(GitError::NotARepo(repo_path.display().to_string()));
+        }
+        if stderr.contains("CONFLICT") || stdout.contains("CONFLICT") {
+            return Err(GitError::MergeConflict);
         }
 
         Err(GitError::CommandError(format!(

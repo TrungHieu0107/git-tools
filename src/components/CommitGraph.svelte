@@ -1288,6 +1288,8 @@
       type: RefBadgeType;
       isCurrent: boolean;
       originalIndex: number;
+      hasLocal?: boolean;
+      hasRemote?: boolean;
   };
 
   function isStashRefBadge(ref: string): boolean {
@@ -1332,13 +1334,30 @@
   }
 
   function filterDuplicatedRemoteBadges(badges: RefBadge[]): RefBadge[] {
-      const localBranchNames = new Set(
-          badges.filter((badge) => badge.type === "branch").map((badge) => badge.text.toLowerCase())
-      );
+      // Build a map of local branch names -> badge index
+      const localByName = new Map<string, number>();
+      badges.forEach((badge, idx) => {
+          if (badge.type === "branch") {
+              localByName.set(badge.text.toLowerCase(), idx);
+              badge.hasLocal = true;
+          }
+      });
+
+      // For remote badges, check if a matching local exists
+      // If so, annotate the local badge with hasRemote and skip the remote badge
       return badges.filter((badge) => {
-          if (badge.type !== "remote") return true;
-          const trackingName = badge.text.split("/").slice(1).join("/").trim().toLowerCase();
-          return !trackingName || !localBranchNames.has(trackingName);
+          if (badge.type === "remote") {
+              badge.hasRemote = true;
+              const trackingName = badge.text.split("/").slice(1).join("/").trim().toLowerCase();
+              if (trackingName && localByName.has(trackingName)) {
+                  // Merge: mark the local badge as also having a remote
+                  const localIdx = localByName.get(trackingName)!;
+                  badges[localIdx].hasRemote = true;
+                  return false; // remove duplicate remote badge
+              }
+              return true; // keep remote-only badges
+          }
+          return true;
       });
   }
 
@@ -2268,6 +2287,7 @@
   let isFetching = $state(false);
   let isPulling = $state(false);
   let isPushing = $state(false);
+  let isStashing = $state(false);
 
   async function handleFetch() {
       if (!repoPath || isFetching) return;
@@ -2308,6 +2328,20 @@
           await confirm({ title: "Push Failed", message: e.toString(), confirmLabel: "OK", cancelLabel: "Close" });
       } finally {
           isPushing = false;
+      }
+  }
+
+  async function handleStashAll() {
+      if (!repoPath || isStashing) return;
+      isStashing = true;
+      try {
+          await GitService.stashAll(repoPath);
+          await onGraphReload?.();
+      } catch (e: any) {
+          console.error("Stash All failed", e);
+          toast.error(`Stash All failed: ${e}`);
+      } finally {
+          isStashing = false;
       }
   }
 </script>
@@ -2453,6 +2487,19 @@
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 21h5v-5"></path></svg>
                     {/if}
                     <span>Fetch</span>
+                </button>
+                <button 
+                    class="text-xs text-[#8b949e] hover:text-white px-2 py-1 rounded hover:bg-[#1e293b] flex items-center gap-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    onclick={handleStashAll}
+                    disabled={!repoPath || isStashing}
+                    title="Stash All"
+                >
+                    {#if isStashing}
+                        <svg class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                    {:else}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7 6.82 21.18a2.83 2.83 0 0 1-3.99-.01a2.83 2.83 0 0 1 0-4L17 3"/><path d="m16 2 6 6"/><path d="M12 16H4"/></svg>
+                    {/if}
+                    <span>Stash All</span>
                 </button>
             </div>
 
@@ -2872,19 +2919,41 @@
                                     {#if canCheckoutFromBadge(primaryBadge)}
                                         <button
                                             type="button"
-                                            class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 truncate max-w-[118px] bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/80 cursor-pointer hover:brightness-110 {getRefBadgeClass(primaryBadge)}"
+                                            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 max-w-[140px] bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/80 cursor-pointer hover:brightness-110 {getRefBadgeClass(primaryBadge)}"
                                             title={`${primaryBadge.text} (click to checkout)`}
                                             onclick={(e) => handleBranchBadgeClick(e, primaryBadge)}
                                             oncontextmenu={(e) => handleBranchBadgeContextMenu(e, primaryBadge, node)}
                                         >
-                                            {primaryBadge.text}
+                                            <span class="inline-flex items-center gap-0.5 shrink-0">
+                                                {#if primaryBadge.hasLocal}
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" title="Local"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                                                {/if}
+                                                {#if primaryBadge.hasRemote}
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" title="Remote"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                                                {/if}
+                                                {#if primaryBadge.type === 'tag'}
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" title="Tag"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>
+                                                {/if}
+                                            </span>
+                                            <span class="truncate">{primaryBadge.text.replace(/^origin\//, '')}</span>
                                         </button>
                                     {:else}
                                         <span
-                                            class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 truncate max-w-[118px] {getRefBadgeClass(primaryBadge)}"
+                                            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 max-w-[140px] {getRefBadgeClass(primaryBadge)}"
                                             title={primaryBadge.text}
                                         >
-                                            {primaryBadge.text}
+                                            <span class="inline-flex items-center gap-0.5 shrink-0">
+                                                {#if primaryBadge.hasLocal}
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" title="Local"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                                                {/if}
+                                                {#if primaryBadge.hasRemote}
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" title="Remote"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                                                {/if}
+                                                {#if primaryBadge.type === 'tag'}
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" title="Tag"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>
+                                                {/if}
+                                            </span>
+                                            <span class="truncate">{primaryBadge.text.replace(/^origin\//, '')}</span>
                                         </span>
                                     {/if}
                                 {/if}
@@ -2898,20 +2967,42 @@
                                                 {#if canCheckoutFromBadge(badge)}
                                                     <button
                                                         type="button"
-                                                        class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/80 cursor-pointer hover:brightness-110 {getRefBadgeClass(badge)}"
+                                                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 bg-transparent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-500/80 cursor-pointer hover:brightness-110 {getRefBadgeClass(badge)}"
                                                         title={`${badge.text} (double-click to checkout)`}
                                                         onclick={(e) => e.stopPropagation()}
                                                         ondblclick={(e) => handleBranchBadgeClick(e, badge)}
                                                         oncontextmenu={(e) => handleBranchBadgeContextMenu(e, badge, node)}
                                                     >
-                                                        {badge.text}
+                                                        <span class="inline-flex items-center gap-0.5 shrink-0">
+                                                            {#if badge.hasLocal}
+                                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                                                            {/if}
+                                                            {#if badge.hasRemote}
+                                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                                                            {/if}
+                                                            {#if badge.type === 'tag'}
+                                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>
+                                                            {/if}
+                                                        </span>
+                                                        <span class="truncate">{badge.text.replace(/^origin\//, '')}</span>
                                                     </button>
                                                 {:else}
                                                     <span
-                                                        class="px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 {getRefBadgeClass(badge)}"
+                                                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border shrink-0 {getRefBadgeClass(badge)}"
                                                         title={badge.text}
                                                     >
-                                                        {badge.text}
+                                                        <span class="inline-flex items-center gap-0.5 shrink-0">
+                                                            {#if badge.hasLocal}
+                                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                                                            {/if}
+                                                            {#if badge.hasRemote}
+                                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+                                                            {/if}
+                                                            {#if badge.type === 'tag'}
+                                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>
+                                                            {/if}
+                                                        </span>
+                                                        <span class="truncate">{badge.text.replace(/^origin\//, '')}</span>
                                                     </span>
                                                 {/if}
                                             </div>

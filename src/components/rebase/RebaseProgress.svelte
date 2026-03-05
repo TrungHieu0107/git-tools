@@ -2,27 +2,42 @@
   import { rebaseStore } from "../../lib/rebaseStore";
   import { toast } from "../../lib/toast.svelte";
 
+  // Busy guard: prevent double-clicks from firing duplicate IPC calls
+  let busy = $state(false);
+
   async function handleContinue() {
+    if (busy) return;
+    busy = true;
     try {
       await rebaseStore.continue();
     } catch (e: any) {
       toast.error(`Failed to continue: ${e}`);
+    } finally {
+      busy = false;
     }
   }
 
   async function handleAbort() {
+    if (busy) return;
+    busy = true;
     try {
       await rebaseStore.abort();
     } catch (e: any) {
       toast.error(`Failed to abort: ${e}`);
+    } finally {
+      busy = false;
     }
   }
 
   async function handleSkip() {
+    if (busy) return;
+    busy = true;
     try {
       await rebaseStore.skip();
     } catch (e: any) {
       toast.error(`Failed to skip: ${e}`);
+    } finally {
+      busy = false;
     }
   }
 
@@ -73,26 +88,28 @@
       <!-- Actions -->
       <div class="flex items-center justify-between gap-4">
         <button 
-          class="text-xs text-[#f85149] hover:bg-[#3b1f2c] px-3 py-1.5 rounded transition-colors"
+          class="text-xs text-[#f85149] hover:bg-[#3b1f2c] px-3 py-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           onclick={handleAbort}
+          disabled={busy}
         >
-          Abort Rebase
+          {busy ? '...' : 'Abort Rebase'}
         </button>
 
         <div class="flex gap-2">
           <button 
-            class="text-xs text-[#c9d1d9] hover:bg-[#30363d] px-4 py-1.5 rounded transition-colors"
+            class="text-xs text-[#c9d1d9] hover:bg-[#30363d] px-4 py-1.5 rounded transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             onclick={handleSkip}
+            disabled={busy}
           >
-            Skip Commit
+            {busy ? '...' : 'Skip Commit'}
           </button>
           <button 
             class="text-xs text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed px-6 py-1.5 rounded-md font-semibold transition-colors"
             onclick={handleContinue}
-            disabled={$rebaseStore.status === "conflicted"}
+            disabled={$rebaseStore.status === "conflicted" || busy}
             title={$rebaseStore.status === "conflicted" ? "Resolve conflicts before continuing" : "Continue to next step"}
           >
-            Continue
+            {busy ? '...' : 'Continue'}
           </button>
         </div>
       </div>

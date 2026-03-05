@@ -211,12 +211,17 @@
 
   $effect(() => {
     if (reloadTrigger > 0 && repoPath && isActive) {
-        // Reload graph if we are looking at it, or just strictly reload data
-        // For now, reloading graph data is cheap enough
-        if (activeTab === 'graph') {
-             loadGraph({ switchToGraph: false });
-        }
-        handleConflictDetection();
+        // Stagger refreshes to avoid cascade storm:
+        // 1. Check conflicts first (lightweight)
+        // 2. Only reload graph if NOT in conflict state (expensive)
+        handleConflictDetection().then(() => {
+            // Yield to the event loop before deciding on graph reload
+            requestAnimationFrame(() => {
+                if (activeTab === 'graph' && !hasConflicts) {
+                    loadGraph({ switchToGraph: false });
+                }
+            });
+        });
     }
   });
 

@@ -10,7 +10,7 @@
   };
 </script>
 
-<div class="fixed bottom-4 right-4 left-4 sm:left-auto flex flex-col gap-2 z-[9999] pointer-events-none items-stretch sm:items-end">
+<div class="fixed bottom-4 left-4 right-4 sm:right-auto flex flex-col gap-2 z-[9999] pointer-events-none items-stretch sm:items-start">
   {#each toast.toasts as t (t.id)}
     <div
       class="pointer-events-auto w-full sm:min-w-[300px] sm:max-w-[400px] rounded-md shadow-lg border border-[#30363d] overflow-hidden flex items-start gap-3 p-3 text-sm
@@ -18,7 +18,7 @@
            t.type === 'error' ? 'bg-[#0d1117] text-[#f85149] border-[#da3633]/30' : 
            'bg-[#0d1117] text-[#58a6ff] border-[#1f6feb]/30'}"
       in:fly={{ y: 20, duration: 300 }}
-      out:fly={{ x: 20, duration: 200 }}
+      out:fly={{ x: -20, duration: 200 }}
     >
       <span class="mt-0.5 shrink-0">
           {#if t.type === 'success'}

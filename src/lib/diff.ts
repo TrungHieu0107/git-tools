@@ -1,6 +1,6 @@
 import type { DiffHunk as BackendDiffHunk } from "./types";
 import { backtrackEditOps, computeLCS, type EditOp } from "./lcs";
-import { escapeHtml, isLargeFile, mapLineType } from "./diff-utils";
+import { escapeHtml, isLargeFile, mapLineType, renderWhitespace } from "./diff-utils";
 import { parseGitDiff as parseGitDiffImpl } from "./git-diff-parser";
 import type { DiffLine, DiffHunk, DiffResult, InlineDiffLine } from "./diff-types";
 
@@ -13,7 +13,7 @@ export type {
   DiffStageLineTarget,
 } from "./diff-types";
 export type { ParsedDiff } from "./git-diff-parser";
-export { escapeHtml, isLargeFile };
+export { escapeHtml, isLargeFile, renderWhitespace };
 
 function normalizeLines(content: string): string[] {
   const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");

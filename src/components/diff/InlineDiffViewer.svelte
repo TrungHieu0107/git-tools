@@ -6,6 +6,7 @@
     type DiffStageLineTarget,
     mapBackendHunksToInline,
     escapeHtml,
+    renderWhitespace,
   } from "../../lib/diff";
   import type { DiffViewerBaseProps } from "./diff-viewer-types";
   import { toast } from "../../lib/toast.svelte";
@@ -306,7 +307,7 @@
               {getGutterPrefix(line)}
             </td>
             <td class="pl-2 whitespace-pre align-top"
-              >{@html escapeHtml(line.content)}</td
+              >{@html renderWhitespace(escapeHtml(line.content))}</td
             >
           </tr>
         {/each}

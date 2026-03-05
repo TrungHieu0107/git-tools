@@ -18,6 +18,13 @@ export function escapeHtml(str: string): string {
     .replace(/'/g, "&#039;");
 }
 
+export function renderWhitespace(escapedHtml: string): string {
+  return escapedHtml
+    .replace(/ /g, '<span class="relative before:content-[\'·\'] before:absolute before:inset-0 before:flex before:items-center before:justify-center before:text-[#8b949e]/40 before:pointer-events-none before:select-none"> </span>')
+    .replace(/\t/g, '<span class="line-through decoration-[#8b949e]/40 decoration-1">\t</span>');
+}
+
+
 export function isLargeFile(content: string): boolean {
   let count = 0;
   for (let i = 0; i < content.length; i++) {

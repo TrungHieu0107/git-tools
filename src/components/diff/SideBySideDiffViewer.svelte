@@ -5,6 +5,7 @@
     type DiffStageLineTarget,
     mapBackendHunksToSideBySide,
     escapeHtml,
+    renderWhitespace,
   } from "../../lib/diff";
   import type { DiffViewerBaseProps } from "./diff-viewer-types";
   import { toast } from "../../lib/toast.svelte";
@@ -312,7 +313,7 @@
                     onclick={() => void handleLineClick(pair.left, pair.right, "left")}
                     oncontextmenu={(event) => handleLineContextMenu(event, pair.left, pair.right, "left")}
                   >
-                    {@html escapeHtml(pair.left.content)}
+                    {@html renderWhitespace(escapeHtml(pair.left.content))}
                   </td>
                   <td class="w-px bg-[#30363d] p-0 align-top"></td>
                   <td
@@ -327,7 +328,7 @@
                     onclick={() => void handleLineClick(pair.right, pair.left, "right")}
                     oncontextmenu={(event) => handleLineContextMenu(event, pair.right, pair.left, "right")}
                   >
-                    {@html escapeHtml(pair.right.content)}
+                    {@html renderWhitespace(escapeHtml(pair.right.content))}
                   </td>
                 </tr>
               {/each}
@@ -348,7 +349,7 @@
                   onclick={() => void handleLineClick(line, rightLine, "left")}
                   oncontextmenu={(event) => handleLineContextMenu(event, line, rightLine, "left")}
                 >
-                  {@html escapeHtml(line.content)}
+                  {@html renderWhitespace(escapeHtml(line.content))}
                 </td>
                 <td class="w-px bg-[#30363d] p-0 align-top"></td>
                 <td
@@ -363,7 +364,7 @@
                   onclick={() => void handleLineClick(rightLine, line, "right")}
                   oncontextmenu={(event) => handleLineContextMenu(event, rightLine, line, "right")}
                 >
-                  {@html escapeHtml(rightLine.content)}
+                  {@html renderWhitespace(escapeHtml(rightLine.content))}
                 </td>
               </tr>
             {/each}

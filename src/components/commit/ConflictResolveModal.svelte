@@ -1,5 +1,6 @@
 <script lang="ts">
   import { GitService, type ConflictFile, type GitOperationState } from "../../lib/GitService";
+  import { escapeHtml, renderWhitespace } from "../../lib/diff";
   import { toast } from "../../lib/toast.svelte";
   import EncodingSelector from "../../lib/components/EncodingSelector.svelte";
 
@@ -672,7 +673,7 @@
                       {/if}
                     </div>
                     <div class="px-1 text-right text-[#7d8590] select-none text-xs">{row.lineNo}</div>
-                    <div class="pr-3 pl-2 text-[#d5f5ff] whitespace-pre overflow-hidden text-ellipsis">{row.text || " "}</div>
+                    <div class="pr-3 pl-2 text-[#d5f5ff] whitespace-pre overflow-hidden text-ellipsis">{@html renderWhitespace(escapeHtml(row.text || " "))}</div>
                   </div>
                 {/each}
               </div>
@@ -717,7 +718,7 @@
                       {/if}
                     </div>
                     <div class="px-1 text-right text-[#7d8590] select-none text-xs">{row.lineNo}</div>
-                    <div class="pr-3 pl-2 text-[#fff3bf] whitespace-pre overflow-hidden text-ellipsis">{row.text || " "}</div>
+                    <div class="pr-3 pl-2 text-[#fff3bf] whitespace-pre overflow-hidden text-ellipsis">{@html renderWhitespace(escapeHtml(row.text || " "))}</div>
                   </div>
                 {/each}
               </div>
@@ -799,10 +800,10 @@
                         <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
                         <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                       </svg>
-                      {row.text || " "}
+                      {@html renderWhitespace(escapeHtml(row.text || " "))}
                     </span>
                   {:else}
-                    {row.text || " "}
+                    {@html renderWhitespace(escapeHtml(row.text || " "))}
                   {/if}
                 </div>
               </div>

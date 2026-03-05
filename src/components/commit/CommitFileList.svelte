@@ -38,6 +38,7 @@
       x: number;
       y: number;
       file: FileStatus | null;
+      directoryPath: string | null;
   };
   type IgnoreSubmenuState = {
       visible: boolean;
@@ -87,6 +88,7 @@
       onDiscardAll?: () => void;
       discardAllLabel?: string;
       showDiscardAll?: boolean;
+      onExcludeByApp?: (pattern: string) => void;
       viewMode?: ViewMode;
   }
   let {
@@ -112,6 +114,7 @@
       onCreatePatch,
       onEditFile,
       onDeleteFile,
+      onExcludeByApp,
       onStashAll,
       stashAllLabel,
       showStashAll,
@@ -126,7 +129,8 @@
       visible: false,
       x: 0,
       y: 0,
-      file: null
+      file: null,
+      directoryPath: null
   });
   let ignoreSubmenu = $state<IgnoreSubmenuState>({
       visible: false,
@@ -380,7 +384,12 @@
       const normalized = resolvePathForActions(path);
       const slashIndex = normalized.lastIndexOf("/");
       if (slashIndex <= 0) return null;
-      return `${normalized.slice(0, slashIndex)}/`;
+      return `${normalized.slice(0, slashIndex)}/**`;
+  }
+
+  function getFolderIgnorePattern(path: string): string {
+      const normalized = resolvePathForActions(path).replace(/\/$/, "");
+      return `${normalized}/**`;
   }
 
   function closeIgnoreSubmenu(): void {
@@ -396,7 +405,8 @@
           visible: false,
           x: 0,
           y: 0,
-          file: null
+          file: null,
+          directoryPath: null
       };
       closeIgnoreSubmenu();
   }
@@ -445,11 +455,12 @@
       if (onDeleteFile) labels.push("Delete file");
 
       // Extra room for the Ignore row arrow icon.
-      return getMenuWidthFromLabels(labels, onIgnore ? 12 : 0);
+      const width = getMenuWidthFromLabels(labels, (onIgnore || onExcludeByApp) ? 12 : 0);
+      return fileContextMenu.directoryPath ? Math.max(width, MENU_MIN_WIDTH) : width;
   });
 
   let ignoreSubmenuWidth = $derived.by<number>(() =>
-      getMenuWidthFromLabels(["Ignore this file", "Ignore by extension", "Ignore parent folder"])
+      getMenuWidthFromLabels(["Ignore this file", "Ignore by extension", "Ignore parent folder", "Ignore by App"])
   );
 
   function getContextMenuHeight(): number {
@@ -482,7 +493,22 @@
           visible: true,
           x: pos.x,
           y: pos.y,
-          file
+          file,
+          directoryPath: null
+      };
+  }
+
+  function handleDirectoryContextMenu(event: MouseEvent, directoryPath: string): void {
+      event.preventDefault();
+      event.stopPropagation();
+      const pos = getContextMenuPosition(event.clientX, event.clientY);
+      closeIgnoreSubmenu();
+      fileContextMenu = {
+          visible: true,
+          x: pos.x,
+          y: pos.y,
+          file: null,
+          directoryPath
       };
   }
 
@@ -584,16 +610,31 @@
       onDeleteFile(target);
   }
 
+  function handleExcludeByAppFromContextMenu(): void {
+      if (!onExcludeByApp) return;
+      let pattern = "";
+      if (fileContextMenu.file) {
+          pattern = resolvePathForActions(fileContextMenu.file.path);
+      } else if (fileContextMenu.directoryPath) {
+          pattern = getFolderIgnorePattern(fileContextMenu.directoryPath);
+      }
+      if (!pattern) return;
+      closeFileContextMenu();
+      onExcludeByApp(pattern);
+  }
+
   function handleOpenIgnoreSubmenu(event: MouseEvent): void {
       event.preventDefault();
       event.stopPropagation();
-      if (!fileContextMenu.file || !onIgnore) return;
+      if (!onIgnore && !onExcludeByApp) return;
+      if (!fileContextMenu.file && !fileContextMenu.directoryPath) return;
 
       const target = event.currentTarget as HTMLElement | null;
       if (!target) return;
 
       const rect = target.getBoundingClientRect();
-      const submenuHeight = CONTEXT_MENU_ITEM_HEIGHT * 3 + CONTEXT_MENU_PADDING_Y * 2;
+      const itemCount = (fileContextMenu.file ? 3 : 0) + (onExcludeByApp ? 1 : 0);
+      const submenuHeight = CONTEXT_MENU_ITEM_HEIGHT * itemCount + CONTEXT_MENU_PADDING_Y * 2;
       const maxX = Math.max(8, window.innerWidth - ignoreSubmenuWidth - 8);
       const maxY = Math.max(8, window.innerHeight - submenuHeight - 8);
 
@@ -773,6 +814,7 @@
                         class="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs rounded text-[#8b949e] hover:bg-[#21262d] transition-colors"
                         style={`padding-left: ${8 + row.depth * 14}px;`}
                         onclick={() => toggleDirectory(row.path)}
+                        oncontextmenu={(e) => handleDirectoryContextMenu(e, row.path)}
                         title={row.path}
                     >
                         <svg class={`w-3 h-3 shrink-0 transition-transform ${row.collapsed ? "" : "rotate-90"}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -836,124 +878,224 @@
         style={`left: ${fileContextMenu.x}px; top: ${fileContextMenu.y}px; width: ${contextMenuWidth}px;`}
         role="menu"
     >
-        {#if showContextGroup1}
+        {#if fileContextMenu.file}
+            {#if showContextGroup1}
+                <button
+                    type="button"
+                    class={CONTEXT_MENU_ITEM_CLASS}
+                    onclick={handleStageFromContextMenu}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    {actionLabel}
+                </button>
+                {#if onDiscard}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_CLASS}
+                        onclick={handleDiscardThisFile}
+                        onmouseenter={closeIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        Discard changes
+                    </button>
+                {/if}
+                {#if onIgnore || onExcludeByApp}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_FLEX_CLASS}
+                        onclick={handleOpenIgnoreSubmenu}
+                        onmouseenter={handleOpenIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        <span>Ignore</span>
+                        <span class="text-[#8b949e]">▸</span>
+                    </button>
+                {/if}
+                {#if onStash}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_CLASS}
+                        onclick={handleStashThisFile}
+                        onmouseenter={closeIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        Stash file
+                    </button>
+                {/if}
+            {/if}
+
+            {#if showContextGroup1 && (showContextGroup2 || showContextGroup3 || showContextGroup4 || showContextGroup5)}
+                <div class="border-t border-[#30363d] my-1"></div>
+            {/if}
+
+            {#if showContextGroup2}
+                {#if onShowHistory}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_CLASS}
+                        onclick={handleShowHistory}
+                        onmouseenter={closeIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        File History
+                    </button>
+                {/if}
+                {#if onShowBlame}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_CLASS}
+                        onclick={handleShowBlame}
+                        onmouseenter={closeIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        File Blame
+                    </button>
+                {/if}
+            {/if}
+
+            {#if showContextGroup2 && (showContextGroup3 || showContextGroup4 || showContextGroup5)}
+                <div class="border-t border-[#30363d] my-1"></div>
+            {/if}
+
+            {#if showContextGroup3}
+                {#if onOpenInDiffTool}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_CLASS}
+                        onclick={handleOpenInDiffTool}
+                        onmouseenter={closeIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        Open in external diff tool
+                    </button>
+                {/if}
+                {#if onOpenInEditor}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_CLASS}
+                        onclick={handleOpenInEditor}
+                        onmouseenter={closeIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        Open in external editor
+                    </button>
+                {/if}
+                {#if onOpenFile}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_CLASS}
+                        onclick={handleOpenThisFile}
+                        onmouseenter={closeIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        Open file in default program
+                    </button>
+                {/if}
+                {#if onShowInFolder}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_CLASS}
+                        onclick={handleShowInFolder}
+                        onmouseenter={closeIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        Show in folder
+                    </button>
+                {/if}
+            {/if}
+
+            {#if showContextGroup3 && (showContextGroup4 || showContextGroup5)}
+                <div class="border-t border-[#30363d] my-1"></div>
+            {/if}
+
+            {#if showContextGroup4}
+                <button
+                    type="button"
+                    class={CONTEXT_MENU_ITEM_CLASS}
+                    onclick={() => void handleCopyFilePath()}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    Copy file path
+                </button>
+                {#if onCreatePatch}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_CLASS}
+                        onclick={handleCreatePatch}
+                        onmouseenter={closeIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        Create patch from changes
+                    </button>
+                {/if}
+            {/if}
+
+            {#if showContextGroup4 && showContextGroup5}
+                <div class="border-t border-[#30363d] my-1"></div>
+            {/if}
+
+            {#if showContextGroup5}
+                {#if onEditFile}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_CLASS}
+                        onclick={handleEditFile}
+                        onmouseenter={closeIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        Edit file
+                    </button>
+                {/if}
+                {#if onDeleteFile}
+                    <button
+                        type="button"
+                        class={CONTEXT_MENU_ITEM_CLASS}
+                        onclick={handleDeleteFile}
+                        onmouseenter={closeIgnoreSubmenu}
+                        role="menuitem"
+                    >
+                        Delete file
+                    </button>
+                {/if}
+            {/if}
+        {:else if fileContextMenu.directoryPath}
+            {#if onExcludeByApp}
+                <button
+                    type="button"
+                    class={CONTEXT_MENU_ITEM_CLASS}
+                    onclick={handleExcludeByAppFromContextMenu}
+                    onmouseenter={closeIgnoreSubmenu}
+                    role="menuitem"
+                >
+                    Ignore by App
+                </button>
+                <div class="border-t border-[#30363d] my-1"></div>
+            {/if}
             <button
                 type="button"
                 class={CONTEXT_MENU_ITEM_CLASS}
-                onclick={handleStageFromContextMenu}
+                onclick={async () => {
+                    const path = resolvePathForActions(fileContextMenu.directoryPath!);
+                    closeFileContextMenu();
+                    await navigator.clipboard.writeText(path);
+                    toast.success("Copied folder path");
+                }}
                 onmouseenter={closeIgnoreSubmenu}
                 role="menuitem"
             >
-                {actionLabel}
+                Copy folder path
             </button>
-            {#if onDiscard}
-                <button
-                    type="button"
-                    class={CONTEXT_MENU_ITEM_CLASS}
-                    onclick={handleDiscardThisFile}
-                    onmouseenter={closeIgnoreSubmenu}
-                    role="menuitem"
-                >
-                    Discard changes
-                </button>
-            {/if}
-            {#if onIgnore}
-                <button
-                    type="button"
-                    class={CONTEXT_MENU_ITEM_FLEX_CLASS}
-                    onclick={handleOpenIgnoreSubmenu}
-                    onmouseenter={handleOpenIgnoreSubmenu}
-                    role="menuitem"
-                >
-                    <span>Ignore</span>
-                    <span class="text-[#8b949e]">▸</span>
-                </button>
-            {/if}
-            {#if onStash}
-                <button
-                    type="button"
-                    class={CONTEXT_MENU_ITEM_CLASS}
-                    onclick={handleStashThisFile}
-                    onmouseenter={closeIgnoreSubmenu}
-                    role="menuitem"
-                >
-                    Stash file
-                </button>
-            {/if}
-        {/if}
-
-        {#if showContextGroup1 && (showContextGroup2 || showContextGroup3 || showContextGroup4 || showContextGroup5)}
-            <div class="border-t border-[#30363d] my-1"></div>
-        {/if}
-
-        {#if showContextGroup2}
-            {#if onShowHistory}
-                <button
-                    type="button"
-                    class={CONTEXT_MENU_ITEM_CLASS}
-                    onclick={handleShowHistory}
-                    onmouseenter={closeIgnoreSubmenu}
-                    role="menuitem"
-                >
-                    File History
-                </button>
-            {/if}
-            {#if onShowBlame}
-                <button
-                    type="button"
-                    class={CONTEXT_MENU_ITEM_CLASS}
-                    onclick={handleShowBlame}
-                    onmouseenter={closeIgnoreSubmenu}
-                    role="menuitem"
-                >
-                    File Blame
-                </button>
-            {/if}
-        {/if}
-
-        {#if showContextGroup2 && (showContextGroup3 || showContextGroup4 || showContextGroup5)}
-            <div class="border-t border-[#30363d] my-1"></div>
-        {/if}
-
-        {#if showContextGroup3}
-            {#if onOpenInDiffTool}
-                <button
-                    type="button"
-                    class={CONTEXT_MENU_ITEM_CLASS}
-                    onclick={handleOpenInDiffTool}
-                    onmouseenter={closeIgnoreSubmenu}
-                    role="menuitem"
-                >
-                    Open in external diff tool
-                </button>
-            {/if}
-            {#if onOpenInEditor}
-                <button
-                    type="button"
-                    class={CONTEXT_MENU_ITEM_CLASS}
-                    onclick={handleOpenInEditor}
-                    onmouseenter={closeIgnoreSubmenu}
-                    role="menuitem"
-                >
-                    Open in external editor
-                </button>
-            {/if}
-            {#if onOpenFile}
-                <button
-                    type="button"
-                    class={CONTEXT_MENU_ITEM_CLASS}
-                    onclick={handleOpenThisFile}
-                    onmouseenter={closeIgnoreSubmenu}
-                    role="menuitem"
-                >
-                    Open file in default program
-                </button>
-            {/if}
             {#if onShowInFolder}
                 <button
                     type="button"
                     class={CONTEXT_MENU_ITEM_CLASS}
-                    onclick={handleShowInFolder}
+                    onclick={() => {
+                        const path = resolvePathForActions(fileContextMenu.directoryPath!);
+                        closeFileContextMenu();
+                        onShowInFolder({ path, status: "", staged: false });
+                    }}
                     onmouseenter={closeIgnoreSubmenu}
                     role="menuitem"
                 >
@@ -961,97 +1103,56 @@
                 </button>
             {/if}
         {/if}
-
-        {#if showContextGroup3 && (showContextGroup4 || showContextGroup5)}
-            <div class="border-t border-[#30363d] my-1"></div>
-        {/if}
-
-        {#if showContextGroup4}
-            <button
-                type="button"
-                class={CONTEXT_MENU_ITEM_CLASS}
-                onclick={() => void handleCopyFilePath()}
-                onmouseenter={closeIgnoreSubmenu}
-                role="menuitem"
-            >
-                Copy file path
-            </button>
-            {#if onCreatePatch}
-                <button
-                    type="button"
-                    class={CONTEXT_MENU_ITEM_CLASS}
-                    onclick={handleCreatePatch}
-                    onmouseenter={closeIgnoreSubmenu}
-                    role="menuitem"
-                >
-                    Create patch from changes
-                </button>
-            {/if}
-        {/if}
-
-        {#if showContextGroup4 && showContextGroup5}
-            <div class="border-t border-[#30363d] my-1"></div>
-        {/if}
-
-        {#if showContextGroup5}
-            {#if onEditFile}
-                <button
-                    type="button"
-                    class={CONTEXT_MENU_ITEM_CLASS}
-                    onclick={handleEditFile}
-                    onmouseenter={closeIgnoreSubmenu}
-                    role="menuitem"
-                >
-                    Edit file
-                </button>
-            {/if}
-            {#if onDeleteFile}
-                <button
-                    type="button"
-                    class={CONTEXT_MENU_ITEM_CLASS}
-                    onclick={handleDeleteFile}
-                    onmouseenter={closeIgnoreSubmenu}
-                    role="menuitem"
-                >
-                    Delete file
-                </button>
-            {/if}
-        {/if}
     </div>
 {/if}
 
-{#if fileContextMenu.visible && ignoreSubmenu.visible && onIgnore}
+{#if fileContextMenu.visible && ignoreSubmenu.visible && (onIgnore || onExcludeByApp)}
     <div
         class="file-ignore-submenu fixed z-[130] rounded-md border border-[#30363d] bg-[#161b22] shadow-2xl py-1"
         style={`left: ${ignoreSubmenu.x}px; top: ${ignoreSubmenu.y}px; width: ${ignoreSubmenuWidth}px;`}
         role="menu"
     >
-        <button
-            type="button"
-            class={CONTEXT_MENU_ITEM_CLASS}
-            onclick={() => handleIgnorePattern(currentIgnoreFilePattern)}
-            role="menuitem"
-        >
-            Ignore this file
-        </button>
-        <button
-            type="button"
-            class="{CONTEXT_MENU_ITEM_CLASS} {!currentIgnoreExtensionPattern ? 'opacity-45 cursor-not-allowed' : ''}"
-            onclick={() => currentIgnoreExtensionPattern && handleIgnorePattern(currentIgnoreExtensionPattern)}
-            disabled={!currentIgnoreExtensionPattern}
-            role="menuitem"
-        >
-            Ignore by extension
-        </button>
-        <button
-            type="button"
-            class="{CONTEXT_MENU_ITEM_CLASS} {!currentIgnoreParentFolderPattern ? 'opacity-45 cursor-not-allowed' : ''}"
-            onclick={() => currentIgnoreParentFolderPattern && handleIgnorePattern(currentIgnoreParentFolderPattern)}
-            disabled={!currentIgnoreParentFolderPattern}
-            role="menuitem"
-        >
-            Ignore parent folder
-        </button>
+        {#if onIgnore}
+            <button
+                type="button"
+                class={CONTEXT_MENU_ITEM_CLASS}
+                onclick={() => handleIgnorePattern(currentIgnoreFilePattern)}
+                role="menuitem"
+            >
+                Ignore this file
+            </button>
+            <button
+                type="button"
+                class="{CONTEXT_MENU_ITEM_CLASS} {!currentIgnoreExtensionPattern ? 'opacity-45 cursor-not-allowed' : ''}"
+                onclick={() => currentIgnoreExtensionPattern && handleIgnorePattern(currentIgnoreExtensionPattern)}
+                disabled={!currentIgnoreExtensionPattern}
+                role="menuitem"
+            >
+                Ignore by extension
+            </button>
+            <button
+                type="button"
+                class="{CONTEXT_MENU_ITEM_CLASS} {!currentIgnoreParentFolderPattern ? 'opacity-45 cursor-not-allowed' : ''}"
+                onclick={() => currentIgnoreParentFolderPattern && handleIgnorePattern(currentIgnoreParentFolderPattern)}
+                disabled={!currentIgnoreParentFolderPattern}
+                role="menuitem"
+            >
+                Ignore parent folder
+            </button>
+        {/if}
+        {#if onExcludeByApp}
+            {#if onIgnore}
+                <div class="border-t border-[#30363d] my-1"></div>
+            {/if}
+            <button
+                type="button"
+                class={CONTEXT_MENU_ITEM_CLASS}
+                onclick={handleExcludeByAppFromContextMenu}
+                role="menuitem"
+            >
+                Ignore by App
+            </button>
+        {/if}
     </div>
 {/if}
 

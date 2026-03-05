@@ -51,16 +51,13 @@ const initialState: RebaseState = {
 function createRebaseStore() {
   const { subscribe, set, update } = writable<RebaseState>(initialState);
 
-  // Replaces the heavy setInterval polling with real-time Tauri events
-  listen("git-event", async () => {
-    // Only query status if we ostensibly have a rebase in progress or repo selected.
-    // Use an IIFE or normal block to fetch status async without blocking UI updates.
-    const state = get({subscribe} as unknown as ReturnType<typeof writable>); 
-    // We can't easily `get(rebaseStore)` before it's returned depending on hoisting, 
-    // so we will export an init wrapper, OR just rely on subscribing later.
-  });
+  // Busy guard: prevent overlapping syncStatus calls
+  let syncInFlight = false;
+  let syncDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   async function syncStatus(repoPath: string) {
+    if (syncInFlight) return; // Skip if already syncing
+    syncInFlight = true;
     try {
       const status: FullRebaseStatus = await invoke("cmd_get_rebase_status", { repoPath });
       const mappedStatus = status.status as RebaseStatus;
@@ -74,16 +71,21 @@ function createRebaseStore() {
       }));
     } catch (e) {
       console.error("Failed to sync rebase status", e);
+    } finally {
+      syncInFlight = false;
     }
   }
 
-  // Set up global listener safely after store creation
+  // Single debounced listener — no duplicates, no cascade hammering
   setTimeout(() => {
     listen("git-event", () => {
       const state = get(rebaseStore);
-      if (state.repoPath) {
-        void syncStatus(state.repoPath);
-      }
+      if (!state.repoPath) return;
+      // Debounce: coalesce rapid successive events into one sync
+      clearTimeout(syncDebounceTimer);
+      syncDebounceTimer = setTimeout(() => {
+        void syncStatus(state.repoPath!);
+      }, 250);
     });
   }, 0);
 

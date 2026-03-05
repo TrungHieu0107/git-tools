@@ -231,6 +231,13 @@ fn is_excluded(path: &str, exclusions: &[String]) -> bool {
 
     // Normalize path to use forward slashes for glob matching
     let normalized_path = path.replace('\\', "/");
+    
+    // Ensure path has a leading slash for matching patterns like "/foo"
+    let anchored_path = if normalized_path.starts_with('/') {
+        normalized_path.clone()
+    } else {
+        format!("/{}", normalized_path)
+    };
 
     for pattern_str in exclusions {
         let pattern_str = pattern_str.trim();
@@ -239,8 +246,28 @@ fn is_excluded(path: &str, exclusions: &[String]) -> bool {
         }
 
         if let Ok(pattern) = Pattern::new(pattern_str) {
-            if pattern.matches(&normalized_path) {
+            // Check the path itself
+            if pattern.matches(&anchored_path) || pattern.matches(&normalized_path) {
                 return true;
+            }
+
+            // Check all parent directories. This ensures that if a folder is excluded, 
+            // all files within it are also excluded.
+            let mut current = Path::new(&normalized_path);
+            while let Some(parent) = current.parent() {
+                let parent_str = parent.to_str().unwrap_or("");
+                if parent_str.is_empty() || parent_str == "." || parent_str == "/" {
+                    break;
+                }
+                
+                // Normalizing parent path string
+                let parent_normalized = parent_str.replace('\\', "/");
+                let anchored_parent = format!("/{}", parent_normalized);
+                
+                if pattern.matches(&parent_normalized) || pattern.matches(&anchored_parent) {
+                    return true;
+                }
+                current = parent;
             }
         }
     }

@@ -491,6 +491,25 @@
       }
   }
 
+  async function handleExcludeByApp(pattern: string) {
+      if (!repoPath) return;
+      try {
+          const settings = await GitService.getSettings();
+          const excludedFiles = settings.excluded_files || [];
+          if (!excludedFiles.includes(pattern)) {
+              excludedFiles.push(pattern);
+              await GitService.setExcludedFiles(excludedFiles);
+              toast.success(`Added "${pattern}" to app exclusion list`);
+              await loadStatus(true);
+          } else {
+              toast.info(`"${pattern}" is already in exclusion list`);
+          }
+      } catch (e) {
+          console.error("Failed to update exclusion settings", e);
+          toast.error("Failed to update exclusion settings");
+      }
+  }
+
   function handleShowFileHistory(file: FileStatus) {
       const targetPath = resolvePathForActions(file.path);
       selectedFile = { ...file, path: targetPath };
@@ -805,6 +824,7 @@
                     onDiscard={handleDiscardFile}
                     onStash={handleStashFile}
                     onIgnore={handleIgnoreFile}
+                    onExcludeByApp={handleExcludeByApp}
                     onShowHistory={handleShowFileHistory}
                     onShowBlame={handleShowFileBlame}
                     onOpenInDiffTool={handleOpenInDiffTool}
@@ -813,9 +833,6 @@
                     onCreatePatch={handleCreatePatchFromFile}
                     onEditFile={handleEditFile}
                     onDeleteFile={handleDeleteFile}
-                    onStashAll={handleStashAll}
-                    stashAllLabel="Stash All"
-                    showStashAll={unstagedFiles.length + stagedFiles.length > 0}
                     onDiscardAll={handleDiscardAll}
                     discardAllLabel="Discard All"
                     showDiscardAll={unstagedFiles.length + stagedFiles.length > 0}
@@ -858,6 +875,7 @@
                     onDiscard={handleDiscardFile}
                     onStash={handleStashFile}
                     onIgnore={handleIgnoreFile}
+                    onExcludeByApp={handleExcludeByApp}
                     onShowHistory={handleShowFileHistory}
                     onShowBlame={handleShowFileBlame}
                     onOpenInDiffTool={handleOpenInDiffTool}
