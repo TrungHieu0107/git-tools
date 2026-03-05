@@ -34,6 +34,8 @@ pub struct AppSettings {
     pub global_commit_prompt: Option<String>,
     #[serde(default)]
     pub repo_commit_prompts: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub repo_default_encodings: std::collections::HashMap<String, String>,
 }
 
 use crate::terminal::TerminalManager;

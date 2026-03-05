@@ -5,7 +5,7 @@ use std::path::Path;
 
 /// Resolves the encoding for a given file path based on settings.
 /// Returns the encoding name string if found, or None.
-pub fn resolve_file_encoding(path: &Path, settings: &AppSettings) -> Option<String> {
+pub fn resolve_file_encoding(path: &Path, repo_path: Option<&str>, settings: &AppSettings) -> Option<String> {
     // 1. Check exact match (if we were support exact path mapping, but for now we use globs)
     // The settings structure we planned uses a map of Glob -> Encoding Name
 
@@ -20,6 +20,14 @@ pub fn resolve_file_encoding(path: &Path, settings: &AppSettings) -> Option<Stri
         }
     }
 
+    // 2. Check repo default
+    if let Some(repo) = repo_path {
+        let normalized_repo = repo.replace('\\', "/");
+        if let Some(encoding_name) = settings.repo_default_encodings.get(&normalized_repo) {
+            return Some(encoding_name.clone());
+        }
+    }
+
     None
 }
 
@@ -29,10 +37,11 @@ pub fn resolve_file_encoding(path: &Path, settings: &AppSettings) -> Option<Stri
 pub fn decode_bytes(
     data: &[u8],
     path: &Path,
+    repo_path: Option<&str>,
     settings: &AppSettings,
     override_encoding: Option<String>,
 ) -> String {
-    let encoding_name = override_encoding.or_else(|| resolve_file_encoding(path, settings));
+    let encoding_name = override_encoding.or_else(|| resolve_file_encoding(path, repo_path, settings));
 
     if let Some(enc_name) = encoding_name {
         if let Some(encoding) = Encoding::for_label(enc_name.as_bytes()) {
@@ -50,10 +59,11 @@ pub fn decode_bytes(
 pub fn encode_string(
     content: &str,
     path: &Path,
+    repo_path: Option<&str>,
     settings: &AppSettings,
     override_encoding: Option<String>,
 ) -> Vec<u8> {
-    let encoding_name = override_encoding.or_else(|| resolve_file_encoding(path, settings));
+    let encoding_name = override_encoding.or_else(|| resolve_file_encoding(path, repo_path, settings));
 
     if let Some(enc_name) = encoding_name {
         if let Some(encoding) = Encoding::for_label(enc_name.as_bytes()) {
@@ -82,15 +92,22 @@ mod tests {
             .insert("src/**/*.rs".to_string(), "utf-8".to_string());
 
         assert_eq!(
-            resolve_file_encoding(Path::new("test.txt"), &settings).as_deref(),
+            resolve_file_encoding(Path::new("test.txt"), None, &settings).as_deref(),
             Some("windows-1252")
         );
         assert_eq!(
-            resolve_file_encoding(Path::new("src/main.rs"), &settings).as_deref(),
+            resolve_file_encoding(Path::new("src/main.rs"), None, &settings).as_deref(),
             Some("utf-8")
         );
+        
+        settings.repo_default_encodings.insert("/path/to/repo".to_string(), "shift_jis".to_string());
+        
         assert_eq!(
-            resolve_file_encoding(Path::new("image.png"), &settings),
+            resolve_file_encoding(Path::new("image.png"), Some("/path/to/repo"), &settings).as_deref(),
+            Some("shift_jis")
+        );
+        assert_eq!(
+            resolve_file_encoding(Path::new("image.png"), None, &settings),
             None
         );
     }

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { GitService, type AppSettings } from '../lib/GitService';
+  import { toast } from '../lib/toast.svelte';
+  import EncodingSelector from '../lib/components/EncodingSelector.svelte';
 
   interface Props {
       repoPath?: string;
@@ -25,6 +27,9 @@
   let savingRepoPrompt = $state(false);
   let promptSaveError = $state("");
 
+  let repoDefaultEncoding = $state("UTF-8");
+  let savingRepoEncoding = $state(false);
+
   const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
 
   function normalizeGeminiModel(model?: string | null): string {
@@ -47,6 +52,8 @@
     
     if (repoPath) {
       repoPrompt = (settings.repo_commit_prompts || {})[repoPath] || "";
+      const normalizedRepo = repoPath.replace(/\\/g, "/");
+      repoDefaultEncoding = (settings.repo_default_encodings || {})[normalizedRepo] || "UTF-8";
     }
   }
 
@@ -178,6 +185,21 @@
       promptSaveError = String(e);
     } finally {
       savingRepoPrompt = false;
+    }
+  }
+
+  async function handleRepoEncodingChange(encoding: string) {
+    if (savingRepoEncoding || !repoPath) return;
+    savingRepoEncoding = true;
+    try {
+      // Empty string clears it dynamically making it fall back to "UTF-8" default without override stored
+      const valueToSave = encoding === "UTF-8" ? "" : encoding;
+      applyLoadedSettings(await GitService.setRepoDefaultEncoding(repoPath, valueToSave));
+      toast.success(`Repository default encoding set to ${encoding}`);
+    } catch (e: any) {
+      toast.error(`Failed to save repository encoding: ${e}`);
+    } finally {
+      savingRepoEncoding = false;
     }
   }
 </script>
@@ -334,6 +356,20 @@
             >
               {savingRepoPrompt ? 'Saving...' : 'Apply to This Repo'}
             </button>
+          </div>
+          
+          <!-- Repository Default Encoding -->
+          <div class="mt-6 pt-6 border-t border-[#30363d] flex flex-col items-start gap-2">
+            <label class="text-xs font-medium text-[#c9d1d9]">Repository Default File Encoding</label>
+            <p class="text-xs text-[#8b949e]">
+              The default text encoding Git Tools uses when parsing files and diffs in this repository.
+            </p>
+            <div class="mt-2" class:opacity-50={savingRepoEncoding} class:pointer-events-none={savingRepoEncoding}>
+              <EncodingSelector 
+                selectedEncoding={repoDefaultEncoding} 
+                on:change={(e) => handleRepoEncodingChange(e.detail)} 
+              />
+            </div>
           </div>
         </div>
       {/if}

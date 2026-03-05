@@ -20,8 +20,8 @@ export function escapeHtml(str: string): string {
 
 export function renderWhitespace(escapedHtml: string): string {
   return escapedHtml
-    .replace(/ /g, '<span class="relative before:content-[\'·\'] before:absolute before:inset-0 before:flex before:items-center before:justify-center before:text-[#8b949e]/40 before:pointer-events-none before:select-none"> </span>')
-    .replace(/\t/g, '<span class="line-through decoration-[#8b949e]/40 decoration-1">\t</span>');
+    .replace(/ /g, '<span class="ws-space"> </span>')
+    .replace(/\t/g, '<span class="ws-tab">\t</span>');
 }
 
 

@@ -42,6 +42,19 @@ textarea {
   }
 }
 
+.ws-space {
+  background-image: radial-gradient(circle at center, rgba(139, 148, 158, 0.6) 1px, transparent 1.5px);
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.ws-tab {
+  background-image: linear-gradient(to right, transparent 10%, rgba(139, 148, 158, 0.6) 10%, rgba(139, 148, 158, 0.6) 90%, transparent 90%);
+  background-size: 100% 1px;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
 @media (max-width: 900px) {
   .panel-header {
     height: auto;

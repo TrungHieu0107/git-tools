@@ -508,6 +508,16 @@ pub fn cmd_set_repo_commit_prompt(
 }
 
 #[tauri::command]
+pub fn cmd_set_repo_default_encoding(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    repo_path: String,
+    encoding: String,
+) -> Result<AppSettings, String> {
+    settings_commands::cmd_set_repo_default_encoding_impl(app_handle, state, repo_path, encoding)
+}
+
+#[tauri::command]
 pub async fn cmd_get_gemini_models(
     state: State<'_, AppState>,
     token: Option<String>,
@@ -1919,6 +1929,7 @@ pub fn cmd_write_file(
     let bytes = crate::git::encoding::encode_string(
         &content,
         Path::new(&path),
+        Some(&r_path),
         &settings,
         encoding,
     );
@@ -2532,11 +2543,11 @@ pub async fn cmd_get_commit_diff(
         let settings = state.settings.lock().map_err(|e| e.to_string())?;
         if let Some(ref fp) = file_path {
             // If specific file, use its path context for config resolution
-            crate::git::encoding::decode_bytes(&resp.stdout, Path::new(fp), &settings, encoding)
+            crate::git::encoding::decode_bytes(&resp.stdout, Path::new(fp), Some(&path), &settings, encoding)
         } else {
             // If no file path (entire commit), use root path logic (likely just UTF-8 unless simple override)
             // For mixed files, applying one encoding is risky, but if user overrides, they want it.
-            crate::git::encoding::decode_bytes(&resp.stdout, Path::new(""), &settings, encoding)
+            crate::git::encoding::decode_bytes(&resp.stdout, Path::new(""), Some(&path), &settings, encoding)
         }
     };
 
@@ -2582,6 +2593,7 @@ pub async fn cmd_get_file_at_commit(
     Ok(crate::git::encoding::decode_bytes(
         &resp.stdout,
         Path::new(&file_path),
+        Some(&path),
         &settings,
         encoding,
     ))

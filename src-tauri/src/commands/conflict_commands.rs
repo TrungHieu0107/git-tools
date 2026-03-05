@@ -118,6 +118,7 @@ async fn git_show_stage_bytes(
     Ok(crate::git::encoding::decode_bytes(
         &resp.stdout,
         Path::new(file),
+        Some(repo.to_string_lossy().as_ref()),
         settings,
         encoding.clone(),
     ))

@@ -301,6 +301,7 @@ pub async fn cmd_get_diff_file_impl(
     let content = crate::git::encoding::decode_bytes(
         &resp.stdout,
         Path::new(&file_path),
+        Some(&path),
         &settings,
         encoding,
     );
@@ -333,6 +334,7 @@ pub async fn cmd_get_file_base_content_impl(
             Ok(crate::git::encoding::decode_bytes(
                 &resp.stdout,
                 Path::new(&file_path),
+                Some(&path),
                 &settings,
                 encoding,
             ))
@@ -363,6 +365,7 @@ pub async fn cmd_get_file_modified_content_impl(
                 Ok(crate::git::encoding::decode_bytes(
                     &resp.stdout,
                     Path::new(&file_path),
+                    Some(&path),
                     &settings,
                     encoding,
                 ))
@@ -377,6 +380,7 @@ pub async fn cmd_get_file_modified_content_impl(
                 Ok(crate::git::encoding::decode_bytes(
                     &bytes,
                     Path::new(&file_path),
+                    Some(&path),
                     &settings,
                     encoding,
                 ))

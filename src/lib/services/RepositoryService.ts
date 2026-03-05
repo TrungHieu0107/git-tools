@@ -58,4 +58,8 @@ export class RepositoryService {
   static async setRepoCommitPrompt(repoPath: string, prompt: string): Promise<AppSettings> {
     return invoke("cmd_set_repo_commit_prompt", { repoPath, prompt });
   }
+
+  static async setRepoDefaultEncoding(repoPath: string, encoding: string): Promise<AppSettings> {
+    return invoke("cmd_set_repo_default_encoding", { repoPath, encoding });
+  }
 }

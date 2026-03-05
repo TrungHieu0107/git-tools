@@ -230,3 +230,24 @@ pub fn cmd_set_repo_commit_prompt_impl(
     save_settings(&app_handle, &settings)?;
     Ok(settings.clone())
 }
+
+pub fn cmd_set_repo_default_encoding_impl(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    repo_path: String,
+    encoding: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    let trimmed = encoding.trim().to_string();
+    let normalized_repo_path = repo_path.replace('\\', "/");
+    
+    // Empty string means clear the setting (default back to UTF-8 without override)
+    if trimmed.is_empty() || trimmed == "utf-8" {
+        settings.repo_default_encodings.remove(&normalized_repo_path);
+    } else {
+        settings.repo_default_encodings.insert(normalized_repo_path, trimmed);
+    }
+    
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}

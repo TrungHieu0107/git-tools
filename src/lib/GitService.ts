@@ -58,6 +58,7 @@ export interface AppSettings {
   gemini_model?: string | null;
   global_commit_prompt?: string | null;
   repo_commit_prompts?: Record<string, string>;
+  repo_default_encodings?: Record<string, string>;
 }
 
 export class GitService {
