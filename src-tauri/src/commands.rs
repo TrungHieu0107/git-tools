@@ -2164,9 +2164,14 @@ pub async fn cmd_abort_operation(
     let git_dir = resolve_git_dir(Path::new(&path));
 
     let is_merging = git_dir.join("MERGE_HEAD").exists();
+    
+    let rebase_apply = git_dir.join("rebase-apply");
+    let is_am = rebase_apply.join("applying").exists();
+    
     let is_rebasing = git_dir.join("REBASE_HEAD").exists()
         || git_dir.join("rebase-merge").exists()
-        || git_dir.join("rebase-apply").exists();
+        || (rebase_apply.exists() && !is_am);
+        
     let is_cherry_picking = git_dir.join("CHERRY_PICK_HEAD").exists();
     let is_reverting = git_dir.join("REVERT_HEAD").exists();
 
@@ -2182,7 +2187,7 @@ pub async fn cmd_abort_operation(
         return Err("No merge/rebase/cherry-pick/revert operation is in progress.".to_string());
     };
 
-    git_run_result_with_event(
+    let mut result = git_run_result_with_event(
         &app,
         &state,
         Some(path),
@@ -2190,7 +2195,19 @@ pub async fn cmd_abort_operation(
         TIMEOUT_LOCAL,
         GitCommandType::Other,
     )
-    .await
+    .await?;
+
+    if !result.success && is_rebasing && result.stderr.to_lowercase().contains("no rebase in progress") {
+        let _ = std::fs::remove_dir_all(git_dir.join("rebase-merge"));
+        let _ = std::fs::remove_dir_all(git_dir.join("rebase-apply"));
+        let _ = std::fs::remove_file(git_dir.join("REBASE_HEAD"));
+        
+        result.success = true;
+        result.stderr = "Cleaned up stale rebase state manually".to_string();
+        let _ = crate::commands::emit_git_change_event(&app);
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]

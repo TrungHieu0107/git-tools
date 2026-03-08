@@ -109,8 +109,9 @@ pub async fn cmd_get_rebase_status_impl(
 
     let rebase_merge = git_dir.join("rebase-merge");
     let rebase_apply = git_dir.join("rebase-apply");
+    let is_am = rebase_apply.join("applying").exists();
 
-    let is_rebasing = git_dir.join("REBASE_HEAD").exists() || rebase_merge.exists() || rebase_apply.exists();
+    let is_rebasing = git_dir.join("REBASE_HEAD").exists() || rebase_merge.exists() || (rebase_apply.exists() && !is_am);
 
     if !is_rebasing {
         return Ok(FullRebaseStatus {
@@ -324,8 +325,21 @@ pub async fn cmd_rebase_abort_impl(
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
     let path = resolve_repo_path(&state, repo_path)?;
+    let p = Path::new(&path);
+    let git_dir = resolve_git_dir(p);
+
     let args = vec!["rebase".into(), "--abort".into()];
-    let result = git_run_rebase(&state, &path, &args, TIMEOUT_LOCAL).await?;
+    let mut result = git_run_rebase(&state, &path, &args, TIMEOUT_LOCAL).await?;
+
+    if !result.success && result.stderr.to_lowercase().contains("no rebase in progress") {
+        let _ = std::fs::remove_dir_all(git_dir.join("rebase-merge"));
+        let _ = std::fs::remove_dir_all(git_dir.join("rebase-apply"));
+        let _ = std::fs::remove_file(git_dir.join("REBASE_HEAD"));
+        
+        result.success = true;
+        result.stderr = "Cleaned up stale rebase state manually".to_string();
+    }
+
     let _ = emit_git_change_event(&app);
     Ok(result)
 }
