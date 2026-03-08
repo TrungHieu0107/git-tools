@@ -919,6 +919,7 @@
         <div class="shrink-0 border-t border-[#30363d]">
             <CommitActions
                 stagedCount={stagedFiles.length}
+                conflictCount={conflictPaths.length}
                 busy={committing}
                 abortBusy={abortingOperation}
                 allowEmptyMessage={operationState.isRebasing}

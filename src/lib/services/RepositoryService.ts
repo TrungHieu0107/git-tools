@@ -27,6 +27,23 @@ export class RepositoryService {
     return invoke("cmd_get_gemini_models", { token: trimmed ? trimmed : null });
   }
 
+  static async setOpenRouterApiToken(token: string): Promise<AppSettings> {
+    return invoke("cmd_set_open_router_api_token", { token });
+  }
+
+  static async setOpenRouterModel(model: string): Promise<AppSettings> {
+    return invoke("cmd_set_open_router_model", { model });
+  }
+
+  static async setActiveAiProvider(provider: "gemini" | "openrouter"): Promise<AppSettings> {
+    return invoke("cmd_set_active_ai_provider", { provider });
+  }
+
+  static async getOpenRouterModels(token?: string): Promise<string[]> {
+    const trimmed = token?.trim();
+    return invoke("cmd_get_open_router_models", { token: trimmed ? trimmed : null });
+  }
+
   static async addRepo(name: string, path: string): Promise<AppSettings> {
     return invoke("cmd_add_repo", { name, path });
   }

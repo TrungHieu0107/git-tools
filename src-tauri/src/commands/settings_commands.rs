@@ -198,6 +198,54 @@ pub fn cmd_set_gemini_model_impl(
     Ok(settings.clone())
 }
 
+pub fn cmd_set_open_router_api_token_impl(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    token: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    let trimmed = token.trim().to_string();
+    settings.open_router_api_token = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    };
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}
+
+pub fn cmd_set_open_router_model_impl(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    model: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    let trimmed = model.trim().to_string();
+    settings.open_router_model = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    };
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}
+
+pub fn cmd_set_active_ai_provider_impl(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    provider: String,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    let trimmed = provider.trim().to_string();
+    settings.active_ai_provider = if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    };
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}
+
 pub fn cmd_set_global_commit_prompt_impl(
     app_handle: AppHandle,
     state: State<AppState>,

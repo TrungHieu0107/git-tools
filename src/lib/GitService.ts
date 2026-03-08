@@ -56,6 +56,9 @@ export interface AppSettings {
   file_encodings?: Record<string, string>;
   gemini_api_token?: string | null;
   gemini_model?: string | null;
+  open_router_api_token?: string | null;
+  open_router_model?: string | null;
+  active_ai_provider?: "gemini" | "openrouter" | null;
   global_commit_prompt?: string | null;
   repo_commit_prompts?: Record<string, string>;
   repo_default_encodings?: Record<string, string>;
@@ -82,16 +85,32 @@ export class GitService {
     return RepositoryService.setGeminiModel(model);
   }
 
+  static async getGeminiModels(token?: string): Promise<string[]> {
+    return RepositoryService.getGeminiModels(token);
+  }
+
+  static async setOpenRouterApiToken(token: string): Promise<AppSettings> {
+    return RepositoryService.setOpenRouterApiToken(token);
+  }
+
+  static async setOpenRouterModel(model: string): Promise<AppSettings> {
+    return RepositoryService.setOpenRouterModel(model);
+  }
+
+  static async setActiveAiProvider(provider: "gemini" | "openrouter"): Promise<AppSettings> {
+    return RepositoryService.setActiveAiProvider(provider);
+  }
+
+  static async getOpenRouterModels(token?: string): Promise<string[]> {
+    return RepositoryService.getOpenRouterModels(token);
+  }
+
   static async setGlobalCommitPrompt(prompt: string): Promise<AppSettings> {
     return RepositoryService.setGlobalCommitPrompt(prompt);
   }
 
   static async setRepoCommitPrompt(repoPath: string, prompt: string): Promise<AppSettings> {
     return RepositoryService.setRepoCommitPrompt(repoPath, prompt);
-  }
-
-  static async getGeminiModels(token?: string): Promise<string[]> {
-    return RepositoryService.getGeminiModels(token);
   }
 
   static async addRepo(name: string, path: string): Promise<AppSettings> {

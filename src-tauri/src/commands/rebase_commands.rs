@@ -135,7 +135,7 @@ pub async fn cmd_get_rebase_status_impl(
     let mut upstream_branch = None;
 
     if rebase_merge.exists() {
-        let current = read_git_file(&git_dir, "rebase-merge/msg-num")
+        let current = read_git_file(&git_dir, "rebase-merge/msgnum")
             .and_then(|s| s.parse::<usize>().ok())
             .unwrap_or(0);
         let total = read_git_file(&git_dir, "rebase-merge/end")

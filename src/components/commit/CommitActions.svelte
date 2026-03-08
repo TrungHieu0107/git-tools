@@ -1,6 +1,7 @@
 <script lang="ts">
   interface Props {
     stagedCount: number;
+    conflictCount?: number;
     busy: boolean;
     abortBusy?: boolean;
     allowEmptyMessage?: boolean;
@@ -16,6 +17,7 @@
 
   let {
     stagedCount,
+    conflictCount = 0,
     busy,
     abortBusy = false,
     allowEmptyMessage = false,
@@ -77,6 +79,7 @@
   let canGenerate = $derived(stagedCount > 0 && !busy && !generating && !abortBusy);
   let canCommit = $derived(
     stagedCount > 0 &&
+      conflictCount === 0 &&
       (allowEmptyMessage || !!summary.trim()) &&
       !busy &&
       !generating &&

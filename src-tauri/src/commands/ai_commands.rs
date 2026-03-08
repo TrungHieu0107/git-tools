@@ -6,6 +6,10 @@ const GEMINI_MAX_FILE_SUMMARY_CHARS: usize = 4_000;
 const GEMINI_LIST_MODELS_URL: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 const GEMINI_MODELS_PAGE_SIZE: &str = "1000";
 
+const DEFAULT_OPEN_ROUTER_MODEL: &str = "google/gemini-2.5-flash";
+const OPEN_ROUTER_CHAT_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
+const OPEN_ROUTER_MODELS_URL: &str = "https://openrouter.ai/api/v1/models";
+
 #[derive(Debug, Deserialize)]
 struct GeminiModelsListResponse {
     #[serde(default)]
@@ -19,6 +23,17 @@ struct GeminiModelEntry {
     name: Option<String>,
     #[serde(default, rename = "supportedGenerationMethods")]
     supported_generation_methods: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenRouterModelsResponse {
+    #[serde(default)]
+    data: Vec<OpenRouterModelEntry>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenRouterModelEntry {
+    id: String,
 }
 
 struct CommitContext {
@@ -254,6 +269,77 @@ async fn call_gemini_api(token: &str, model: &str, prompt: &str) -> Result<Strin
     Ok("Gemini did not return any commit message text.".to_string())
 }
 
+async fn call_open_router_api(token: &str, model: &str, prompt: &str) -> Result<String, String> {
+    let payload = json!({
+        "model": model,
+        "messages": [
+            { "role": "user", "content": prompt }
+        ],
+        "temperature": 0.3,
+        "top_p": 0.9,
+    });
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(TIMEOUT_NETWORK))
+        .build()
+        .map_err(|e| format!("Failed to initialize OpenRouter client: {}", e))?;
+
+    let response = client
+        .post(OPEN_ROUTER_CHAT_URL)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("HTTP-Referer", "https://github.com/TrungHieu0107/git-tools")
+        .header("X-Title", "Git Tools")
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to call OpenRouter API: {}", e))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read OpenRouter response: {}", e))?;
+
+    if !status.is_success() {
+        if let Ok(err_json) = serde_json::from_str::<serde_json::Value>(&body) {
+            if let Some(error) = err_json.get("error") {
+                if let Some(raw) = error.get("metadata").and_then(|m| m.get("raw")).and_then(|v| v.as_str()) {
+                    return Err(format!("OpenRouter rate-limit or upstream error: {}", raw));
+                }
+                if let Some(msg) = error.get("message").and_then(|v| v.as_str()) {
+                    return Err(format!("OpenRouter API error: {}", msg));
+                }
+            }
+        }
+        return Err(format!("OpenRouter API error ({}): {}", status, body));
+    }
+
+    let response_json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("Invalid OpenRouter response: {}", e))?;
+
+    // Extract text from OpenAI-compatible response format
+    if let Some(choices) = response_json.get("choices").and_then(|v| v.as_array()) {
+        if let Some(first) = choices.first() {
+            if let Some(content) = first.get("message").and_then(|m| m.get("content")).and_then(|v| v.as_str()) {
+                let trimmed = content.trim();
+                if !trimmed.is_empty() {
+                    return Ok(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    if let Some(message) = response_json
+        .get("error")
+        .and_then(|v| v.get("message"))
+        .and_then(|v| v.as_str())
+    {
+        return Err(format!("OpenRouter API error: {}", message));
+    }
+
+    Ok("OpenRouter did not return any commit message text.".to_string())
+}
+
 fn sanitize_commit_message(raw: &str) -> String {
     let mut text = raw.trim().to_string();
 
@@ -460,49 +546,154 @@ pub async fn cmd_get_gemini_models_impl(
     Ok(sorted_models)
 }
 
+pub async fn cmd_get_open_router_models_impl(
+    state: State<'_, AppState>,
+    token: Option<String>,
+) -> Result<Vec<String>, String> {
+    let provided_token = token
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty());
+
+    let api_token = if let Some(t) = provided_token {
+        t
+    } else {
+        let settings = state.settings.lock().map_err(|e| e.to_string())?;
+        settings
+            .open_router_api_token
+            .clone()
+            .ok_or("OpenRouter API token is missing. Set it in Settings first.")?
+    };
+
+    if api_token.trim().is_empty() {
+        return Err("OpenRouter API token is missing. Set it in Settings first.".to_string());
+    }
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(TIMEOUT_NETWORK))
+        .build()
+        .map_err(|e| format!("Failed to initialize OpenRouter client: {}", e))?;
+
+    let response = client
+        .get(OPEN_ROUTER_MODELS_URL)
+        .header("Authorization", format!("Bearer {}", api_token))
+        .header("HTTP-Referer", "https://github.com/TrungHieu0107/git-tools")
+        .header("X-Title", "Git Tools")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to call OpenRouter API: {}", e))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read OpenRouter response: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!(
+            "OpenRouter API error while listing models ({}): {}",
+            status, body
+        ));
+    }
+
+    let parsed: OpenRouterModelsResponse = serde_json::from_str(&body)
+        .map_err(|e| format!("Invalid OpenRouter model list response: {}", e))?;
+
+    let mut models: Vec<String> = parsed
+        .data
+        .into_iter()
+        .map(|m| m.id.clone())
+        .collect();
+
+    if models.is_empty() {
+        return Err("No OpenRouter models found.".to_string());
+    }
+
+    models.sort_unstable();
+    Ok(models)
+}
+
 pub async fn cmd_generate_commit_message_impl(
     state: State<'_, AppState>,
     repo_path: Option<String>,
 ) -> Result<String, String> {
     let path = resolve_repo_path(&state, repo_path)?;
 
-    let (token, model, global_prompt, repo_prompt) = {
+    let (
+        gemini_token,
+        gemini_model,
+        or_token,
+        or_model,
+        provider,
+        global_prompt,
+        repo_prompt,
+    ) = {
         let settings = state.settings.lock().map_err(|e| e.to_string())?;
-        let token = settings.gemini_api_token.clone();
-        let model = settings
+        
+        let gemini_token = settings.gemini_api_token.clone();
+        let gemini_model = settings
             .gemini_model
             .clone()
             .unwrap_or_else(|| DEFAULT_GEMINI_MODEL.to_string());
-        
+            
+        let or_token = settings.open_router_api_token.clone();
+        let or_model = settings
+            .open_router_model
+            .clone()
+            .unwrap_or_else(|| DEFAULT_OPEN_ROUTER_MODEL.to_string());
+            
+        // default to "gemini" for backwards compatibility
+        let provider = settings
+            .active_ai_provider
+            .clone()
+            .unwrap_or_else(|| "gemini".to_string());
+
         let global_prompt = settings.global_commit_prompt.clone();
         let repo_prompt = settings.repo_commit_prompts.get(&path).cloned();
 
-        (token, model, global_prompt, repo_prompt)
+        (
+            gemini_token,
+            gemini_model,
+            or_token,
+            or_model,
+            provider,
+            global_prompt,
+            repo_prompt,
+        )
     };
 
-    let token = token.ok_or("Gemini API token is missing. Set it in Settings first.")?;
-    let model = if model.trim().is_empty() {
-        DEFAULT_GEMINI_MODEL.to_string()
-    } else {
-        model.trim().to_string()
-    };
-
-    // Determine target prompt: Repo Specific > Global User Defined > System Default
     let target_prompt = repo_prompt.or(global_prompt);
-
     let commit_context = fetch_commit_context(&state, &path).await?;
+    
     let prompt = build_gemini_prompt(
         &commit_context.file_summary_for_prompt,
         &commit_context.diff_patch_for_prompt,
         commit_context.diff_was_truncated,
         target_prompt,
     );
-    let raw_response = call_gemini_api(&token, &model, &prompt).await?;
+
+    let raw_response = if provider == "openrouter" {
+        let token = or_token.ok_or("OpenRouter API token is missing. Set it in Settings first.")?;
+        let active_model = if or_model.trim().is_empty() {
+            DEFAULT_OPEN_ROUTER_MODEL.to_string()
+        } else {
+            or_model.trim().to_string()
+        };
+        call_open_router_api(&token, &active_model, &prompt).await?
+    } else {
+        let token = gemini_token.ok_or("Gemini API token is missing. Set it in Settings first.")?;
+        let active_model = if gemini_model.trim().is_empty() {
+            DEFAULT_GEMINI_MODEL.to_string()
+        } else {
+            gemini_model.trim().to_string()
+        };
+        call_gemini_api(&token, &active_model, &prompt).await?
+    };
+
     let sanitized = sanitize_commit_message(&raw_response);
     let message = ensure_commit_message_has_body(&sanitized, &commit_context.staged_files);
 
     if message.trim().is_empty() {
-        return Err("Gemini returned an empty commit message.".to_string());
+        return Err("AI provider returned an empty commit message.".to_string());
     }
 
     Ok(message)

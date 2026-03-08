@@ -20,6 +20,16 @@
   let geminiSaveError = $state("");
   let geminiModelsError = $state("");
 
+  let activeAiProvider = $state<"gemini" | "openrouter">("gemini");
+  let openRouterToken = $state("");
+  let openRouterModel = $state("google/gemini-2.5-flash");
+  let openRouterModelOptions = $state<string[]>([]);
+  let savingOpenRouterToken = $state(false);
+  let savingOpenRouterModel = $state(false);
+  let loadingOpenRouterModels = $state(false);
+  let openRouterSaveError = $state("");
+  let openRouterModelsError = $state("");
+
   let globalPrompt = $state("");
   let repoPrompt = $state("");
   let defaultAiPrompt = $state("");
@@ -41,6 +51,13 @@
     return model;
   }
 
+  const DEFAULT_OPEN_ROUTER_MODEL = "google/gemini-2.5-flash";
+
+  function normalizeOpenRouterModel(model?: string | null): string {
+    const trimmed = (model || "").trim();
+    return trimmed || DEFAULT_OPEN_ROUTER_MODEL;
+  }
+
   function applyLoadedSettings(loaded: AppSettings) {
     settings = loaded;
     if (!settings.excluded_files) {
@@ -48,6 +65,9 @@
     }
     geminiToken = settings.gemini_api_token || "";
     geminiModel = normalizeGeminiModel(settings.gemini_model);
+    openRouterToken = settings.open_router_api_token || "";
+    openRouterModel = normalizeOpenRouterModel(settings.open_router_model);
+    activeAiProvider = settings.active_ai_provider || "gemini";
     globalPrompt = settings.global_commit_prompt || "";
     
     if (repoPath) {
@@ -85,6 +105,34 @@
     }
   }
 
+  async function loadOpenRouterModels(tokenOverride?: string) {
+    const token = (tokenOverride || settings?.open_router_api_token || "").trim();
+    if (!token) {
+      openRouterModelOptions = [];
+      openRouterModelsError = "";
+      return;
+    }
+
+    loadingOpenRouterModels = true;
+    openRouterModelsError = "";
+    try {
+      const models = await GitService.getOpenRouterModels(token);
+      openRouterModelOptions = models;
+
+      if (models.length > 0 && !models.includes(openRouterModel) && settings?.open_router_api_token) {
+        const fallbackModel = models[0];
+        openRouterModel = fallbackModel;
+        applyLoadedSettings(await GitService.setOpenRouterModel(fallbackModel));
+      }
+    } catch (e) {
+      openRouterModelOptions = [];
+      openRouterModelsError = String(e);
+      console.error("Failed to load OpenRouter models", e);
+    } finally {
+      loadingOpenRouterModels = false;
+    }
+  }
+
   onMount(async () => {
     try {
         const [loaded, defaultPrompt] = await Promise.all([
@@ -95,6 +143,9 @@
         applyLoadedSettings(loaded);
         if (loaded.gemini_api_token) {
           await loadGeminiModels(loaded.gemini_api_token);
+        }
+        if (loaded.open_router_api_token) {
+          await loadOpenRouterModels(loaded.open_router_api_token);
         }
     } catch (e) {
         console.error("Failed to load settings", e);
@@ -163,6 +214,50 @@
     }
   }
 
+  async function saveOpenRouterToken() {
+    savingOpenRouterToken = true;
+    openRouterSaveError = "";
+    try {
+      const trimmedToken = openRouterToken.trim();
+      applyLoadedSettings(await GitService.setOpenRouterApiToken(trimmedToken));
+      await loadOpenRouterModels(trimmedToken);
+    } catch (e) {
+      openRouterSaveError = String(e);
+      console.error("Failed to save OpenRouter token", e);
+    } finally {
+      savingOpenRouterToken = false;
+    }
+  }
+
+  async function clearOpenRouterToken() {
+    openRouterToken = "";
+    await saveOpenRouterToken();
+  }
+
+  async function saveOpenRouterModel() {
+    if (!settings?.open_router_api_token || !openRouterModelOptions.includes(openRouterModel)) return;
+    savingOpenRouterModel = true;
+    openRouterSaveError = "";
+    try {
+      applyLoadedSettings(await GitService.setOpenRouterModel(openRouterModel));
+    } catch (e) {
+      openRouterSaveError = String(e);
+      console.error("Failed to save OpenRouter model", e);
+    } finally {
+      savingOpenRouterModel = false;
+    }
+  }
+
+  async function saveActiveAiProvider(provider: "gemini" | "openrouter") {
+    activeAiProvider = provider;
+    try {
+      applyLoadedSettings(await GitService.setActiveAiProvider(provider));
+    } catch (e) {
+      console.error("Failed to save active AI provider", e);
+      toast.error(`Failed to switch AI provider: ${e}`);
+    }
+  }
+
   async function saveGlobalPrompt() {
     savingGlobalPrompt = true;
     promptSaveError = "";
@@ -216,76 +311,191 @@
   {/if}
 
   <div class="max-w-3xl w-full">
-    <!-- Gemini Config -->
+    <!-- AI Provider Selection -->
     <div class="mb-10 pb-8 border-b border-[#30363d]">
       <h3 class="flex items-center gap-2 text-sm font-semibold uppercase text-[#8b949e] mb-4 tracking-wider">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-        Gemini AI Configuration
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12H3"></path><path d="M12 3v18"></path></svg>
+        Active AI Provider
       </h3>
       
-      <div class="space-y-4">
-        <div>
-          <label for="gemini-token" class="text-xs text-[#8b949e] block mb-2">API Token</label>
-          <div class="flex flex-wrap gap-2 items-center">
-            <div class="flex-1 min-w-[220px]">
-              <input
-                id="gemini-token"
-                type="password"
-                bind:value={geminiToken}
-                placeholder="Enter Gemini API token..."
-                class="w-full bg-[#0d1117] border border-[#30363d] px-3 py-2 rounded-md text-sm outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] placeholder-[#484f58] transition-all font-mono text-xs"
-              />
-            </div>
-            <button
-              onclick={saveGeminiToken}
-              disabled={savingGeminiToken}
-              class="shrink-0 px-4 py-2 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white rounded-md text-xs font-bold transition-all border border-[rgba(240,246,252,0.1)] shadow-sm"
-            >
-              {savingGeminiToken ? 'Saving...' : 'Save Token'}
-            </button>
-            <button
-              onclick={clearGeminiToken}
-              disabled={savingGeminiToken || !settings?.gemini_api_token}
-              class="shrink-0 px-4 py-2 bg-[#21262d] hover:bg-[#30363d] disabled:opacity-50 text-[#c9d1d9] rounded-md text-xs font-bold border border-[#30363d] transition-all"
-            >
-              Clear
-            </button>
+      <div class="flex gap-6 items-center">
+        <label class="flex items-center gap-2 cursor-pointer text-sm text-[#c9d1d9] hover:text-white transition-colors">
+          <input 
+            type="radio" 
+            name="aiProvider" 
+            value="gemini"
+            checked={activeAiProvider === 'gemini'}
+            onchange={() => saveActiveAiProvider('gemini')}
+            class="hidden peer"
+          />
+          <div class="w-4 h-4 rounded-full border border-[#58a6ff] peer-checked:bg-[#58a6ff] peer-checked:ring-2 peer-checked:ring-[#58a6ff]/30 transition-all flex items-center justify-center">
+             <div class="w-1.5 h-1.5 bg-[#0d1117] rounded-full opacity-0 peer-checked:opacity-100 transition-opacity"></div>
           </div>
-        </div>
-
-        {#if settings?.gemini_api_token}
-          <div>
-            <label for="gemini-model" class="text-xs text-[#8b949e] block mb-2">Model</label>
-            <div class="flex flex-wrap items-center gap-2">
-              <select
-                id="gemini-model"
-                bind:value={geminiModel}
-                onchange={saveGeminiModel}
-                disabled={savingGeminiModel || loadingGeminiModels || geminiModelOptions.length === 0}
-                class="w-full sm:w-auto bg-[#0d1117] border border-[#30363d] px-3 py-2 rounded-md text-xs outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] transition-all min-w-[220px]"
-              >
-                {#if geminiModelOptions.length === 0}
-                  <option value="" disabled>{loadingGeminiModels ? "Loading models..." : "No models available"}</option>
-                {:else}
-                  {#each geminiModelOptions as model}
-                    <option value={model}>{model}</option>
-                  {/each}
-                {/if}
-              </select>
-              {#if loadingGeminiModels}
-                <span class="text-[11px] text-[#8b949e] animate-pulse">Loading models...</span>
-              {/if}
-            </div>
+          Google Gemini
+        </label>
+        
+        <label class="flex items-center gap-2 cursor-pointer text-sm text-[#c9d1d9] hover:text-white transition-colors">
+          <input 
+            type="radio" 
+            name="aiProvider" 
+            value="openrouter"
+            checked={activeAiProvider === 'openrouter'}
+            onchange={() => saveActiveAiProvider('openrouter')}
+            class="hidden peer"
+          />
+          <div class="w-4 h-4 rounded-full border border-[#58a6ff] peer-checked:bg-[#58a6ff] peer-checked:ring-2 peer-checked:ring-[#58a6ff]/30 transition-all flex items-center justify-center">
+             <div class="w-1.5 h-1.5 bg-[#0d1117] rounded-full opacity-0 peer-checked:opacity-100 transition-opacity"></div>
           </div>
-        {/if}
-
-        {#if geminiSaveError || geminiModelsError}
-          <p class="text-[11px] text-[#f85149] mt-2 bg-[#f85149]/10 p-2 rounded border border-[#f85149]/20 break-all">
-            {geminiSaveError || geminiModelsError}
-          </p>
-        {/if}
+          OpenRouter
+        </label>
       </div>
     </div>
+
+    {#if activeAiProvider === 'gemini'}
+      <!-- Gemini Config -->
+      <div class="mb-10 pb-8 border-b border-[#30363d] animate-fade-in">
+        <h3 class="flex items-center gap-2 text-sm font-semibold uppercase text-[#8b949e] mb-4 tracking-wider">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          Gemini AI Configuration
+        </h3>
+        
+        <div class="space-y-4">
+          <div>
+            <label for="gemini-token" class="text-xs text-[#8b949e] block mb-2">API Token</label>
+            <div class="flex flex-wrap gap-2 items-center">
+              <div class="flex-1 min-w-[220px]">
+                <input
+                  id="gemini-token"
+                  type="password"
+                  bind:value={geminiToken}
+                  placeholder="Enter Gemini API token..."
+                  class="w-full bg-[#0d1117] border border-[#30363d] px-3 py-2 rounded-md text-sm outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] placeholder-[#484f58] transition-all font-mono text-xs"
+                />
+              </div>
+              <button
+                onclick={saveGeminiToken}
+                disabled={savingGeminiToken}
+                class="shrink-0 px-4 py-2 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white rounded-md text-xs font-bold transition-all border border-[rgba(240,246,252,0.1)] shadow-sm"
+              >
+                {savingGeminiToken ? 'Saving...' : 'Save Token'}
+              </button>
+              <button
+                onclick={clearGeminiToken}
+                disabled={savingGeminiToken || !settings?.gemini_api_token}
+                class="shrink-0 px-4 py-2 bg-[#21262d] hover:bg-[#30363d] disabled:opacity-50 text-[#c9d1d9] rounded-md text-xs font-bold border border-[#30363d] transition-all"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          {#if settings?.gemini_api_token}
+            <div>
+              <label for="gemini-model" class="text-xs text-[#8b949e] block mb-2">Model</label>
+              <div class="flex flex-wrap items-center gap-2">
+                <select
+                  id="gemini-model"
+                  bind:value={geminiModel}
+                  onchange={saveGeminiModel}
+                  disabled={savingGeminiModel || loadingGeminiModels || geminiModelOptions.length === 0}
+                  class="w-full sm:w-auto bg-[#0d1117] border border-[#30363d] px-3 py-2 rounded-md text-xs outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] transition-all min-w-[220px]"
+                >
+                  {#if geminiModelOptions.length === 0}
+                    <option value="" disabled>{loadingGeminiModels ? "Loading models..." : "No models available"}</option>
+                  {:else}
+                    {#each geminiModelOptions as model}
+                      <option value={model}>{model}</option>
+                    {/each}
+                  {/if}
+                </select>
+                {#if loadingGeminiModels}
+                  <span class="text-[11px] text-[#8b949e] animate-pulse">Loading models...</span>
+                {/if}
+              </div>
+            </div>
+          {/if}
+
+          {#if geminiSaveError || geminiModelsError}
+            <p class="text-[11px] text-[#f85149] mt-2 bg-[#f85149]/10 p-2 rounded border border-[#f85149]/20 break-all">
+              {geminiSaveError || geminiModelsError}
+            </p>
+          {/if}
+        </div>
+      </div>
+    {/if}
+
+    {#if activeAiProvider === 'openrouter'}
+      <!-- OpenRouter Config -->
+      <div class="mb-10 pb-8 border-b border-[#30363d] animate-fade-in">
+        <h3 class="flex items-center gap-2 text-sm font-semibold uppercase text-[#8b949e] mb-4 tracking-wider">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          OpenRouter AI Configuration
+        </h3>
+        
+        <div class="space-y-4">
+          <div>
+            <label for="openrouter-token" class="text-xs text-[#8b949e] block mb-2">API Token</label>
+            <div class="flex flex-wrap gap-2 items-center">
+              <div class="flex-1 min-w-[220px]">
+                <input
+                  id="openrouter-token"
+                  type="password"
+                  bind:value={openRouterToken}
+                  placeholder="Enter OpenRouter API token..."
+                  class="w-full bg-[#0d1117] border border-[#30363d] px-3 py-2 rounded-md text-sm outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] placeholder-[#484f58] transition-all font-mono text-xs"
+                />
+              </div>
+              <button
+                onclick={saveOpenRouterToken}
+                disabled={savingOpenRouterToken}
+                class="shrink-0 px-4 py-2 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white rounded-md text-xs font-bold transition-all border border-[rgba(240,246,252,0.1)] shadow-sm"
+              >
+                {savingOpenRouterToken ? 'Saving...' : 'Save Token'}
+              </button>
+              <button
+                onclick={clearOpenRouterToken}
+                disabled={savingOpenRouterToken || !settings?.open_router_api_token}
+                class="shrink-0 px-4 py-2 bg-[#21262d] hover:bg-[#30363d] disabled:opacity-50 text-[#c9d1d9] rounded-md text-xs font-bold border border-[#30363d] transition-all"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+
+          {#if settings?.open_router_api_token}
+            <div>
+              <label for="openrouter-model" class="text-xs text-[#8b949e] block mb-2">Model</label>
+              <div class="flex flex-wrap items-center gap-2">
+                <select
+                  id="openrouter-model"
+                  bind:value={openRouterModel}
+                  onchange={saveOpenRouterModel}
+                  disabled={savingOpenRouterModel || loadingOpenRouterModels || openRouterModelOptions.length === 0}
+                  class="w-full sm:w-auto bg-[#0d1117] border border-[#30363d] px-3 py-2 rounded-md text-xs outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] transition-all min-w-[220px] max-w-full"
+                >
+                  {#if openRouterModelOptions.length === 0}
+                    <option value="" disabled>{loadingOpenRouterModels ? "Loading models..." : "No models available"}</option>
+                  {:else}
+                    {#each openRouterModelOptions as model}
+                      <option value={model}>{model}</option>
+                    {/each}
+                  {/if}
+                </select>
+                {#if loadingOpenRouterModels}
+                  <span class="text-[11px] text-[#8b949e] animate-pulse">Loading models...</span>
+                {/if}
+              </div>
+            </div>
+          {/if}
+
+          {#if openRouterSaveError || openRouterModelsError}
+            <p class="text-[11px] text-[#f85149] mt-2 bg-[#f85149]/10 p-2 rounded border border-[#f85149]/20 break-all">
+              {openRouterSaveError || openRouterModelsError}
+            </p>
+          {/if}
+        </div>
+      </div>
+    {/if}
 
     <!-- AI Prompt Settings -->
     <div class="mb-10 pb-8 border-b border-[#30363d]">

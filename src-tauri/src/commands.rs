@@ -489,6 +489,33 @@ pub fn cmd_set_gemini_model(
 }
 
 #[tauri::command]
+pub fn cmd_set_open_router_api_token(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    token: String,
+) -> Result<AppSettings, String> {
+    settings_commands::cmd_set_open_router_api_token_impl(app_handle, state, token)
+}
+
+#[tauri::command]
+pub fn cmd_set_open_router_model(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    model: String,
+) -> Result<AppSettings, String> {
+    settings_commands::cmd_set_open_router_model_impl(app_handle, state, model)
+}
+
+#[tauri::command]
+pub fn cmd_set_active_ai_provider(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    provider: String,
+) -> Result<AppSettings, String> {
+    settings_commands::cmd_set_active_ai_provider_impl(app_handle, state, provider)
+}
+
+#[tauri::command]
 pub fn cmd_set_global_commit_prompt(
     app_handle: AppHandle,
     state: State<AppState>,
@@ -534,6 +561,14 @@ pub async fn cmd_get_gemini_models(
     token: Option<String>,
 ) -> Result<Vec<String>, String> {
     ai_commands::cmd_get_gemini_models_impl(state, token).await
+}
+
+#[tauri::command]
+pub async fn cmd_get_open_router_models(
+    state: State<'_, AppState>,
+    token: Option<String>,
+) -> Result<Vec<String>, String> {
+    ai_commands::cmd_get_open_router_models_impl(state, token).await
 }
 
 #[tauri::command]

@@ -58,15 +58,15 @@
         return;
     }
     try {
+        const prevConflicts = hasConflicts;
         hasConflicts = await GitService.checkConflictState(repoPath);
+        
         if (hasConflicts) {
              currentView = 'conflicts';
-             if (isActive && conflictAutoNavigatedRepo !== repoPath) {
-                 conflictAutoNavigatedRepo = repoPath;
+             // If we just hit a conflict, or we are already in conflict but not on the graph tab
+             if (isActive && (!prevConflicts || activeTab !== 'graph')) {
                  await navigateToCommitPanel();
              }
-        } else if (conflictAutoNavigatedRepo === repoPath) {
-             conflictAutoNavigatedRepo = null;
         }
     } catch (e) {
         console.error("Failed to check conflict state:", e);
