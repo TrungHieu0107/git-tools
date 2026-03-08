@@ -150,6 +150,13 @@
       }
       if (commitGraph?.selectWipRow) {
           commitGraph.selectWipRow();
+          // Wait a bit for the WIP panel to render then refresh the status
+          // This ensures conflicted files are displayed in the Working Changes panel
+          setTimeout(() => {
+              if (commitGraph?.wipPanelRef?.refresh) {
+                  commitGraph.wipPanelRef.refresh();
+              }
+          }, 100);
       }
   }
 

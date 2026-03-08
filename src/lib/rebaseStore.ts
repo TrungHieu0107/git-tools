@@ -283,6 +283,20 @@ function createRebaseStore() {
       const state = get(rebaseStore);
       const path = repoPath || state.repoPath;
       if (!path) return;
+      // Check if there's actually a rebase in progress before aborting
+      try {
+        const status: FullRebaseStatus = await invoke("cmd_get_rebase_status", { repoPath: path });
+        const mapped = status.status as RebaseStatus;
+        if (mapped === "idle" || mapped === "completed" || mapped === "aborted") {
+          // No rebase in progress, just reset the state
+          update(s => ({ ...s, status: "idle", step: null }));
+          return;
+        }
+      } catch (e) {
+        // If we can't check status, assume no rebase in progress
+        update(s => ({ ...s, status: "idle", step: null }));
+        return;
+      }
       try {
         const res: GitCommandResult = await invoke("cmd_rebase_abort", { repoPath: path });
         if (res.success) {

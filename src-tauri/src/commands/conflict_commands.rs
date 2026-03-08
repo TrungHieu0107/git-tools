@@ -21,9 +21,13 @@ pub struct GitOperationState {
 
 fn detect_operation_flags(git_dir: &Path) -> (bool, bool, bool, bool) {
     let is_merging = git_dir.join("MERGE_HEAD").exists();
+    
+    let rebase_apply = git_dir.join("rebase-apply");
+    let is_am = rebase_apply.join("applying").exists();
+    
     let is_rebasing = git_dir.join("REBASE_HEAD").exists()
         || git_dir.join("rebase-merge").exists()
-        || git_dir.join("rebase-apply").exists();
+        || (rebase_apply.exists() && !is_am);
     let is_cherry_picking = git_dir.join("CHERRY_PICK_HEAD").exists();
     let is_reverting = git_dir.join("REVERT_HEAD").exists();
     (is_merging, is_rebasing, is_cherry_picking, is_reverting)

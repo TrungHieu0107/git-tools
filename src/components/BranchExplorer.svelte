@@ -217,8 +217,10 @@
                     confirmLabel: "Rebase"
                 });
                 if (!confirmed) return;
-                const result = await rebaseStore.startRebase(menu.commitHash, repoPath);
-                const navigated = await navigateToCommitWhenRebaseBlocked();
+                // Use branchName instead of commitHash for branch rebase
+                const result = await rebaseStore.startRebase(menu.branchName, repoPath);
+                // Use the new function that properly checks for conflicts and operation state
+                const navigated = await navigateToCommitWhenConflictsDetected();
                 if (!navigated && result?.success) {
                     await loadBranches({ force: true });
                 }
@@ -274,13 +276,28 @@
       return false;
   }
 
-  async function navigateToCommitWhenRebaseBlocked(): Promise<boolean> {
+  async function navigateToCommitWhenConflictsDetected(): Promise<boolean> {
+      // Check for conflicts after rebase/merge operations
       const operationState = await GitService.getOperationState(repoPath).catch(() => null);
-      if (operationState?.isRebasing || operationState?.isMerging || operationState?.isCherryPicking || operationState?.isReverting) {
+      if (!operationState) return false;
+      
+      const isOperationInProgress = 
+          operationState.isRebasing || 
+          operationState.isMerging || 
+          operationState.isCherryPicking || 
+          operationState.isReverting;
+      
+      if (!isOperationInProgress) return false;
+      
+      // Navigate to commit panel if there are conflicts
+      if (operationState.hasConflicts || (operationState.conflictPaths && operationState.conflictPaths.length > 0)) {
           await onNavigateToCommitPanel?.();
           return true;
       }
-      return false;
+      
+      // Even if no conflicts, navigate if there's an operation in progress
+      await onNavigateToCommitPanel?.();
+      return true;
   }
 
   async function handleBranchClick(node: BranchNode) {
