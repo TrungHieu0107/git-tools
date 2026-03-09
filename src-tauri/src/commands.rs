@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::git::service::{TIMEOUT_LOCAL, TIMEOUT_NETWORK, TIMEOUT_QUICK, TIMEOUT_STATUS_UI};
 use crate::git::{
     ConflictFile, DiagnosticInfo, FullRebaseStatus, GitCommandResult, GitCommandType, GitError,
-    GitResponse, GitResult, RebaseStepInfo, RebaseTodoItem,
+    GitResponse, GitResult, RebaseTodoItem,
 };
 use crate::models::{CommitDiff, DiffFile, DiffHunk, DiffLine, DiffLineType, FileCommit};
 use crate::settings::{save_settings, AppSettings, AppState, RepoEntry};
@@ -1287,15 +1287,17 @@ pub async fn cmd_git_stash_file(
 pub async fn cmd_git_stash_all(
     app: AppHandle,
     state: State<'_, AppState>,
+    message: Option<String>,
     repo_path: Option<String>,
 ) -> Result<(), String> {
     let r_path = resolve_repo_path(&state, repo_path)?;
+    let msg = message.unwrap_or_else(|| "stash all".to_string());
     let args: Vec<String> = vec![
         "stash".into(),
         "push".into(),
         "-u".into(),
         "-m".into(),
-        "stash all".into(),
+        msg,
     ];
 
     state

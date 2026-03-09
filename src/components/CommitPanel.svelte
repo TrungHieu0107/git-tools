@@ -487,8 +487,23 @@
   async function handleStashAll() {
       if (!repoPath) return;
       try {
-          await GitService.stashAll(repoPath);
-          await loadStatus(true);
+          const branchName = await GitService.getCurrentBranch(repoPath);
+          const defaultMessage = `stash on branch ${branchName}`;
+          
+          const confirmed = await confirm({
+              title: "Stash All Changes",
+              message: "Enter a message for this stash:",
+              confirmLabel: "Stash All",
+              cancelLabel: "Cancel",
+              showInput: true,
+              inputValue: defaultMessage,
+              inputPlaceholder: "Stash message..."
+          });
+
+          if (typeof confirmed === "string") {
+              await GitService.stashAll(repoPath, confirmed);
+              await loadStatus(true);
+          }
       } catch (e) {
           // toast handled in service
       }
@@ -858,6 +873,8 @@
                     onDiscardAll={handleDiscardAll}
                     discardAllLabel="Discard All"
                     showDiscardAll={unstagedFiles.length + stagedFiles.length > 0}
+                    onStashAll={handleStashAll}
+                    showStashAll={unstagedFiles.length > 0}
                     viewMode={fileViewMode}
                     conflictPaths={conflictPaths}
                     onResolveConflict={handleResolveConflict}
@@ -906,6 +923,8 @@
                     onCreatePatch={handleCreatePatchFromFile}
                     onEditFile={handleEditFile}
                     onDeleteFile={handleDeleteFile}
+                    onStashAll={handleStashAll}
+                    showStashAll={stagedFiles.length > 0}
                     viewMode={fileViewMode}
                     conflictPaths={conflictPaths}
                     onResolveConflict={handleResolveConflict}
@@ -919,7 +938,7 @@
         <div class="shrink-0 border-t border-[#30363d]">
             <CommitActions
                 stagedCount={stagedFiles.length}
-                conflictCount={conflictPaths.length}
+                conflictCount={conflictPaths.size}
                 busy={committing}
                 abortBusy={abortingOperation}
                 allowEmptyMessage={operationState.isRebasing}

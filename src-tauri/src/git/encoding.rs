@@ -79,7 +79,6 @@ pub fn encode_string(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
 
     #[test]
     fn test_resolve_encoding() {
@@ -122,12 +121,12 @@ mod tests {
         // Windows-1252 encoded "café" (E9 is é)
         let data = vec![0x63, 0x61, 0x66, 0xE9];
 
-        let decoded = decode_bytes(&data, Path::new("test.txt"), &settings);
+        let decoded = decode_bytes(&data, Path::new("test.txt"), None, &settings, None);
         assert_eq!(decoded, "café");
 
         // UTF-8 (default)
         let data_utf8 = "café".as_bytes();
-        let decoded_utf8 = decode_bytes(data_utf8, Path::new("other.rs"), &settings);
+        let decoded_utf8 = decode_bytes(data_utf8, Path::new("other.rs"), None, &settings, None);
         assert_eq!(decoded_utf8, "café");
     }
 }

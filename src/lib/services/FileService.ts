@@ -98,10 +98,10 @@ export class FileService {
     );
   }
 
-  static async stashAll(repoPath?: string): Promise<void> {
+  static async stashAll(repoPath?: string, message?: string): Promise<void> {
     await executeCommand<void>(
       "cmd_git_stash_all",
-      { repoPath },
+      { repoPath, message },
       "Stashed all changes",
       "Stash all failed",
       { reloadGraph: true },

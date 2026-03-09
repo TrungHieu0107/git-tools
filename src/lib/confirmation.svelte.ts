@@ -4,12 +4,15 @@ export interface ConfirmationOptions {
   confirmLabel?: string;
   cancelLabel?: string;
   isHtmlMessage?: boolean;
+  showInput?: boolean;
+  inputValue?: string;
+  inputPlaceholder?: string;
 }
 
 interface ConfirmationState {
     isOpen: boolean;
     options: ConfirmationOptions;
-    resolve: (value: boolean) => void;
+    resolve: (value: boolean | string) => void;
 }
 
 // Global state using Svelte 5 rune
@@ -23,7 +26,7 @@ export function getConfirmationState() {
     return state;
 }
 
-export function confirm(options: ConfirmationOptions): Promise<boolean> {
+export function confirm(options: ConfirmationOptions): Promise<boolean | string> {
     state.options = { 
         confirmLabel: "Confirm",
         cancelLabel: "Cancel",
@@ -32,7 +35,7 @@ export function confirm(options: ConfirmationOptions): Promise<boolean> {
     state.isOpen = true;
     
     return new Promise((resolve) => {
-        state.resolve = (value: boolean) => {
+        state.resolve = (value: boolean | string) => {
             state.isOpen = false;
             resolve(value);
         };

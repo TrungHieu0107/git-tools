@@ -243,8 +243,8 @@ export class GitService {
     return FileService.stashFile(file, repoPath);
   }
 
-  static async stashAll(repoPath?: string): Promise<void> {
-    return FileService.stashAll(repoPath);
+  static async stashAll(repoPath?: string, message?: string): Promise<void> {
+    return FileService.stashAll(repoPath, message);
   }
 
   static async openRepoFile(filePath: string, repoPath?: string): Promise<void> {

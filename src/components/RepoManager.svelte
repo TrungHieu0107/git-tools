@@ -116,7 +116,7 @@
             </div>
             <div class="flex flex-wrap gap-4 items-end">
                 <div class="w-full sm:flex-1">
-                    <label class="block text-xs text-gray-500 mb-1">Name</label>
+                    <label for="repo-name" class="block text-xs text-gray-500 mb-1">Name</label>
                     <input 
                         type="text" 
                         class="w-full bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
