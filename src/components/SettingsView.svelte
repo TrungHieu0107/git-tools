@@ -11,6 +11,7 @@
 
   let settings = $state<AppSettings | null>(null);
   let newExclusion = $state("");
+  let showIgnoredFiles = $state(false);
   let geminiToken = $state("");
   let geminiModel = $state("gemini-2.5-flash");
   let geminiModelOptions = $state<string[]>([]);
@@ -63,6 +64,7 @@
     if (!settings.excluded_files) {
       settings.excluded_files = [];
     }
+    showIgnoredFiles = settings.show_ignored_files ?? false;
     geminiToken = settings.gemini_api_token || "";
     geminiModel = normalizeGeminiModel(settings.gemini_model);
     openRouterToken = settings.open_router_api_token || "";
@@ -177,6 +179,20 @@
         applyLoadedSettings(await GitService.setExcludedFiles(exclusions));
     } catch (e) {
         console.error("Failed to remove exclusion", e);
+    }
+  }
+
+  async function toggleShowIgnoredFiles() {
+    // Revert state optimistic
+    const newVal = !showIgnoredFiles;
+    showIgnoredFiles = newVal;
+    try {
+        applyLoadedSettings(await GitService.setShowIgnoredFiles(newVal));
+        toast.success(newVal ? "App-ignored files will now be shown." : "App-ignored files are now hidden.");
+    } catch (e) {
+        console.error("Failed to toggle show ignored files", e);
+        showIgnoredFiles = !newVal; // revert on fail
+        toast.error("Failed to save setting.");
     }
   }
 
@@ -597,6 +613,27 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
         Global File Exclusions
       </h3>
+      
+      <div class="mb-6 flex items-center justify-between bg-[#161b22] border border-[#30363d] p-4 rounded-md">
+        <div>
+          <span class="text-sm font-semibold text-[#c9d1d9] block">Show Ignored Files</span>
+          <span class="text-xs text-[#8b949e]">Display files ignored by the app in the Working Changes panel.</span>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showIgnoredFiles}
+          class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#58a6ff] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0d1117] {showIgnoredFiles ? 'bg-[#2ea043]' : 'bg-[#484f58]'}"
+          onclick={toggleShowIgnoredFiles}
+        >
+          <span class="sr-only">Toggle Show Ignored Files</span>
+          <span
+            aria-hidden="true"
+            class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out {showIgnoredFiles ? 'translate-x-4' : 'translate-x-0'}"
+          ></span>
+        </button>
+      </div>
+
       <p class="text-xs text-[#8b949e] mb-4 leading-relaxed">
         Patterns to virtually ignore in this app (e.g., <code>*.log</code>, <code>dist/**</code>).
       </p>

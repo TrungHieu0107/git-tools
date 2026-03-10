@@ -55,6 +55,7 @@ export interface AppSettings {
   excluded_files: string[];
   repo_filters: Record<string, string>;
   file_encodings?: Record<string, string>;
+  show_ignored_files?: boolean;
   gemini_api_token?: string | null;
   gemini_model?: string | null;
   open_router_api_token?: string | null;
@@ -76,6 +77,10 @@ export class GitService {
 
   static async setRepoFilter(repoId: string, filter: string): Promise<AppSettings> {
     return RepositoryService.setRepoFilter(repoId, filter);
+  }
+
+  static async setShowIgnoredFiles(show: boolean): Promise<AppSettings> {
+    return RepositoryService.setShowIgnoredFiles(show);
   }
 
   static async setGeminiApiToken(token: string): Promise<AppSettings> {

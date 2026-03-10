@@ -42,6 +42,8 @@ pub struct AppSettings {
     pub repo_commit_prompts: std::collections::HashMap<String, String>,
     #[serde(default)]
     pub repo_default_encodings: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub show_ignored_files: bool,
 }
 
 use crate::terminal::TerminalManager;

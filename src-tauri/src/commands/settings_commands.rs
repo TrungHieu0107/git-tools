@@ -332,3 +332,14 @@ pub fn cmd_set_file_encoding_override_impl(
     save_settings(&app_handle, &settings)?;
     Ok(settings.clone())
 }
+
+pub fn cmd_set_show_ignored_files_impl(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    show: bool,
+) -> Result<AppSettings, String> {
+    let mut settings = state.settings.lock().map_err(|e| e.to_string())?;
+    settings.show_ignored_files = show;
+    save_settings(&app_handle, &settings)?;
+    Ok(settings.clone())
+}

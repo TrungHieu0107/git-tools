@@ -14,6 +14,10 @@ export class RepositoryService {
     return invoke("cmd_set_repo_filter", { repoId, filter });
   }
 
+  static async setShowIgnoredFiles(show: boolean): Promise<AppSettings> {
+    return invoke("cmd_set_show_ignored_files", { show });
+  }
+
   static async setGeminiApiToken(token: string): Promise<AppSettings> {
     return invoke("cmd_set_gemini_api_token", { token });
   }

@@ -471,6 +471,15 @@ pub fn cmd_set_repo_filter(
 }
 
 #[tauri::command]
+pub fn cmd_set_show_ignored_files(
+    app_handle: AppHandle,
+    state: State<AppState>,
+    show: bool,
+) -> Result<AppSettings, String> {
+    settings_commands::cmd_set_show_ignored_files_impl(app_handle, state, show)
+}
+
+#[tauri::command]
 pub fn cmd_set_gemini_api_token(
     app_handle: AppHandle,
     state: State<AppState>,
@@ -946,6 +955,7 @@ fn build_commit_graph_args(limit: usize) -> Vec<String> {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct FileStatus {
     pub path: String,
     pub status: String,

@@ -90,6 +90,7 @@
       showDiscardAll?: boolean;
       onExcludeByApp?: (pattern: string) => void;
       viewMode?: ViewMode;
+      headerExtra?: import("svelte").Snippet;
   }
   let {
       title,
@@ -121,7 +122,8 @@
       onDiscardAll,
       discardAllLabel,
       showDiscardAll,
-      viewMode = "path"
+      viewMode = "path",
+      headerExtra
   }: Props = $props();
 
   let collapsedDirectories = $state<Set<string>>(new Set());
@@ -759,7 +761,12 @@
 
 <div class="flex flex-col flex-1 overflow-hidden min-h-0 border-b border-[#30363d] last:border-b-0">
     <div bind:this={headerEl} class="commit-file-list-header h-8 px-3 flex items-center bg-[#21262d] font-semibold text-xs uppercase tracking-wider text-[#8b949e] shrink-0 justify-between group/header">
-        <span class="min-w-0 truncate pr-2">{title} ({files.length})</span>
+        <div class="flex items-center gap-2 min-w-0 flex-1">
+            <span class="min-w-0 truncate">{title} ({files.length})</span>
+            {#if headerExtra}
+                {@render headerExtra()}
+            {/if}
+        </div>
         <div bind:this={actionsEl} class="commit-file-list-actions flex items-center gap-1.5 shrink-0" class:commit-file-list-actions-icon-only={iconOnlyActions}>
             {#if onStashAll && (showStashAll ?? files.length > 0)}
                 <button
@@ -842,7 +849,7 @@
                         <span class="truncate flex-1" title={row.title}>{row.label}</span>
                         
                         {#if row.file.ignoredByApp}
-                            <span class="px-1.5 py-0.5 rounded-full bg-[#30363d] text-[#8b949e] text-[9px] font-bold uppercase tracking-tight shrink-0">Ignored</span>
+                            <span class="px-1.5 py-0.5 rounded-full bg-[#30363d] text-[#8b949e] text-[9px] font-bold uppercase tracking-tight shrink-0" title="This file is currently excluded by application settings. Use the toggle in Repository Settings to hide it.">Ignored</span>
                         {/if}
 
                         {#if onResolveConflict && isConflictFile(row.file)}

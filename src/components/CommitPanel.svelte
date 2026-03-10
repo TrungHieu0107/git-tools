@@ -31,7 +31,8 @@
   }: Props = $props();
 
   let allFiles = $state<FileStatus[]>([]);
-  let hideIgnoredFiles = $state(true);
+  let showIgnoredFiles = $state(false);
+  let hideIgnoredFiles = $derived(!showIgnoredFiles);
   let stagedFiles = $derived(allFiles.filter(f => f.staged && (!hideIgnoredFiles || !f.ignoredByApp)));
   let unstagedFiles = $derived(allFiles.filter(f => !f.staged && (!hideIgnoredFiles || !f.ignoredByApp)));
   // selectedFile is now a prop
@@ -168,11 +169,16 @@
       loadingStatus = true;
       const requestRepoPath = repoPath;
       try {
-          const [filesResult, conflictsResult, operationResult] = await Promise.allSettled([
+          const [filesResult, conflictsResult, operationResult, settingsResult] = await Promise.allSettled([
               GitService.getStatusFiles(requestRepoPath),
               GitService.getConflicts(requestRepoPath),
-              GitService.getOperationState(requestRepoPath)
+              GitService.getOperationState(requestRepoPath),
+              GitService.getSettings()
           ]);
+
+          if (settingsResult.status === "fulfilled") {
+              showIgnoredFiles = settingsResult.value.show_ignored_files ?? false;
+          }
 
           if (repoPath !== requestRepoPath) {
               return;
@@ -797,47 +803,24 @@
     <!-- Left Sidebar -->
     <div class="w-1/3 min-w-[300px] max-w-[450px] flex flex-col border-r border-[#30363d] bg-[#161b22] max-[1024px]:w-full max-[1024px]:min-w-0 max-[1024px]:max-w-none max-[1024px]:h-[52%] max-[1024px]:border-r-0 max-[1024px]:border-b">
         <div class="h-9 px-3 border-b border-[#30363d] bg-[#21262d] flex items-center justify-between shrink-0 gap-2">
-            <span class="text-[11px] uppercase tracking-wider font-semibold text-[#8b949e]">Files View</span>
-            <div class="flex items-center gap-2">
+            <span class="text-[11px] uppercase tracking-wider font-semibold text-[#8b949e]">Working Changes</span>
+            <div class="inline-flex shrink-0 rounded border border-[#30363d] overflow-hidden">
                 <button
                     type="button"
-                    class="p-1 px-1.5 rounded border border-[#30363d] flex items-center gap-1.5 transition-colors
-                           {hideIgnoredFiles ? 'text-[#8b949e] bg-[#0d1117] hover:text-[#c9d1d9]' : 'text-white bg-[#30363d] border-[#58a6ff]'}"
-                    onclick={() => hideIgnoredFiles = !hideIgnoredFiles}
-                    title={hideIgnoredFiles ? "Show app-ignored files" : "Hide app-ignored files"}
+                    class="px-2.5 py-1 text-[11px] font-medium transition-colors {fileViewMode === 'tree' ? 'bg-[#30363d] text-white' : 'bg-[#161b22] text-[#8b949e] hover:text-[#c9d1d9]'}"
+                    onclick={() => fileViewMode = "tree"}
+                    title="View files as directory tree"
                 >
-                    {#if hideIgnoredFiles}
-                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-                            <line x1="1" y1="1" x2="23" y2="23"></line>
-                        </svg>
-                    {:else}
-                        <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                            <circle cx="12" cy="12" r="3"></circle>
-                        </svg>
-                    {/if}
-                    <span class="text-[10px] font-medium tracking-tight">IGNORED</span>
+                    Tree
                 </button>
-
-                <div class="inline-flex shrink-0 rounded border border-[#30363d] overflow-hidden">
-                    <button
-                        type="button"
-                        class="px-2.5 py-1 text-[11px] font-medium transition-colors {fileViewMode === 'tree' ? 'bg-[#30363d] text-white' : 'bg-[#161b22] text-[#8b949e] hover:text-[#c9d1d9]'}"
-                        onclick={() => fileViewMode = "tree"}
-                        title="View files as directory tree"
-                    >
-                        Tree
-                    </button>
-                    <button
-                        type="button"
-                        class="px-2.5 py-1 text-[11px] font-medium border-l border-[#30363d] transition-colors {fileViewMode === 'path' ? 'bg-[#30363d] text-white' : 'bg-[#161b22] text-[#8b949e] hover:text-[#c9d1d9]'}"
-                        onclick={() => fileViewMode = "path"}
-                        title="View files by full path list"
-                    >
-                        Path
-                    </button>
-                </div>
+                <button
+                    type="button"
+                    class="px-2.5 py-1 text-[11px] font-medium border-l border-[#30363d] transition-colors {fileViewMode === 'path' ? 'bg-[#30363d] text-white' : 'bg-[#161b22] text-[#8b949e] hover:text-[#c9d1d9]'}"
+                    onclick={() => fileViewMode = "path"}
+                    title="View files by full path list"
+                >
+                    Path
+                </button>
             </div>
         </div>
 
@@ -862,7 +845,7 @@
                 style={fileSplitTopHeight === null ? "height: 50%;" : `height: ${fileSplitTopHeight}px;`}
             >
                 <CommitFileList
-                    title="Changes"
+                    title="Working Changes"
                     files={unstagedFiles}
                     selectedFile={selectedFile}
                     onSelect={handleSelect}
@@ -891,7 +874,8 @@
                     onResolveConflict={handleResolveConflict}
                     onActionAll={handleStageAll}
                     actionAllLabel="Stage All"
-                />
+                >
+                </CommitFileList>
             </div>
 
             <!-- Shared splitter between Changes and Staged Changes -->

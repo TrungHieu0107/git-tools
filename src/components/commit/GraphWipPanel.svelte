@@ -29,8 +29,16 @@
   }: Props = $props();
 
   // State
-  let stagedFiles = $state<FileStatus[]>([]);
-  let unstagedFiles = $state<FileStatus[]>([]);
+  let allFiles = $state<FileStatus[]>([]);
+  let showIgnoredFiles = $state(false);
+  let hideIgnoredFiles = $derived(!showIgnoredFiles);
+  
+  let stagedFiles = $derived(
+    allFiles.filter(f => f.staged && (!hideIgnoredFiles || !f.ignoredByApp))
+  );
+  let unstagedFiles = $derived(
+    allFiles.filter(f => !f.staged && (!hideIgnoredFiles || !f.ignoredByApp))
+  );
   let selectedFile = $state<FileStatus | null>(null);
   let loadingStatus = $state(false);
   let statusDegraded = $state(false);
@@ -189,9 +197,13 @@
         ? filesResult.value
         : [...stagedFiles, ...unstagedFiles];
 
-      const mergedFiles = mergeStatusFilesWithConflictPaths(statusFiles, conflictCandidates);
-      stagedFiles = mergedFiles.filter((f) => f.staged);
-      unstagedFiles = mergedFiles.filter((f) => !f.staged);
+      const [settings, mergedFiles] = await Promise.all([
+          GitService.getSettings(),
+          Promise.resolve(mergeStatusFilesWithConflictPaths(statusFiles, conflictCandidates))
+      ]);
+      
+      showIgnoredFiles = settings.show_ignored_files ?? false;
+      allFiles = mergedFiles;
       conflictPaths = new Set(conflictCandidates.map((p) => resolvePathForActions(p)));
       statusDegraded = degradedMessages.length > 0;
       statusDegradedMessage = degradedMessages[0] ?? "";
@@ -950,7 +962,7 @@
         style={fileSplitTopHeight === null ? "height: 50%;" : `height: ${fileSplitTopHeight}px;`}
       >
         <CommitFileList
-          title="Changes"
+          title="Working Changes"
           files={unstagedFiles}
           {selectedFile}
           onSelect={handleSelect}
@@ -977,7 +989,8 @@
           onResolveConflict={handleResolveConflict}
           onActionAll={handleStageAll}
           actionAllLabel="Stage All"
-        />
+        >
+        </CommitFileList>
       </div>
 
       <!-- Splitter -->
