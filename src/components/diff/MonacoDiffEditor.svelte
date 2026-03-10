@@ -6,21 +6,69 @@
     originalContent: string;
     modifiedContent: string;
     language?: string;
-    inlineView?: boolean;
+    viewMode?: "side-by-side" | "hunk" | "inline";
     filePath?: string;
+    currentHunkIndex?: number;
+    totalHunks?: number;
   }
 
   let {
     originalContent = "",
     modifiedContent = "",
     language = "plaintext",
-    inlineView = false,
+    viewMode = "side-by-side",
     filePath = "",
+    currentHunkIndex = $bindable(0),
+    totalHunks = $bindable(0),
   }: Props = $props();
 
   let containerEl: HTMLDivElement | undefined = $state();
   let editor: Monaco.editor.IStandaloneDiffEditor | undefined = $state();
   let monacoModule: typeof Monaco | undefined = $state();
+
+  // Expose navigation methods
+  export function nextDiff() {
+    if (editor) {
+      editor.goToDiff("next");
+      updateHunkIndex();
+    }
+  }
+
+  export function previousDiff() {
+    if (editor) {
+      editor.goToDiff("previous");
+      updateHunkIndex();
+    }
+  }
+
+  function updateHunkIndex() {
+    if (!editor) return;
+    const changes = editor.getLineChanges();
+    if (!changes) {
+      totalHunks = 0;
+      currentHunkIndex = 0;
+      return;
+    }
+    totalHunks = changes.length;
+    
+    // Determine current hunk based on modified editor cursor position
+    const modifiedEditor = editor.getModifiedEditor();
+    const position = modifiedEditor.getPosition();
+    if (!position) return;
+
+    let index = changes.findIndex(change => 
+      position.lineNumber >= change.modifiedStartLineNumber && 
+      position.lineNumber <= (change.modifiedEndLineNumber || change.modifiedStartLineNumber)
+    );
+    
+    if (index === -1) {
+      // Find the closest previous change
+      index = changes.findLastIndex(change => position.lineNumber > change.modifiedEndLineNumber);
+      if (index === -1) index = 0;
+    }
+    
+    currentHunkIndex = index;
+  }
 
   // Guess language from file extension
   function guessLanguage(path: string): string {
@@ -124,7 +172,7 @@
         theme: "git-tools-dark",
         automaticLayout: true,
         readOnly: true,
-        renderSideBySide: !inlineView,
+        renderSideBySide: viewMode === "side-by-side",
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         fontSize: 12,
@@ -147,11 +195,21 @@
         renderIndicators: true,
         originalEditable: false,
         contextmenu: true,
+        hideUnchangedRegions: { enabled: viewMode === "hunk" },
       });
 
       editor.setModel({
         original: originalModel,
         modified: modifiedModel,
+      });
+
+      // Listen for diff updates and cursor changes to track hunk index
+      editor.onDidUpdateDiff(() => {
+        updateHunkIndex();
+      });
+
+      editor.getModifiedEditor().onDidChangeCursorPosition(() => {
+        updateHunkIndex();
       });
     });
 
@@ -193,10 +251,13 @@
     }
   });
 
-  // React to inline/side-by-side toggle
+  // React to view mode updates
   $effect(() => {
     if (!editor) return;
-    editor.updateOptions({ renderSideBySide: !inlineView });
+    editor.updateOptions({ 
+      renderSideBySide: viewMode === "side-by-side",
+      hideUnchangedRegions: { enabled: viewMode === "hunk" }
+    });
   });
 </script>
 

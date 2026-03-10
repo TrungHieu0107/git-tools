@@ -994,6 +994,10 @@
                         <DiffToolbar 
                             viewMode={toolbarProps.viewMode}
                             onViewModeChange={toolbarProps.onViewModeChange}
+                            currentHunkIndex={toolbarProps.currentHunkIndex}
+                            totalHunks={toolbarProps.totalHunks}
+                            onPrevHunk={toolbarProps.onPrevHunk}
+                            onNextHunk={toolbarProps.onNextHunk}
                             selectedEncoding={toolbarProps.selectedEncoding}
                             onEncodingChange={toolbarProps.onEncodingChange}
                         />

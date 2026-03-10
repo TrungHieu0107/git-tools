@@ -2434,13 +2434,16 @@
                         </div>
 
                         <!-- Diff Toolbar -->
-                        <div class="shrink-0 max-[900px]:w-full">
-                                <DiffToolbar 
+                        <div class="shrink-0 max-[900px]:w-full">                            <DiffToolbar 
                                 viewMode={toolbarProps.viewMode}
                                 onViewModeChange={toolbarProps.onViewModeChange}
+                                currentHunkIndex={toolbarProps.currentHunkIndex}
+                                totalHunks={toolbarProps.totalHunks}
+                                onPrevHunk={toolbarProps.onPrevHunk}
+                                onNextHunk={toolbarProps.onNextHunk}
                                 selectedEncoding={toolbarProps.selectedEncoding}
                                 onEncodingChange={toolbarProps.onEncodingChange}
-                                />
+                            />
                         </div>
                     </div>
                 {/snippet}

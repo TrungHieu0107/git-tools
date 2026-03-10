@@ -1,5 +1,5 @@
 <script context="module" lang="ts">
-  export type ViewMode = "side-by-side" | "inline";
+  export type ViewMode = "side-by-side" | "hunk" | "inline";
 </script>
 
 <script lang="ts">
@@ -34,19 +34,35 @@
   }: Props = $props();
 
   let viewMode = $state<ViewMode>("side-by-side");
+  let currentHunkIndex = $state(0);
+  let totalHunks = $state(0);
+  let editorRef: ReturnType<typeof MonacoDiffEditor> | undefined = $state();
 
   function handleViewModeChange(mode: ViewMode) {
     viewMode = mode;
   }
 
+  function handlePrevHunk() {
+    editorRef?.previousDiff();
+  }
+
+  function handleNextHunk() {
+    editorRef?.nextDiff();
+  }
+
   const modes: { value: ViewMode; label: string }[] = [
     { value: "side-by-side", label: "Side-by-Side" },
+    { value: "hunk", label: "Hunks" },
     { value: "inline", label: "Inline" },
   ];
 
   let toolbarProps = $derived({
     viewMode,
     onViewModeChange: handleViewModeChange,
+    currentHunkIndex,
+    totalHunks,
+    onPrevHunk: handlePrevHunk,
+    onNextHunk: handleNextHunk,
     selectedEncoding,
     onEncodingChange,
   });
@@ -84,6 +100,42 @@
             on:change={(e: CustomEvent<string>) => onEncodingChange(e.detail)} 
           />
         {/if}
+
+        <!-- Separator -->
+        <div class="w-px h-4 bg-[#30363d]"></div>
+
+        <!-- Hunk Navigation -->
+        <div class="flex items-center gap-1.5">
+          <button
+            class="p-1 rounded text-[#8b949e] hover:text-white hover:bg-[#21262d] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[#8b949e] transition-colors"
+            disabled={currentHunkIndex <= 0 || totalHunks === 0}
+            onclick={handlePrevHunk}
+            title="Previous change"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+          </button>
+
+          <span class="text-[10px] font-mono text-[#8b949e] min-w-[3ch] text-center select-none">
+            {#if totalHunks > 0}
+              {currentHunkIndex + 1}/{totalHunks}
+            {:else}
+              0/0
+            {/if}
+          </span>
+
+          <button
+            class="p-1 rounded text-[#8b949e] hover:text-white hover:bg-[#21262d] disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[#8b949e] transition-colors"
+            disabled={currentHunkIndex >= totalHunks - 1 || totalHunks === 0}
+            onclick={handleNextHunk}
+            title="Next change"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          </button>
+        </div>
       </div>
     {/if}
   </div>
@@ -97,10 +149,13 @@
       </div>
     {:else if hasContent}
       <MonacoDiffEditor
+        bind:this={editorRef}
         {originalContent}
         {modifiedContent}
-        inlineView={viewMode === "inline"}
+        {viewMode}
         {filePath}
+        bind:currentHunkIndex
+        bind:totalHunks
       />
     {:else if isTooLarge}
       <div class="absolute inset-0 flex items-center justify-center text-[#8b949e] text-xs italic">
