@@ -829,7 +829,8 @@
                 {:else}
                     <div 
                         class="group flex items-center gap-2 px-2 py-1.5 text-xs rounded cursor-pointer transition-colors relative
-                               {isSelected(row.file) ? 'bg-[#30363d] text-white' : 'hover:bg-[#21262d] text-[#c9d1d9]'}"
+                               {isSelected(row.file) ? 'bg-[#30363d] text-white' : 'hover:bg-[#21262d] text-[#c9d1d9]'}
+                               {row.file.ignoredByApp ? 'opacity-50 grayscale-[0.5]' : ''}"
                         style={`padding-left: ${8 + row.depth * 14}px;`}
                         onclick={() => { closeFileContextMenu(); onSelect(row.file); }}
                         oncontextmenu={(e) => handleFileContextMenu(e, row.file)}
@@ -840,6 +841,10 @@
                         <FileChangeStatusBadge status={row.file.status} compact={true} showCode={true} className="shrink-0" />
                         <span class="truncate flex-1" title={row.title}>{row.label}</span>
                         
+                        {#if row.file.ignoredByApp}
+                            <span class="px-1.5 py-0.5 rounded-full bg-[#30363d] text-[#8b949e] text-[9px] font-bold uppercase tracking-tight shrink-0">Ignored</span>
+                        {/if}
+
                         {#if onResolveConflict && isConflictFile(row.file)}
                             <button
                                 class="opacity-100 md:opacity-0 md:group-hover:opacity-100 px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-wider border border-[#f85149]/40 bg-[#3b1f2c] text-[#ff7b72] hover:bg-[#4c2434] transition-opacity"

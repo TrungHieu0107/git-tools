@@ -950,6 +950,7 @@ pub struct FileStatus {
     pub path: String,
     pub status: String,
     pub staged: bool,
+    pub ignored_by_app: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -990,6 +991,7 @@ fn parse_untracked_status_line(line: &str) -> Option<FileStatus> {
         path,
         status: "??".to_string(),
         staged: false,
+        ignored_by_app: false,
     })
 }
 
@@ -1016,6 +1018,7 @@ fn parse_status_line(line: &str) -> Vec<FileStatus> {
             path: file_path,
             status: "??".to_string(),
             staged: false,
+            ignored_by_app: false,
         });
         return entries;
     }
@@ -1025,6 +1028,7 @@ fn parse_status_line(line: &str) -> Vec<FileStatus> {
             path: file_path.clone(),
             status: x.to_string(),
             staged: true,
+            ignored_by_app: false,
         });
     }
     if y != ' ' {
@@ -1032,6 +1036,7 @@ fn parse_status_line(line: &str) -> Vec<FileStatus> {
             path: file_path,
             status: y.to_string(),
             staged: false,
+            ignored_by_app: false,
         });
     }
     entries
@@ -1042,10 +1047,14 @@ fn parse_status_entries(output: &str) -> Vec<FileStatus> {
 }
 
 fn filter_excluded_status_entries(entries: Vec<FileStatus>, exclusions: &[String]) -> Vec<FileStatus> {
-    entries
-        .into_iter()
-        .filter(|entry| !is_excluded(&entry.path, exclusions))
-        .collect()
+    let mut mapped = Vec::new();
+    for mut entry in entries {
+        if is_excluded(&entry.path, exclusions) {
+            entry.ignored_by_app = true;
+        }
+        mapped.push(entry);
+    }
+    mapped
 }
 
 fn load_exclusion_patterns(state: &State<'_, AppState>) -> Result<Vec<String>, String> {

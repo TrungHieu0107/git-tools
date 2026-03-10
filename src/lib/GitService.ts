@@ -40,6 +40,7 @@ export interface FileStatus {
   path: string;
   status: string;
   staged: boolean;
+  ignoredByApp: boolean;
 }
 
 export interface CommitChangedFile {
