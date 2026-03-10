@@ -1,7 +1,7 @@
 <script lang="ts">
   import { GitService } from "../lib/GitService";
   import type { FileCommit, CommitDiff, DiffHunk as BackendDiffHunk } from "../lib/types";
-  import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
+  import { isLargeFile } from "../lib/diff";
   import DiffView from "./diff/DiffView.svelte";
   import DiffToolbar from "./diff/DiffToolbar.svelte";
 
@@ -34,24 +34,10 @@
   let commitHunks = $state<BackendDiffHunk[]>([]);
   let selectedEncoding = $state<string | undefined>(undefined);
 
-  // Derived: full-file diff for side-by-side and hunk modes (same pattern as CommitPanel)
-  let diffResult = $derived.by<DiffResult | null>(() => {
-      if (!baseContent && !modifiedContent) return null;
-      if (isLargeFile(baseContent) || isLargeFile(modifiedContent)) return null;
-      return computeDiff(baseContent, modifiedContent);
-  });
-
   let isTooLarge = $derived(
       isLargeFile(baseContent) || isLargeFile(modifiedContent)
   );
 
-  // Extract change hunks with context for hunk view mode
-  let hunks = $derived.by<DiffHunk[]>(() => {
-      if (!diffResult) return [];
-      return extractHunks(diffResult, 3);
-  });
-
-  let totalHunks = $derived(hunks.length);
 
   // Effect to load history when filePath or repoPath changes
   $effect(() => {
@@ -443,10 +429,11 @@
       <div class="flex-1 overflow-hidden flex flex-col bg-[#0d1117] max-[1024px]:h-[58%]">
         {#if selectedCommitHash}
           <DiffView 
-              {diffResult}
-              {hunks}
+              originalContent={baseContent}
+              modifiedContent={modifiedContent}
               loading={diffLoading}
               {isTooLarge}
+              filePath={filePath || ""}
               {selectedEncoding}
               onEncodingChange={handleEncodingChange}
           >
@@ -459,10 +446,6 @@
                     <DiffToolbar
                     viewMode={toolbarProps.viewMode}
                     onViewModeChange={toolbarProps.onViewModeChange}
-                    currentHunkIndex={toolbarProps.currentHunkIndex}
-                    totalHunks={toolbarProps.totalHunks}
-                    onPrevHunk={toolbarProps.onPrevHunk}
-                    onNextHunk={toolbarProps.onNextHunk}
                     selectedEncoding={toolbarProps.selectedEncoding}
                     onEncodingChange={toolbarProps.onEncodingChange}
                     />

@@ -15,7 +15,7 @@
       formatPathLabel
   } from "../lib/commit-graph-helpers";
   import ResizablePanel from "./resize/ResizablePanel.svelte";
-  import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk } from "../lib/diff";
+  import { isLargeFile } from "../lib/diff";
   import DiffView from "./diff/DiffView.svelte";
   import DiffToolbar from "./diff/DiffToolbar.svelte";
   import CommitContextMenu from "./common/CommitContextMenu.svelte";
@@ -176,22 +176,9 @@
   let modifiedContent = $state("");
   let selectedEncoding = $state<string | undefined>(undefined);
 
-  // Derived: full-file diff for side-by-side view (same pattern as CommitPanel/FileHistoryPanel)
-  let diffResult = $derived.by<DiffResult | null>(() => {
-      if (!baseContent && !modifiedContent) return null;
-      if (isLargeFile(baseContent) || isLargeFile(modifiedContent)) return null;
-      return computeDiff(baseContent, modifiedContent);
-  });
-
   let isTooLarge = $derived(
       isLargeFile(baseContent) || isLargeFile(modifiedContent)
   );
-
-  // Extract change hunks with context for hunk view mode
-  let hunks = $derived.by<DiffHunk[]>(() => {
-      if (!diffResult) return [];
-      return extractHunks(diffResult, 3);
-  });
 
   function summarizeWorkingChanges(statusFiles: FileStatus[]): WipSummary {
       type AggregatedEntry = {
@@ -2424,13 +2411,14 @@
             <!-- Diff View Overlay -->
              <div class="absolute inset-0 z-20 flex flex-col bg-[#0f172a]">
              <DiffView
-                 {diffResult}
-                 {hunks}
-                 loading={isLoadingDiff}
-                 {isTooLarge}
-                 {selectedEncoding}
-                 onEncodingChange={handleEncodingChange}
-             >
+                  originalContent={baseContent}
+                  modifiedContent={modifiedContent}
+                  loading={isLoadingDiff}
+                  {isTooLarge}
+                  filePath={selectedDiffFile || ""}
+                  {selectedEncoding}
+                  onEncodingChange={handleEncodingChange}
+              >
                 {#snippet header(toolbarProps)}
                     <div class="{HEADER_BASE} px-2 justify-between gap-2 flex-wrap">
                         <div class="flex items-center gap-2 overflow-hidden flex-1 mr-4 max-[900px]:mr-0 max-[900px]:w-full">
@@ -2450,17 +2438,13 @@
                                 <DiffToolbar 
                                 viewMode={toolbarProps.viewMode}
                                 onViewModeChange={toolbarProps.onViewModeChange}
-                                currentHunkIndex={toolbarProps.currentHunkIndex}
-                                totalHunks={toolbarProps.totalHunks}
-                                onPrevHunk={toolbarProps.onPrevHunk}
-                                onNextHunk={toolbarProps.onNextHunk}
                                 selectedEncoding={toolbarProps.selectedEncoding}
                                 onEncodingChange={toolbarProps.onEncodingChange}
                                 />
                         </div>
                     </div>
                 {/snippet}
-             </DiffView>
+              </DiffView>
              </div>
         {/if}
 

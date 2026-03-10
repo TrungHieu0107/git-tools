@@ -2,7 +2,7 @@
   import { onMount, untrack } from "svelte";
   import { GitService, type FileStatus, type GitOperationState } from "../lib/GitService";
   import { toast } from "../lib/toast.svelte";
-  import { computeDiff, isLargeFile, extractHunks, type DiffResult, type DiffHunk, type DiffStageLineTarget } from "../lib/diff";
+  import { isLargeFile } from "../lib/diff";
   import { confirm } from "../lib/confirmation.svelte";
   import { rebaseStore } from "../lib/rebaseStore";
 
@@ -126,22 +126,9 @@
 
 
 
-  // Lift diff computation so all view modes share a single result
-  let diffResult = $derived.by<DiffResult | null>(() => {
-      if (!baseContent && !modifiedContent) return null;
-      if (isLargeFile(baseContent) || isLargeFile(modifiedContent)) return null;
-      return computeDiff(baseContent, modifiedContent);
-  });
-
   let isTooLarge = $derived(
       isLargeFile(baseContent) || isLargeFile(modifiedContent)
   );
-
-  // Extract change hunks with ±3 lines of context
-  let hunks = $derived.by<DiffHunk[]>(() => {
-      if (!diffResult) return [];
-      return extractHunks(diffResult, 3);
-  });
 
   // Load Status
   async function reconcileSelectedFile(files: FileStatus[], refreshDiff: boolean): Promise<void> {
@@ -983,6 +970,14 @@
                  onStageLine={handleStageLine}
                  canUnstageLine={canUnstageSelectedLine}
                  onUnstageLine={handleUnstageLine}
+             <DiffView 
+                 originalContent={baseContent}
+                 modifiedContent={modifiedContent}
+                 loading={isLoadingDiff}
+                 {isTooLarge}
+                 filePath={selectedFile?.path || ""}
+                 {selectedEncoding}
+                 onEncodingChange={handleEncodingChange}
              >
                 {#snippet header(toolbarProps)}
                     <!-- File header bar -->
@@ -996,13 +991,9 @@
 
                     <!-- Diff Toolbar passed from DiffView state -->
                     <div class="border-b border-[#30363d] bg-[#161b22]">
-                        <DiffToolbar
+                        <DiffToolbar 
                             viewMode={toolbarProps.viewMode}
                             onViewModeChange={toolbarProps.onViewModeChange}
-                            currentHunkIndex={toolbarProps.currentHunkIndex}
-                            totalHunks={toolbarProps.totalHunks}
-                            onPrevHunk={toolbarProps.onPrevHunk}
-                            onNextHunk={toolbarProps.onNextHunk}
                             selectedEncoding={toolbarProps.selectedEncoding}
                             onEncodingChange={toolbarProps.onEncodingChange}
                         />

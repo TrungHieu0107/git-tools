@@ -100,7 +100,7 @@ export function getFileChangeMeta(status: string | null | undefined): FileChange
       };
     case "??":
       return {
-        code,
+        code: "N",
         kind: "untracked",
         label: "New",
         textClass: "text-slate-300",
