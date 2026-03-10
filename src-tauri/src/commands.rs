@@ -2916,11 +2916,11 @@ fn fetch_commit_changed_files_output(
 ) -> Result<String, String> {
     let path = resolve_repo_path(state, repo_path)?;
     let args = vec![
-        "diff-tree".to_string(),
-        "--no-commit-id".to_string(),
+        "show".to_string(),
         "--name-status".to_string(),
+        "--pretty=format:".to_string(),
         "-r".to_string(),
-        "-m".to_string(),
+        "--first-parent".to_string(),
         "--root".to_string(),
         commit_hash.to_string(),
     ];
@@ -2932,7 +2932,7 @@ fn fetch_commit_changed_files_output(
     let output = command.output().map_err(|e| e.to_string())?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git diff-tree failed: {}", stderr));
+        return Err(format!("git show failed: {}", stderr));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
