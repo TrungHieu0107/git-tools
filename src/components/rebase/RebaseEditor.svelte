@@ -80,6 +80,7 @@
         <button 
           class="text-[#8b949e] hover:text-[#f0f6fc] p-1 transition-colors"
           onclick={handleCancel}
+          aria-label="Cancel rebase"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -96,60 +97,72 @@
       </div>
 
       <!-- Commit List -->
-      <div class="flex-1 overflow-y-auto p-4 space-y-2 bg-[#0d1117]">
+      <ul class="flex-1 overflow-y-auto p-4 space-y-2 bg-[#0d1117] list-none m-0">
         {#each items as item, i (item.hash)}
-          <div 
-            class="group flex items-center gap-3 p-2 rounded-md border border-[#30363d] bg-[#161b22] hover:border-[#8b949e] transition-all cursor-move"
+          <li 
+            class="w-full text-left group flex items-center gap-3 p-2 rounded-md border border-[#30363d] bg-[#161b22] hover:border-[#8b949e] transition-all cursor-default"
             class:opacity-50={draggingIndex === i}
-            draggable="true"
-            ondragstart={() => handleDragStart(i)}
             ondragover={(e) => handleDragOver(e, i)}
-            ondragend={handleDragEnd}
           >
             <!-- Drag Handle -->
-            <div class="text-[#484f58] group-hover:text-[#8b949e]">
+            <div 
+              class="text-[#484f58] group-hover:text-[#8b949e] shrink-0 cursor-move p-1"
+              draggable="true"
+              ondragstart={() => handleDragStart(i)}
+              ondragend={handleDragEnd}
+              role="button"
+              tabindex="0"
+              aria-label="Drag to reorder"
+              onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); } }}
+            >
               <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
                 <path d="M10 13a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2z" />
               </svg>
             </div>
 
             <!-- Action Selector -->
-            <select 
-              class="bg-[#0d1117] border border-[#30363d] text-[#c9d1d9] text-xs rounded px-2 py-1 outline-none focus:border-blue-500 transition-colors"
-              value={item.action}
-              onchange={(e) => handleActionChange(i, (e.target as HTMLSelectElement).value as any)}
-            >
-              {#each actions as action}
-                <option value={action}>{action}</option>
-              {/each}
-            </select>
+            <div>
+              <select 
+                class="bg-[#0d1117] border border-[#30363d] text-[#c9d1d9] text-xs rounded px-2 py-1 outline-none focus:border-blue-500 transition-colors"
+                value={item.action}
+                onchange={(e) => handleActionChange(i, (e.target as HTMLSelectElement).value as any)}
+              >
+                {#each actions as action}
+                  <option value={action}>{action}</option>
+                {/each}
+              </select>
+            </div>
 
             <!-- Hash -->
-            <span class="font-mono text-[10px] text-blue-400 w-16">{item.hash.slice(0, 8)}</span>
+            <span class="font-mono text-[10px] text-blue-400 w-16 shrink-0">{item.hash.slice(0, 8)}</span>
 
             <!-- Message -->
             <span class="flex-1 text-xs text-[#c9d1d9] truncate" title={item.message}>{item.message}</span>
 
             <!-- Arrows (Fallback if drag fails) -->
-            <div class="hidden group-hover:flex items-center gap-1">
+            <div class="hidden group-hover:flex items-center gap-1 shrink-0">
               <button 
+                type="button"
                 class="p-1 hover:bg-[#30363d] rounded text-[#8b949e]" 
                 onclick={(e) => { e.stopPropagation(); moveUp(i); }}
                 disabled={i === 0}
+                aria-label="Move item up"
               >
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M5 15l7-7 7 7" /></svg>
               </button>
               <button 
+                type="button"
                 class="p-1 hover:bg-[#30363d] rounded text-[#8b949e]" 
                 onclick={(e) => { e.stopPropagation(); moveDown(i); }}
                 disabled={i === items.length - 1}
+                aria-label="Move item down"
               >
                 <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M19 9l-7 7-7-7" /></svg>
               </button>
             </div>
-          </div>
+          </li>
         {/each}
-      </div>
+      </ul>
 
       <!-- Footer -->
       <div class="px-6 py-4 border-t border-[#30363d] bg-[#1d2128] rounded-b-lg flex justify-between items-center">

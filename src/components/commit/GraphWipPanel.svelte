@@ -753,6 +753,7 @@
               <div
                 class="flex items-center gap-2 px-2 py-1.5 text-xs rounded cursor-pointer transition-colors hover:bg-[#111827] {selectedFile?.path === file.path ? 'bg-[#1e293b] text-white' : ''} group"
                 onclick={() => handleSelect(file)}
+                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelect(file); } }}
                 role="button"
                 tabindex="0"
               >
@@ -809,6 +810,7 @@
               <div
                 class="flex items-center gap-2 px-2 py-1.5 text-xs rounded cursor-pointer transition-colors hover:bg-[#111827] {selectedFile?.path === file.path ? 'bg-[#1e293b] text-white' : ''} group"
                 onclick={() => handleSelect(file)}
+                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelect(file); } }}
                 role="button"
                 tabindex="0"
               >

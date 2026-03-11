@@ -13,16 +13,24 @@
     }
 
     let {
-        initialSize = 288,
+        initialSize: _initialSize = 288,
         minSize = 200,
         maxSize = 600,
         side = 'right',
         children
     }: Props = $props();
 
-    let size = $state(initialSize);
+    const getInitialSize = () => _initialSize;
+    let size = $state(getInitialSize());
     let isDragging = $state(false);
     let containerEl = $state<HTMLDivElement | null>(null);
+
+    // Sync size if initialSize changes externally (if applicable)
+    $effect(() => {
+        if (!isDragging) {
+            size = _initialSize;
+        }
+    });
 
     function handlePointerDown(e: PointerEvent) {
         e.preventDefault();

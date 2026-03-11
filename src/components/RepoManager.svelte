@@ -125,9 +125,10 @@
                     />
                 </div>
                 <div class="w-full sm:flex-[2]">
-                    <label class="block text-xs text-gray-500 mb-1">Path</label>
+                    <label for="repo-path" class="block text-xs text-gray-500 mb-1">Path</label>
                     <div class="flex gap-2">
                         <input 
+                            id="repo-path"
                             type="text" 
                             class="flex-1 bg-gray-950 border border-gray-800 rounded px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                             placeholder="C:\Users\Dev\Projects\..."

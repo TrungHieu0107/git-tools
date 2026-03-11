@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type * as Monaco from "monaco-editor";
+  import * as Monaco from "monaco-editor/esm/vs/editor/editor.api";
+  import "../../lib/monaco-setup";
 
   interface Props {
     originalContent: string;
@@ -153,22 +154,17 @@
   onMount(() => {
     let disposed = false;
 
-    // Dynamically import monaco to avoid SSR issues
-    Promise.all([
-      import("../../lib/monaco-setup"),
-      import("monaco-editor"),
-    ]).then(([_, monaco]) => {
-      if (disposed || !containerEl) return;
+    if (disposed || !containerEl) return;
 
-      monacoModule = monaco;
-      defineTheme(monaco);
+    monacoModule = Monaco;
+    defineTheme(Monaco);
 
-      const effectiveLang = language !== "plaintext" ? language : guessLanguage(filePath);
+    const effectiveLang = language !== "plaintext" ? language : guessLanguage(filePath);
 
-      const originalModel = monaco.editor.createModel(originalContent, effectiveLang);
-      const modifiedModel = monaco.editor.createModel(modifiedContent, effectiveLang);
+    const originalModel = Monaco.editor.createModel(originalContent, effectiveLang);
+    const modifiedModel = Monaco.editor.createModel(modifiedContent, effectiveLang);
 
-      editor = monaco.editor.createDiffEditor(containerEl, {
+    editor = Monaco.editor.createDiffEditor(containerEl, {
         theme: "git-tools-dark",
         automaticLayout: true,
         readOnly: true,
@@ -211,8 +207,8 @@
       editor.getModifiedEditor().onDidChangeCursorPosition(() => {
         updateHunkIndex();
       });
-    });
-
+    // Removed closure end
+    
     return () => {
       disposed = true;
       if (editor) {

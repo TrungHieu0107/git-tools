@@ -528,10 +528,11 @@
       <!-- Global Prompt -->
       <div class="mb-8">
         <div class="flex items-center justify-between mb-2">
-          <label class="text-xs font-medium text-[#c9d1d9]">Global Default Prompt</label>
+          <label for="global-prompt" class="text-xs font-medium text-[#c9d1d9]">Global Default Prompt</label>
           <span class="text-[10px] bg-[#21262d] text-[#8b949e] px-2 py-0.5 rounded border border-[#30363d]">Default fallback</span>
         </div>
         <textarea
+          id="global-prompt"
           bind:value={globalPrompt}
           placeholder={defaultAiPrompt || "Loading default prompt..."}
           class="w-full h-32 bg-[#0d1117] border border-[#30363d] p-3 rounded-md text-xs font-mono outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] placeholder-[#484f58] transition-all"
@@ -558,12 +559,13 @@
         <div class="mt-8 p-4 bg-[#1f242b]/30 border border-[#30363d] rounded-lg">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-2">
-              <label class="text-xs font-bold text-[#58a6ff]">Repository Specific Prompt</label>
+              <label for="repo-prompt" class="text-xs font-bold text-[#58a6ff]">Repository Specific Prompt</label>
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-[#58a6ff]"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L22 22"/></svg>
             </div>
             <span class="text-[10px] bg-[#14485c] text-[#9ee7ff] px-2 py-0.5 rounded border border-[#36a9da]/30">Override active</span>
           </div>
           <textarea
+            id="repo-prompt"
             bind:value={repoPrompt}
             placeholder={defaultAiPrompt || "Loading default prompt..."}
             class="w-full h-32 bg-[#0d1117] border border-[#30363d] p-3 rounded-md text-xs font-mono outline-none focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] placeholder-[#484f58] transition-all"
@@ -586,7 +588,7 @@
           
           <!-- Repository Default Encoding -->
           <div class="mt-6 pt-6 border-t border-[#30363d] flex flex-col items-start gap-2">
-            <label class="text-xs font-medium text-[#c9d1d9]">Repository Default File Encoding</label>
+            <label for="encoding-selector-input" class="text-xs font-medium text-[#c9d1d9]">Repository Default File Encoding</label>
             <p class="text-xs text-[#8b949e]">
               The default text encoding Git Tools uses when parsing files and diffs in this repository.
             </p>
@@ -649,6 +651,7 @@
                       <button 
                           onclick={() => removeExclusion(i)} 
                           class="text-[#8b949e] hover:text-[#f85149] p-1 rounded transition-colors"
+                          aria-label="Remove exclusion"
                       >
                           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                       </button>

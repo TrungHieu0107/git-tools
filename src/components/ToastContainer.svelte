@@ -36,6 +36,7 @@
       <button 
         class="shrink-0 text-[#8b949e] hover:text-[#c9d1d9] transition-colors -mt-1 -mr-1 p-1 rounded hover:bg-[#21262d]"
         onclick={() => toast.remove(t.id)}
+        aria-label="Close"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>

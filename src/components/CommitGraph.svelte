@@ -166,7 +166,7 @@
   let wipSummary = $state<WipSummary>(EMPTY_WIP_SUMMARY);
   let hasWipRow = $state(true);
   let initialConflictCheckRepo: string | null = null;
-  let postRebaseCheckInFlight = false;
+  let postRebaseCheckInFlight = $state(false);
 
   // Diff View State
   let leftPanelMode = $state<'graph' | 'diff'>('graph');

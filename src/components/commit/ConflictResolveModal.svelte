@@ -678,28 +678,36 @@
                   {@const isConflict = row.conflictIndex !== undefined}
                   {@const isFirst = isConflict && row.conflictLineIndex === 0}
                   {@const selected = isConflict && row.conflictLineIndex !== undefined && isLineSelected("ours", row.conflictIndex!, row.conflictLineIndex!)}
-                  <div
-                    class="grid grid-cols-[24px_48px_1fr] {isConflict ? 'bg-[#14485c]/60 border-l-2 border-l-[#36a9da] cursor-pointer hover:bg-[#14485c]/90' : ''}"
-                    data-conflict-start={isFirst ? row.conflictIndex : undefined}
-                    onclick={() => {
-                      if (isConflict && row.conflictIndex !== undefined && row.conflictLineIndex !== undefined) {
-                        toggleLineAndUpdateOutput("ours", row.conflictIndex, row.conflictLineIndex);
-                      }
-                    }}
-                    role={isConflict ? "button" : undefined}
-                    tabindex={isConflict ? 0 : undefined}
-                  >
-                    <div class="flex items-center justify-center">
-                      {#if selected}
-                        <svg class="w-4 h-4 text-green-400" viewBox="0 0 20 20" fill="none">
-                          <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
-                          <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                      {/if}
+                  {#if isConflict}
+                    <button
+                      class="w-full text-left grid grid-cols-[24px_48px_1fr] bg-[#14485c]/60 border-l-2 border-l-[#36a9da] cursor-pointer hover:bg-[#14485c]/90 appearance-none border-none p-0"
+                      data-conflict-start={isFirst ? row.conflictIndex : undefined}
+                      onclick={() => {
+                        if (row.conflictIndex !== undefined && row.conflictLineIndex !== undefined) {
+                          toggleLineAndUpdateOutput("ours", row.conflictIndex, row.conflictLineIndex);
+                        }
+                      }}
+                    >
+                      <div class="flex items-center justify-center">
+                        {#if selected}
+                          <svg class="w-4 h-4 text-green-400" viewBox="0 0 20 20" fill="none">
+                            <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
+                            <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                        {/if}
+                      </div>
+                      <div class="px-1 text-right text-[#7d8590] select-none text-xs leading-6">{row.lineNo}</div>
+                      <div class="pr-3 pl-2 text-[#d5f5ff] whitespace-pre overflow-hidden text-ellipsis leading-6">{@html renderWhitespace(escapeHtml(row.text || " "))}</div>
+                    </button>
+                  {:else}
+                    <div
+                      class="grid grid-cols-[24px_48px_1fr]"
+                    >
+                      <div class="flex items-center justify-center"></div>
+                      <div class="px-1 text-right text-[#7d8590] select-none text-xs leading-6">{row.lineNo}</div>
+                      <div class="pr-3 pl-2 text-[#d5f5ff] whitespace-pre overflow-hidden text-ellipsis leading-6">{@html renderWhitespace(escapeHtml(row.text || " "))}</div>
                     </div>
-                    <div class="px-1 text-right text-[#7d8590] select-none text-xs">{row.lineNo}</div>
-                    <div class="pr-3 pl-2 text-[#d5f5ff] whitespace-pre overflow-hidden text-ellipsis">{@html renderWhitespace(escapeHtml(row.text || " "))}</div>
-                  </div>
+                  {/if}
                 {/each}
               </div>
             </section>
@@ -723,28 +731,36 @@
                   {@const isConflict = row.conflictIndex !== undefined}
                   {@const isFirst = isConflict && row.conflictLineIndex === 0}
                   {@const selected = isConflict && row.conflictLineIndex !== undefined && isLineSelected("theirs", row.conflictIndex!, row.conflictLineIndex!)}
-                  <div
-                    class="grid grid-cols-[24px_48px_1fr] {isConflict ? 'bg-[#584e22]/60 border-l-2 border-l-[#f3cc47] cursor-pointer hover:bg-[#584e22]/90' : ''}"
-                    data-conflict-start={isFirst ? row.conflictIndex : undefined}
-                    onclick={() => {
-                      if (isConflict && row.conflictIndex !== undefined && row.conflictLineIndex !== undefined) {
-                        toggleLineAndUpdateOutput("theirs", row.conflictIndex, row.conflictLineIndex);
-                      }
-                    }}
-                    role={isConflict ? "button" : undefined}
-                    tabindex={isConflict ? 0 : undefined}
-                  >
-                    <div class="flex items-center justify-center">
-                      {#if selected}
-                        <svg class="w-4 h-4 text-green-400" viewBox="0 0 20 20" fill="none">
-                          <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
-                          <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                      {/if}
+                  {#if isConflict}
+                    <button
+                      class="w-full text-left grid grid-cols-[24px_48px_1fr] bg-[#584e22]/60 border-l-2 border-l-[#f3cc47] cursor-pointer hover:bg-[#584e22]/90 appearance-none border-none p-0"
+                      data-conflict-start={isFirst ? row.conflictIndex : undefined}
+                      onclick={() => {
+                        if (row.conflictIndex !== undefined && row.conflictLineIndex !== undefined) {
+                          toggleLineAndUpdateOutput("theirs", row.conflictIndex, row.conflictLineIndex);
+                        }
+                      }}
+                    >
+                      <div class="flex items-center justify-center">
+                        {#if selected}
+                          <svg class="w-4 h-4 text-green-400" viewBox="0 0 20 20" fill="none">
+                            <circle cx="10" cy="10" r="8" fill="currentColor" opacity="0.25"/>
+                            <path d="M6.5 10.5l2.5 2.5 4.5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                          </svg>
+                        {/if}
+                      </div>
+                      <div class="px-1 text-right text-[#7d8590] select-none text-xs leading-6">{row.lineNo}</div>
+                      <div class="pr-3 pl-2 text-[#ffe38b] whitespace-pre overflow-hidden text-ellipsis leading-6">{@html renderWhitespace(escapeHtml(row.text || " "))}</div>
+                    </button>
+                  {:else}
+                    <div
+                      class="grid grid-cols-[24px_48px_1fr]"
+                    >
+                      <div class="flex items-center justify-center"></div>
+                      <div class="px-1 text-right text-[#7d8590] select-none text-xs leading-6">{row.lineNo}</div>
+                      <div class="pr-3 pl-2 text-[#ffe38b] whitespace-pre overflow-hidden text-ellipsis leading-6">{@html renderWhitespace(escapeHtml(row.text || " "))}</div>
                     </div>
-                    <div class="px-1 text-right text-[#7d8590] select-none text-xs">{row.lineNo}</div>
-                    <div class="pr-3 pl-2 text-[#fff3bf] whitespace-pre overflow-hidden text-ellipsis">{@html renderWhitespace(escapeHtml(row.text || " "))}</div>
-                  </div>
+                  {/if}
                 {/each}
               </div>
             </section>
