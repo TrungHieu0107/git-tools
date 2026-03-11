@@ -15,7 +15,7 @@
     loading = true;
     error = null;
     try {
-      conflicts = await GitService.getConflicts();
+      conflicts = await GitService.getConflicts(repoPath);
     } catch (e) {
       error = String(e);
       console.error("Failed to load conflicts:", e);

@@ -218,13 +218,10 @@
 
   $effect(() => {
     if (reloadTrigger > 0 && repoPath && isActive) {
-        // Stagger refreshes to avoid cascade storm:
-        // 1. Check conflicts first (lightweight)
-        // 2. Only reload graph if NOT in conflict state (expensive)
+        // Check conflicts first (lightweight), then reload graph regardless of conflict state
         handleConflictDetection().then(() => {
-            // Yield to the event loop before deciding on graph reload
             requestAnimationFrame(() => {
-                if (activeTab === 'graph' && !hasConflicts) {
+                if (activeTab === 'graph') {
                     loadGraph({ switchToGraph: false });
                 }
             });

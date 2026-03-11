@@ -1,50 +1,83 @@
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
   import ConflictList from './ConflictList.svelte';
   import ConflictEditor from './ConflictEditor.svelte';
   import { GitService } from '../lib/GitService';
+  import { toast } from '../lib/toast.svelte';
+  import { triggerGraphReload } from '../lib/stores/git-events';
 
-  let { repoPath } = $props<{ repoPath?: string }>(); // kept for compatibility/display
+  let { repoPath } = $props<{ repoPath?: string }>();
 
   let selectedFile = $state<string | null>(null);
-  
-  // Ideally this state comes from backend
-  let mergeState = $state<{ isMerging: boolean, isRebasing: boolean } | null>(null);
-
-  onMount(async () => {
-      // Mock or fetch merge state
-      // mergeState = await GitService.getMergeState(); 
-  });
+  let reloadTrigger = $state(0);
+  let aborting = $state(false);
+  let committing = $state(false);
 
   function handleSelect(event: CustomEvent<string>) {
       selectedFile = event.detail;
   }
 
   function handleResolved(event: CustomEvent<string>) {
-      console.log("Resolved:", event.detail);
       selectedFile = null;
       reloadTrigger++;
   }
 
-  let reloadTrigger = $state(0);
-
   async function continueOp() {
+      if (committing) return;
+      committing = true;
       try {
-          // await GitService.continueOp();
-          alert("Continue operation not implemented yet.");
-      } catch(e) {
-          alert("Error: " + e);
+          // Read the operation state to get merge message and check for unresolved conflicts
+          const opState = await GitService.getOperationState(repoPath);
+
+          if (opState.hasConflicts && opState.conflictPaths.length > 0) {
+              toast.error(`Cannot commit: ${opState.conflictPaths.length} file(s) still have conflicts.`);
+              return;
+          }
+
+          // For rebase: delegate to rebase controls
+          if (opState.isRebasing) {
+              toast.info("Use the rebase controls to continue the rebase.");
+              return;
+          }
+
+          // Build merge message from operation state
+          let mergeMessage = "Merge commit";
+          if (opState.isMerging && opState.theirsBranch) {
+              mergeMessage = `Merge branch '${opState.theirsBranch}'`;
+          }
+
+          const result = await GitService.commit(mergeMessage, repoPath);
+          if (result.success) {
+              toast.success("Merge committed successfully");
+              triggerGraphReload();
+          } else {
+              toast.error(`Commit failed: ${result.stderr}`);
+          }
+      } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          toast.error(`Continue failed: ${msg}`);
+      } finally {
+          committing = false;
       }
   }
 
   async function abortOp() {
-     if(!confirm("Are you sure you want to abort? All resolution progress will be lost.")) return;
-      try {
-          // await GitService.abortOp();
-          alert("Abort operation not implemented yet.");
-      } catch(e) {
-            alert("Error: " + e);
-      }
+     if (aborting) return;
+     if (!confirm("Are you sure you want to abort? All resolution progress will be lost.")) return;
+     aborting = true;
+     try {
+         const result = await GitService.abortOperation(repoPath);
+         if (result.success) {
+             toast.success("Operation aborted");
+             triggerGraphReload();
+         } else {
+             toast.error(`Abort failed: ${result.stderr}`);
+         }
+     } catch (e) {
+         const msg = e instanceof Error ? e.message : String(e);
+         toast.error(`Abort failed: ${msg}`);
+     } finally {
+         aborting = false;
+     }
   }
 </script>
 
@@ -56,11 +89,19 @@
             <span class="font-medium">You are in the middle of a merge/rebase</span>
         </div>
         <div class="flex flex-wrap gap-2">
-            <button class="px-3 py-1 text-xs font-medium bg-amber-700 text-white rounded hover:bg-amber-600" onclick={continueOp}>
-                Continue
+            <button
+                class="px-3 py-1 text-xs font-medium bg-amber-700 text-white rounded hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                onclick={continueOp}
+                disabled={committing || aborting}
+            >
+                {committing ? 'Committing...' : 'Commit Merge'}
             </button>
-            <button class="px-3 py-1 text-xs font-medium bg-red-900/50 text-red-200 border border-red-800 rounded hover:bg-red-900" onclick={abortOp}>
-                Abort
+            <button
+                class="px-3 py-1 text-xs font-medium bg-red-900/50 text-red-200 border border-red-800 rounded hover:bg-red-900 disabled:opacity-50 disabled:cursor-not-allowed"
+                onclick={abortOp}
+                disabled={aborting || committing}
+            >
+                {aborting ? 'Aborting...' : 'Abort'}
             </button>
         </div>
     </div>
@@ -68,17 +109,17 @@
     <div class="flex flex-1 overflow-hidden max-[900px]:flex-col">
         <!-- List Pane -->
         <div class="h-full max-[900px]:h-[42%]">
-            {#key reloadTrigger} <!-- Simple way to force reload list -->
+            {#key reloadTrigger}
                 <ConflictList {repoPath} on:select={handleSelect} />
             {/key}
         </div>
 
         <!-- Editor Pane -->
         <div class="flex-1 h-full border-l border-gray-800 max-[900px]:border-l-0 max-[900px]:border-t">
-            <ConflictEditor 
-                {repoPath} 
-                filePath={selectedFile} 
-                on:resolved={handleResolved} 
+            <ConflictEditor
+                {repoPath}
+                filePath={selectedFile}
+                on:resolved={handleResolved}
             />
         </div>
     </div>

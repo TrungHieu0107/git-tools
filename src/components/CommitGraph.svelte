@@ -447,7 +447,7 @@
       closeDiff();
       await onGraphReload?.();
       // After "Commit and Continue Rebase", check if the next rebase step also has conflicts.
-      // If so, keep WIP panel open so the user sees the new conflict UI immediately.
+      // Only check for MORE conflicts if we just committed (not on every action)
       await handlePostRebaseConflictCheck({ notify: true });
       if (!conflictBannerMessage) {
           // No more conflicts — safe to close the WIP detail panel
@@ -498,7 +498,7 @@
               conflictBannerMessage = null;
               // Defer refresh to next macrotask to avoid blocking the UI thread
               // and prevent cascading synchronous reactive updates
-              setTimeout(() => wipPanelRef?.refresh?.(), 0);
+              setTimeout(() => wipPanelRef?.refreshConflictState?.(), 0);
               return;
           }
 
@@ -527,7 +527,7 @@
           // Svelte can finish its current tick without cascading effects.
           setTimeout(() => {
               void loadWipSummary();
-              wipPanelRef?.refresh?.();
+              wipPanelRef?.refreshConflictState?.();
           }, 0);
       } catch (e) {
           console.error("Failed to check post-rebase state", e);
@@ -2394,7 +2394,7 @@
 <div class="w-full h-full overflow-hidden flex bg-[#0f172a] font-sans relative">
   
   {#if postRebaseCheckInFlight}
-    <div class="absolute inset-0 z-[100] bg-[#0f172a]/40 backdrop-blur-[2px] flex items-center justify-center cursor-wait">
+    <div class="pointer-events-none absolute inset-0 z-[50] bg-[#0f172a]/40 backdrop-blur-[2px] flex items-center justify-center cursor-wait">
       <div class="flex items-center gap-3 px-6 py-3 bg-[#1e293b] rounded-lg shadow-xl border border-[#30363d]">
         <svg class="animate-spin h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>

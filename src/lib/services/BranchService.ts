@@ -50,13 +50,34 @@ export class BranchService {
   }
 
   static async merge(branch: string, repoPath?: string): Promise<GitCommandResult> {
-    return executeGitCommand(
+    // Merge needs special handling: conflicts are success (exit_code=1 but success=true from backend).
+    // We check operation state after to show the right toast.
+    const result = await executeGitCommand(
       "cmd_git_merge",
       { branch, repoPath },
-      `Merged '${branch}'`,
+      "", // No auto success toast — we handle it below
       "Merge failed",
       { reloadGraph: true },
     );
+
+    // Determine if merge resulted in conflicts by checking operation state
+    if (result.success) {
+      const hasConflictIndicator =
+        result.stdout.includes("CONFLICT") ||
+        result.stderr.includes("CONFLICT") ||
+        result.stdout.includes("Automatic merge failed");
+
+      if (hasConflictIndicator) {
+        // Conflicts are expected — show warning, not error
+        const { toast } = await import("../toast.svelte");
+        toast.info(`Merge has conflicts. Resolve them to complete the merge.`);
+      } else {
+        const { toast } = await import("../toast.svelte");
+        toast.success(`Merged '${branch}' successfully`);
+      }
+    }
+
+    return result;
   }
 
   static async rebase(branch: string, repoPath?: string): Promise<GitCommandResult> {

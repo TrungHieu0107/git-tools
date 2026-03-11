@@ -480,8 +480,10 @@
       } else {
         await GitService.abortOperation(repoPath);
       }
+      toast.success(`${abortOperationLabel} succeeded`);
       await loadStatus();
       selectedFile = null;
+      onClose?.();
       onCommitSuccess?.();
     } catch (e: any) {
       console.error("Abort operation failed:", e);
@@ -498,7 +500,9 @@
     commitActionState = "aborting";
     try {
       await rebaseStore.skip(repoPath);
+      toast.success(`Skipped rebase commit`);
       await loadStatus();
+      onClose?.();
       onCommitSuccess?.();
     } catch (e: any) {
       console.error("Skip rebase failed:", e);
@@ -658,6 +662,10 @@
   });
 
   export function refresh() {
+    loadStatus();
+  }
+
+  export function refreshConflictState() {
     loadStatus();
   }
 </script>

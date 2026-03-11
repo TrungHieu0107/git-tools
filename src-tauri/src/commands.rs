@@ -2160,16 +2160,31 @@ pub async fn cmd_git_merge(
     branch: String,
     repo_path: Option<String>,
 ) -> Result<GitCommandResult, String> {
-    let args: Vec<String> = vec!["merge".into(), branch];
-    git_run_result_with_event(
-        &app,
-        &state,
-        repo_path,
-        args,
-        TIMEOUT_LOCAL,
-        GitCommandType::Merge,
-    )
-    .await
+    // Pass --no-edit to prevent git from opening an interactive editor for the
+    // merge commit message, which would hang the process without a TTY.
+    let args: Vec<String> = vec!["merge".into(), "--no-edit".into(), branch];
+    let resp = git_run_vec(&state, repo_path, args, TIMEOUT_LOCAL).await?;
+
+    // Always emit change event so the UI refreshes (graph, conflict detection, etc.)
+    emit_git_change_event(&app)?;
+
+    // Merge conflicts produce exit_code=1 but are an expected outcome, not a fatal error.
+    // Treat them as success so the frontend doesn't show a misleading "Merge failed" toast.
+    let has_conflicts = resp.exit_code != 0
+        && (resp.stdout.contains("CONFLICT")
+            || resp.stderr.contains("CONFLICT")
+            || resp.stdout.contains("Automatic merge failed")
+            || resp.stderr.contains("Automatic merge failed"));
+
+    let success = resp.exit_code == 0 || has_conflicts;
+
+    Ok(GitCommandResult {
+        success,
+        stdout: resp.stdout,
+        stderr: resp.stderr,
+        exit_code: resp.exit_code,
+        command_type: GitCommandType::Merge,
+    })
 }
 
 #[tauri::command]
