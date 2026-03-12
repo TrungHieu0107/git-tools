@@ -1,4 +1,8 @@
-# User Flows & Use Cases
+
+# User Flow
+## Version: 1.0.0
+## Last updated: 2026-03-13 – Initial split from PROJECT.md
+## Project: GitHelper
 
 ## 1. Repository Management
 **Actor:** Developer
@@ -57,3 +61,6 @@
 **Outcome:** A new branch is created and checked out; `CommitGraph` updates its active leaf.
 **Components involved:** `BranchExplorer`, `CreateBranchDialog`
 **Tauri commands:** `cmd_git_create_branch`, `cmd_git_checkout`, `cmd_get_git_branches`
+
+## 5. Changelog
+- [2026-03-13] Initialized user_flow.md from USER_FLOWS.md
