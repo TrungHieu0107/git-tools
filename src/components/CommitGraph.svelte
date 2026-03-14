@@ -153,6 +153,7 @@
       files: CommitChangedFile[];
       stagedCount: number;
       unstagedCount: number;
+      conflictCount: number;
       totalCount: number;
   };
 
@@ -160,6 +161,7 @@
       files: [],
       stagedCount: 0,
       unstagedCount: 0,
+      conflictCount: 0,
       totalCount: 0
   };
 
@@ -188,16 +190,19 @@
       isLargeFile(baseContent) || isLargeFile(modifiedContent)
   );
 
-  function summarizeWorkingChanges(statusFiles: FileStatus[]): WipSummary {
+  function summarizeWorkingChanges(statusFiles: FileStatus[], conflictPaths: string[] = []): WipSummary {
       type AggregatedEntry = {
           path: string;
           stagedStatus: string | null;
           unstagedStatus: string | null;
+          isConflict: boolean;
       };
 
       const byPath = new Map<string, AggregatedEntry>();
       const stagedPaths = new Set<string>();
       const unstagedPaths = new Set<string>();
+      const conflictSet = new Set(conflictPaths.map(p => p.toLowerCase().trim()));
+      const foundConflicts = new Set<string>();
 
       for (const file of statusFiles) {
           const rawPath = file.path.trim();
@@ -206,7 +211,8 @@
           const existing = byPath.get(key) ?? {
               path: rawPath,
               stagedStatus: null,
-              unstagedStatus: null
+              unstagedStatus: null,
+              isConflict: conflictSet.has(key)
           };
 
           if (file.staged) {
@@ -216,13 +222,33 @@
               existing.unstagedStatus = file.status;
               unstagedPaths.add(key);
           }
+          
+          if (existing.isConflict) {
+              foundConflicts.add(key);
+          }
+          
           byPath.set(key, existing);
+      }
+      
+      // Add missing conflicts that might not be in statusFiles (though unlikely with --porcelain)
+      for (const conf of conflictPaths) {
+          const key = conf.toLowerCase().trim();
+          if (!byPath.has(key)) {
+              byPath.set(key, {
+                  path: conf,
+                  stagedStatus: null,
+                  unstagedStatus: "U",
+                  isConflict: true
+              });
+              unstagedPaths.add(key);
+              foundConflicts.add(key);
+          }
       }
 
       const files: CommitChangedFile[] = [...byPath.values()]
           .map((entry) => ({
               path: entry.path,
-              status: entry.unstagedStatus ?? entry.stagedStatus ?? "M"
+              status: entry.isConflict ? "U" : (entry.unstagedStatus ?? entry.stagedStatus ?? "M")
           }))
           .sort((a, b) => a.path.localeCompare(b.path));
 
@@ -230,6 +256,7 @@
           files,
           stagedCount: stagedPaths.size,
           unstagedCount: unstagedPaths.size,
+          conflictCount: foundConflicts.size,
           totalCount: files.length
       };
   }
@@ -244,8 +271,12 @@
       }
 
       try {
-          const statusFiles = await GitService.getStatusFiles(repoPath);
-          const summary = summarizeWorkingChanges(statusFiles);
+          const [statusFiles, conflicts] = await Promise.all([
+              GitService.getStatusFiles(repoPath),
+              GitService.getConflicts(repoPath).catch(() => [])
+          ]);
+          
+          const summary = summarizeWorkingChanges(statusFiles, conflicts);
           wipSummary = summary;
           if (isWipRowSelected) {
               changedFiles = summary.files;
@@ -2904,6 +2935,9 @@
                             <div class="pl-4 pr-4 flex items-center min-w-0 graph-row-info-cell">
                                 <div class="w-full h-6 rounded border border-[#245d84]/60 bg-[#0b2942]/65 flex items-center gap-3 px-2 overflow-hidden">
                                     <span class="text-[11px] font-mono text-[#79c0ff] shrink-0">// WIP</span>
+                                    {#if wipSummary.conflictCount > 0}
+                                        <span class="text-[10px] text-[#f85149] font-bold shrink-0">+{wipSummary.conflictCount} conflicts</span>
+                                    {/if}
                                     <span class="text-[10px] text-[#3fb950] shrink-0">+{wipSummary.stagedCount} staged</span>
                                     <span class="text-[10px] text-[#f2cc60] shrink-0">+{wipSummary.unstagedCount} unstaged</span>
                                     <span class="text-[10px] text-[#8b949e] truncate">{wipSummary.totalCount} changed file(s)</span>

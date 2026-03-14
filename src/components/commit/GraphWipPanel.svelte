@@ -623,7 +623,7 @@
     stagedFiles.filter(f => !conflictPaths.has(resolvePathForActions(f.path)))
   );
 
-  let hasActiveConflicts = $derived(isOperationInProgress && conflictPaths.size > 0);
+  let hasActiveConflicts = $derived(conflictPaths.size > 0);
 
   // --- Lifecycle ---
 
