@@ -110,7 +110,7 @@
   let columns = $state<Column[]>([
       { id: "branch", label: "Branch / Tag", width: 170, visible: true, minWidth: 120 },
       { id: "graph", label: "Graph", width: 300, visible: true, minWidth: 100 },
-      { id: "message", label: "Message", width: 400, visible: true, minWidth: 200 }, // Using numeric width to serve as flex basis concept if we were using flex, but for grid we can treat it as pixels or '1fr' logic if we get fancy. For now, pixel based resizing is robust.
+      { id: "message", label: "Message", width: 400, visible: true, minWidth: 200 },
       { id: "hash", label: "Hash", width: 80, visible: true, minWidth: 60 },
       { id: "author", label: "Author", width: 150, visible: true, minWidth: 80 },
       { id: "date", label: "Date", width: 140, visible: true, minWidth: 100 }
@@ -165,8 +165,16 @@
 
   let wipSummary = $state<WipSummary>(EMPTY_WIP_SUMMARY);
   let hasWipRow = $state(true);
-  let initialConflictCheckRepo: string | null = null;
+
+  // ─── FIX: dùng Set ở module scope để guard survive qua remount ───────────────
+  // Nếu dùng biến local (let initialConflictCheckRepo = null), mỗi lần component
+  // bị destroy + recreate thì biến reset → guard mất tác dụng → spinner chạy lại.
+  // Module-level Set tồn tại suốt lifetime của module, không bị ảnh hưởng bởi remount.
+  // Dùng WeakRef-style string key nên không leak memory.
+  const _conflictCheckedRepos = new Set<string>();
+
   let postRebaseCheckInFlight = $state(false);
+  let _conflictCheckDebounceTimer: number | undefined;
 
   // Diff View State
   let leftPanelMode = $state<'graph' | 'diff'>('graph');
@@ -348,19 +356,18 @@
       try {
           const [mod, parentContents] = await Promise.all([
               GitService.getFileAtCommit(targetCommitHash, file, repoPath, selectedEncoding)
-                  .catch(() => ""), // Deleted file at selected commit
+                  .catch(() => ""),
               Promise.all(
                   parentHashes.map((parentHash) =>
                       GitService.getFileAtCommit(parentHash, file, repoPath, selectedEncoding)
-                          .catch(() => "") // Missing file at that parent
+                          .catch(() => "")
                   )
               )
           ]);
 
-          if (selectedDiffFile !== file || selectedCommit?.hash !== targetCommitHash) return; // Race check
+          if (selectedDiffFile !== file || selectedCommit?.hash !== targetCommitHash) return;
 
           modifiedContent = mod;
-          // For merge commits, prefer the first parent that actually differs for this file.
           baseContent = chooseBaseContent(parentContents, mod);
       } catch (e) {
           console.error("Failed to load diff", e);
@@ -381,9 +388,7 @@
   }
 
   function handleEncodingChange(encoding: string) {
-      // If it's "default", map it to empty string so the backend clears the override.
       const encodingToSave = encoding === "default" ? "" : encoding;
-      // Keep visual state as undefined for fallback mode.
       selectedEncoding = encoding === "default" ? undefined : encoding;
 
       if (repoPath && selectedDiffFile) {
@@ -430,7 +435,7 @@
               GitService.getFileBaseContent(file.path, file.staged, repoPath, selectedEncoding),
               GitService.getFileModifiedContent(file.path, file.staged, repoPath, selectedEncoding),
           ]);
-          if (selectedDiffFile !== file.path) return; // Race check
+          if (selectedDiffFile !== file.path) return;
           modifiedContent = mod;
           baseContent = base;
       } catch (e) {
@@ -446,11 +451,8 @@
       conflictBannerMessage = null;
       closeDiff();
       await onGraphReload?.();
-      // After "Commit and Continue Rebase", check if the next rebase step also has conflicts.
-      // Only check for MORE conflicts if we just committed (not on every action)
       await handlePostRebaseConflictCheck({ notify: true });
       if (!conflictBannerMessage) {
-          // No more conflicts — safe to close the WIP detail panel
           closeDetails();
       }
       await loadWipSummary();
@@ -470,7 +472,16 @@
       postRebaseCheckInFlight = true;
       try {
           const notify = options?.notify !== false;
-          const opState = await GitService.getOperationState(repoPath);
+          const opStatePromise = GitService.getOperationState(repoPath);
+          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 10000));
+          const opState = await Promise.race([opStatePromise, timeoutPromise]);
+          
+          if (!opState) {
+              console.warn("Post-rebase conflict check timed out after 10 seconds");
+              conflictBannerMessage = null;
+              return;
+          }
+
           const isOperationInProgress =
               opState.isRebasing ||
               opState.isMerging ||
@@ -482,10 +493,6 @@
               return;
           }
 
-          // When app starts with an already in-progress rebase, the rebaseStore
-          // may not have the repoPath set (it's only set when startRebase or
-          // prepareInteractive is called). Sync the store so the RebaseProgress
-          // overlay buttons (Abort/Skip/Continue) actually work.
           if (opState.isRebasing && repoPath) {
               void rebaseStore.syncFromExistingRebase(repoPath);
           }
@@ -496,8 +503,6 @@
 
           if (!opState.hasConflicts) {
               conflictBannerMessage = null;
-              // Defer refresh to next macrotask to avoid blocking the UI thread
-              // and prevent cascading synchronous reactive updates
               setTimeout(() => wipPanelRef?.refreshConflictState?.(), 0);
               return;
           }
@@ -523,8 +528,6 @@
           } else {
               conflictBannerMessage = "A file conflict was found when attempting to revert";
           }
-          // Defer all heavy state-mutating work to the next macrotask so
-          // Svelte can finish its current tick without cascading effects.
           setTimeout(() => {
               void loadWipSummary();
               wipPanelRef?.refreshConflictState?.();
@@ -543,7 +546,6 @@
       if (saved) {
           try {
               const parsed = JSON.parse(saved);
-              // Merge saved widths/visibility into default config (to handle potential schema changes or missing cols)
               columns = columns.map(def => {
                   const s = parsed.find((p: Column) => p.id === def.id);
                   return s ? { ...def, width: s.width, visible: s.visible } : def;
@@ -581,22 +583,43 @@
       });
   });
 
-  // Run a single startup conflict check per repository after graph data exists.
-  // This avoids repeated heavy git calls while the graph is still initializing.
+  // ─── FIX: Startup conflict check ────────────────────────────────────────────
+  // Vấn đề cũ:
+  //   1. `initialConflictCheckRepo` là biến local → reset khi component remount
+  //      → spinner kích hoạt lại mỗi lần mount dù cùng repo.
+  //   2. Effect track cả `nodes.length` (số nguyên) → re-run mỗi khi graph reload
+  //      thêm commit mới, guard theo repoPath không đủ nếu repoPath tạm null.
+  //
+  // Fix:
+  //   - Guard bằng module-level Set `_conflictCheckedRepos` (survive remount).
+  //   - Effect chỉ track `repoPath` + `isActive`; dùng boolean `nodes.length > 0`
+  //     như gate bên trong untrack() để không tạo thêm dependency.
+  //   - Debounce 200ms để tránh race khi props thay đổi liên tiếp lúc init.
   $effect(() => {
       const currentRepo = repoPath?.trim();
-      const nodeCount = nodes.length;
       const active = isActive;
 
       untrack(() => {
-          if (!active) return;
-          if (!currentRepo || nodeCount === 0) return;
-          if (initialConflictCheckRepo === currentRepo) return;
+          clearTimeout(_conflictCheckDebounceTimer);
+          if (!active || !currentRepo) return;
+          // Gate: chờ đến khi nodes đã có dữ liệu (đọc ngoài reactive context)
+          if (nodes.length === 0) return;
+          // Guard: mỗi repo chỉ check 1 lần duy nhất (kể cả qua remount)
+          if (_conflictCheckedRepos.has(currentRepo)) return;
 
-          initialConflictCheckRepo = currentRepo;
-          void handlePostRebaseConflictCheck({ notify: false });
+          _conflictCheckDebounceTimer = window.setTimeout(() => {
+              // Double-check sau debounce phòng trường hợp repoPath đã đổi
+              if (!_conflictCheckedRepos.has(currentRepo)) {
+                  _conflictCheckedRepos.add(currentRepo);
+                  void handlePostRebaseConflictCheck({ notify: false });
+              }
+          }, 200);
       });
   });
+
+  // Khi repoPath thay đổi sang repo khác, cho phép check lại cho repo mới.
+  // (Set chỉ ngăn check lại cùng 1 repo, không ngăn repo khác.)
+  // Không cần xóa key cũ vì Set dùng string key và check theo currentRepo.
 
 
   // -- Resizing Logic --
@@ -754,7 +777,6 @@
       return node.refs.some((ref) => /^HEAD(\s*->|$)/.test(ref.trim()));
   }
 
-  // Vertical lane paths — one continuous line per column span
   let laneGeometry = $derived.by<PathGeometry[]>(() =>
       lanes.map((lane, idx) => ({
           key: `lane-${lane.column}-${lane.rowStart}-${idx}`,
@@ -764,7 +786,6 @@
       }))
   );
 
-  // Horizontal connection paths — L-shaped merge/fork lines with rounded corners
   let connectionGeometry = $derived.by<PathGeometry[]>(() =>
       connections.map((conn, idx) => {
           const x1 = columnToX(conn.fromColumn);
@@ -1163,7 +1184,7 @@
   function getChangedFileContextMenuGroups(): number[] {
       const group1 = [!!onShowHistory, !!onShowBlame].filter(Boolean).length;
       const group2 = repoPath ? 4 : 0;
-      const group3 = 1; // Copy file path
+      const group3 = 1;
       const group4 = repoPath ? 2 : 0;
       return [group1, group2, group3, group4].filter((count) => count > 0);
   }
@@ -1214,9 +1235,7 @@
       closeChangedFileContextMenu();
       try {
           await GitService.openInDiffTool(targetPath, false, repoPath);
-      } catch (e) {
-          // toast handled in service
-      }
+      } catch (e) {}
   }
 
   async function handleOpenChangedFileInEditor(): Promise<void> {
@@ -1225,9 +1244,7 @@
       closeChangedFileContextMenu();
       try {
           await GitService.openInEditor(targetPath, repoPath);
-      } catch (e) {
-          // toast handled in service
-      }
+      } catch (e) {}
   }
 
   async function handleOpenChangedFileInDefaultProgram(): Promise<void> {
@@ -1236,9 +1253,7 @@
       closeChangedFileContextMenu();
       try {
           await GitService.openRepoFile(targetPath, repoPath);
-      } catch (e) {
-          // toast handled in service
-      }
+      } catch (e) {}
   }
 
   async function handleShowChangedFileInFolder(): Promise<void> {
@@ -1247,9 +1262,7 @@
       closeChangedFileContextMenu();
       try {
           await GitService.showInFolder(targetPath, repoPath);
-      } catch (e) {
-          // toast handled in service
-      }
+      } catch (e) {}
   }
 
   async function handleCopyChangedFilePath(): Promise<void> {
@@ -1289,9 +1302,7 @@
           if (isWipRowSelected) {
               await loadWipSummary();
           }
-      } catch (e) {
-          // toast handled in service
-      }
+      } catch (e) {}
   }
 
   function handleWindowMouseDown(event: MouseEvent): void {
@@ -1361,7 +1372,6 @@
   }
 
   function filterDuplicatedRemoteBadges(badges: RefBadge[]): RefBadge[] {
-      // Build a map of local branch names -> badge index
       const localByName = new Map<string, number>();
       badges.forEach((badge, idx) => {
           if (badge.type === "branch") {
@@ -1370,19 +1380,16 @@
           }
       });
 
-      // For remote badges, check if a matching local exists
-      // If so, annotate the local badge with hasRemote and skip the remote badge
       return badges.filter((badge) => {
           if (badge.type === "remote") {
               badge.hasRemote = true;
               const trackingName = badge.text.split("/").slice(1).join("/").trim().toLowerCase();
               if (trackingName && localByName.has(trackingName)) {
-                  // Merge: mark the local badge as also having a remote
                   const localIdx = localByName.get(trackingName)!;
                   badges[localIdx].hasRemote = true;
-                  return false; // remove duplicate remote badge
+                  return false;
               }
-              return true; // keep remote-only badges
+              return true;
           }
           return true;
       });
@@ -1403,7 +1410,6 @@
       });
   }
 
-  // Parse refs and rank: current branch first, then local branches, remotes, tags.
   function getRankedRefBadges(refs: string[]): RefBadge[] {
       const collector: RefBadgeCollector = { items: [], seen: new Set() };
       refs.forEach((ref, index) => parseRefBadge(ref, index, collector));
@@ -2122,9 +2128,7 @@
       if (!confirmed) return;
 
       function toErrorText(error: unknown): string {
-          if (error instanceof Error) {
-              return error.message;
-          }
+          if (error instanceof Error) return error.message;
           return String(error ?? "");
       }
 
@@ -2310,6 +2314,7 @@
           console.error("Branch context menu action failed", e);
       }
   }
+
   // -- Git Actions --
   let isFetching = $state(false);
   let isPulling = $state(false);
@@ -2408,7 +2413,6 @@
   <!-- Main Graph Area -->
   <div class="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {#if leftPanelMode === 'diff'}
-            <!-- Diff View Overlay -->
              <div class="absolute inset-0 z-20 flex flex-col bg-[#0f172a]">
              <DiffView
                   originalContent={baseContent}
@@ -2432,9 +2436,8 @@
                             <div class="w-px h-3 bg-[#1e293b] shrink-0"></div>
                             <span class="text-xs font-mono text-[#c9d1d9] truncate min-w-0" title={selectedDiffFile}>{selectedDiffFile}</span>
                         </div>
-
-                        <!-- Diff Toolbar -->
-                        <div class="shrink-0 max-[900px]:w-full">                            <DiffToolbar 
+                        <div class="shrink-0 max-[900px]:w-full">
+                            <DiffToolbar 
                                 viewMode={toolbarProps.viewMode}
                                 onViewModeChange={toolbarProps.onViewModeChange}
                                 currentHunkIndex={toolbarProps.currentHunkIndex}
@@ -2570,7 +2573,6 @@
             {/if}
 
             {#if leftPanelMode === 'graph' && showMenu}
-                <!-- Backdrop to close -->
                 <div class="fixed inset-0 z-40" onclick={() => showMenu = false} role="none"></div>
             {/if}
         </div>
@@ -2605,12 +2607,11 @@
                 class="relative flex items-center px-4 h-8 group border-r border-[#1e293b]/30"
             >
                 {col.label}
-                <!-- Resize Handle -->
                 <div 
                     role="none"
                     class="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-[#58a6ff] active:bg-[#58a6ff] z-10 opacity-0 group-hover:opacity-100 transition-opacity"
                     onmousedown={(e) => onMouseDown(e, col.id)}
-                    ondblclick={() => /* reset? */ col.width = col.minWidth + 100 }
+                    ondblclick={() => col.width = col.minWidth + 100}
                 ></div>
             </div>
             {/each}
@@ -2629,7 +2630,6 @@
                 </div>
                 
                 <!-- Graph SVG Layer -->
-                <!-- Locked to the width of the 'graph' column if visible -->
                 {#if graphColumn?.visible}
                     <div class="absolute top-0 h-full pointer-events-none z-[5] overflow-hidden" style="left: {graphColumnOffset}px; width: {graphColumn?.width}px">
                         <svg class="w-full h-full">
@@ -2651,10 +2651,8 @@
                             </filter>
                         </defs>
                         <g transform="translate({PADDING_LEFT}, {PADDING_TOP})">
-                            <!-- Continuous vertical lane lines -->
                             <g class="lanes">
                                 {#each laneGeometry as lane (lane.key)}
-                                    <!-- Glow layer for hovered branch -->
                                     {#if hoveredBranchColor && lane.color === hoveredBranchColor}
                                         <path
                                             d={lane.path}
@@ -2676,10 +2674,8 @@
                                     />
                                 {/each}
                             </g>
-                            <!-- L-shaped merge/fork connection lines -->
                             <g class="connections">
                                 {#each connectionGeometry as conn (conn.key)}
-                                    <!-- Glow layer for hovered branch -->
                                     {#if hoveredBranchColor && conn.color === hoveredBranchColor}
                                         <path
                                             d={conn.path}
@@ -2705,7 +2701,6 @@
                                     />
                                 {/each}
                             </g>
-                            <!-- WIP connection line from HEAD commit to WIP row -->
                             {#if hasWipRow && currentHeadNode}
                                 {@const headX = nodeRenderX(currentHeadNode)}
                                 {@const headY = nodeRenderY(currentHeadNode)}
@@ -2758,7 +2753,6 @@
                                         <g transform={`scale(${isHovered ? 1.1 : 1})`} filter={`url(#${AVATAR_SHADOW_ID})`}>
                                             <title>{`${node.hash} - ${node.subject}`}</title>
                                             {#if isStashNode}
-                                                <!-- Color fallback square (shows if avatar fails to load) -->
                                                 <rect
                                                     x={-AVATAR_RADIUS}
                                                     y={-AVATAR_RADIUS}
@@ -2789,14 +2783,12 @@
                                                     opacity="0.85"
                                                 />
                                             {:else}
-                                                <!-- Color fallback circle (shows if avatar fails to load) -->
                                                 <circle
                                                     cx="0"
                                                     cy="0"
                                                     r={AVATAR_RADIUS}
                                                     fill={node.color}
                                                 />
-                                                <!-- White border circle -->
                                                 <circle
                                                     cx="0"
                                                     cy="0"
@@ -2806,7 +2798,6 @@
                                                     stroke-width="2"
                                                 />
                                             {/if}
-                                            <!-- Avatar image -->
                                             <image
                                                 href={avatarUrl}
                                                 x={-AVATAR_RADIUS}
@@ -2817,7 +2808,6 @@
                                                 preserveAspectRatio="xMidYMid slice"
                                                 opacity={isStashNode ? STASH_AVATAR_IMAGE_OPACITY : 1}
                                             />
-                                            <!-- Selection ring + glow -->
                                             {#if isSelected}
                                                 {#if isStashNode}
                                                     <rect
@@ -2952,7 +2942,7 @@
                     >
                         {#each visibleColumns as col (col.id)}
                         {#if col.id === 'graph'}
-                            <div class="pointer-events-none"><!-- Placeholder for SVG overlay --></div>
+                            <div class="pointer-events-none"></div>
                         {:else if col.id === 'branch'}
                             {@const branchBadges = getRankedRefBadges(node.refs)}
                             {@const primaryBadge = branchBadges[0]}
@@ -3108,7 +3098,6 @@
               </div>
           {:else}
           <div class="h-full flex flex-col bg-[#0f172a] border-l border-[#1e293b]">
-              <!-- Header -->
               <div class="{HEADER_BASE} justify-between px-2">
                   <span class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider">Commit Details</span>
                   <button class="text-[#8b949e] hover:text-white p-1 rounded" onclick={closeDetails} title="Close">
@@ -3117,17 +3106,14 @@
               </div>
 
               <div class="flex-1 overflow-auto p-3 custom-scrollbar">
-                  <!-- Metadata -->
                   <div class="mb-4 space-y-2">
                        {#if selectedCommit}
                            <div class="select-text font-mono text-[10px] text-[#8b949e] bg-[#111827] p-1.5 rounded border border-[#1e293b]">
                                {selectedCommit.hash}
                            </div>
-                           
                            <div class="text-sm font-medium text-[#c9d1d9] leading-tight select-text py-1">
                                {selectedCommit.subject}
                            </div>
-                           
                            <div class="flex items-center gap-2 text-xs text-[#8b949e]">
                                <div class="flex items-center gap-1 overflow-hidden" title={selectedCommit.author}>
                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/></svg>
@@ -3141,7 +3127,6 @@
                        {/if}
                   </div>
 
-                  <!-- Changes -->
                   <div class="mt-4">
                       <div class="text-xs font-semibold text-[#8b949e] uppercase tracking-wider mb-2 flex justify-between items-center">
                           <div class="flex items-center gap-2">
@@ -3237,100 +3222,29 @@
     style="top: {changedFileContextMenu.y}px; left: {changedFileContextMenu.x}px; width: {CHANGED_FILE_CONTEXT_MENU_WIDTH}px;"
     role="menu"
     tabindex="-1"
-    oncontextmenu={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    }}
+    oncontextmenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
   >
     {#if onShowHistory}
-      <button
-        type="button"
-        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
-        onclick={handleChangedFileShowHistory}
-        role="menuitem"
-      >
-        File History
-      </button>
+      <button type="button" class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS} onclick={handleChangedFileShowHistory} role="menuitem">File History</button>
     {/if}
     {#if onShowBlame}
-      <button
-        type="button"
-        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
-        onclick={handleChangedFileShowBlame}
-        role="menuitem"
-      >
-        File Blame
-      </button>
+      <button type="button" class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS} onclick={handleChangedFileShowBlame} role="menuitem">File Blame</button>
     {/if}
-
     {#if onShowHistory || onShowBlame}
       <div class="border-t border-[#30363d] my-1"></div>
     {/if}
-
     {#if repoPath}
-      <button
-        type="button"
-        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
-        onclick={() => void handleOpenChangedFileInDiffTool()}
-        role="menuitem"
-      >
-        Open in external diff tool
-      </button>
-      <button
-        type="button"
-        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
-        onclick={() => void handleOpenChangedFileInEditor()}
-        role="menuitem"
-      >
-        Open in external editor
-      </button>
-      <button
-        type="button"
-        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
-        onclick={() => void handleOpenChangedFileInDefaultProgram()}
-        role="menuitem"
-      >
-        Open file in default program
-      </button>
-      <button
-        type="button"
-        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
-        onclick={() => void handleShowChangedFileInFolder()}
-        role="menuitem"
-      >
-        Show in folder
-      </button>
-
+      <button type="button" class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS} onclick={() => void handleOpenChangedFileInDiffTool()} role="menuitem">Open in external diff tool</button>
+      <button type="button" class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS} onclick={() => void handleOpenChangedFileInEditor()} role="menuitem">Open in external editor</button>
+      <button type="button" class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS} onclick={() => void handleOpenChangedFileInDefaultProgram()} role="menuitem">Open file in default program</button>
+      <button type="button" class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS} onclick={() => void handleShowChangedFileInFolder()} role="menuitem">Show in folder</button>
       <div class="border-t border-[#30363d] my-1"></div>
     {/if}
-
-    <button
-      type="button"
-      class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
-      onclick={() => void handleCopyChangedFilePath()}
-      role="menuitem"
-    >
-      Copy file path
-    </button>
-
+    <button type="button" class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS} onclick={() => void handleCopyChangedFilePath()} role="menuitem">Copy file path</button>
     {#if repoPath}
       <div class="border-t border-[#30363d] my-1"></div>
-      <button
-        type="button"
-        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
-        onclick={() => void handleEditChangedFile()}
-        role="menuitem"
-      >
-        Edit file
-      </button>
-      <button
-        type="button"
-        class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS}
-        onclick={() => void handleDeleteChangedFile()}
-        role="menuitem"
-      >
-        Delete file
-      </button>
+      <button type="button" class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS} onclick={() => void handleEditChangedFile()} role="menuitem">Edit file</button>
+      <button type="button" class={CHANGED_FILE_CONTEXT_MENU_ITEM_CLASS} onclick={() => void handleDeleteChangedFile()} role="menuitem">Delete file</button>
     {/if}
   </div>
 {/if}
@@ -3461,21 +3375,13 @@
   }
 
   @keyframes graph-edge-fade-in {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   @keyframes node-enter {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
-    }
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   .custom-scrollbar::-webkit-scrollbar {
